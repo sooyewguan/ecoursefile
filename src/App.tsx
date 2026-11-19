@@ -1,4 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import { AppShell } from '@/components/app-shell'
+import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
@@ -13,11 +15,13 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Guard />}>
-            <Route path="/" element={<Home />} />
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/change-password" element={<ChangePassword />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/departments" element={<Departments />} />
+            <Route element={<AppShell />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/users" element={<Users />} />
+              <Route path="/departments" element={<Departments />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
@@ -31,6 +35,12 @@ function Guard() {
   const { pathname } = useLocation()
   const target = redirectFor(state, pathname)
   if (target) return <Navigate to={target} replace />
-  if (state.kind === 'loading') return <p>Loading…</p>
+  if (state.kind === 'loading') {
+    return (
+      <div className="text-muted-foreground flex min-h-svh items-center justify-center">
+        <Spinner className="size-6" />
+      </div>
+    )
+  }
   return <Outlet />
 }

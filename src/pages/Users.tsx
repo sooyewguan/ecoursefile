@@ -1,6 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import { useAuth } from '../auth-provider.tsx'
 import { GLOBAL_ROLES, ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
@@ -104,10 +103,7 @@ export function Users() {
   }
 
   return (
-    <main className="wide">
-      <p>
-        <Link to="/">Home</Link>
-      </p>
+    <div>
       <h1>Users</h1>
       {message && <p role="status">{message}</p>}
 
@@ -233,7 +229,7 @@ export function Users() {
           })}
         </tbody>
       </table>
-    </main>
+    </div>
   )
 }
 

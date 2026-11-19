@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import { supabase } from '../supabase.ts'
 
 type Department = { id: string; code: string; name: string }
@@ -48,10 +47,7 @@ export function Departments() {
   if (!departments) return <p>Loading…</p>
 
   return (
-    <main className="wide">
-      <p>
-        <Link to="/">Home</Link>
-      </p>
+    <div>
       <h1>Departments</h1>
       {message && <p role="status">{message}</p>}
 
@@ -86,6 +82,6 @@ export function Departments() {
           </li>
         ))}
       </ul>
-    </main>
+    </div>
   )
 }
