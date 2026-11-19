@@ -1,14 +1,18 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 
-/** Where a file goes: one section of one offering's course file. */
-export type Slot = { offeringId: string; section: number }
+/**
+ * Where a file goes: one section of one offering's course file. slot is the name of one of the
+ * section's SECTION_SLOTS, for a section that has slots.
+ */
+export type Slot = { offeringId: string; section: number; slot?: string }
 
 /** A row of the files table. */
 export type FileRecord = {
   id: string
   offering_id: string
   section: number
+  slot: string | null
   storage_item_id: string
   name: string
   size: number

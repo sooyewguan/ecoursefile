@@ -28,3 +28,19 @@ export const SECTIONS = [
   { number: 18, title: 'Grade List', kind: 'always' },
   { number: 19, title: 'LO/PO Analysis', kind: 'always' },
 ] as const satisfies readonly { number: number; title: string; kind: SectionKind }[]
+
+/** A named place for files in a section. name is how the database stores it. */
+export type SectionSlot = { name: string; title: string }
+
+/**
+ * The slots of each section whose files go into named slots. The files of other sections go
+ * straight into the section. The files table's check constraint lists the same names.
+ */
+export const SECTION_SLOTS: Readonly<Partial<Record<number, readonly SectionSlot[]>>> = {
+  19: [
+    { name: 'po_achievement', title: 'PO Achievement' },
+    { name: 'lo_achievement', title: 'LO Achievement' },
+    { name: 'lo_po_evaluation', title: 'LO/PO Evaluation' },
+    { name: 'cqi', title: 'CQI' },
+  ],
+}

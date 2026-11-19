@@ -11,19 +11,27 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { FILE_SECTIONS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { FILE_SECTIONS, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, uploadFile } from '../uploads.ts'
 
 type Offering = { semester: { code: string }; course: { code: string; title: string } }
 
-type SectionFile = { id: string; name: string; size: number; uploaded_at: string; uploader_name: string; deletable: boolean }
+type SectionFile = {
+  id: string
+  slot: string | null
+  name: string
+  size: number
+  uploaded_at: string
+  uploader_name: string
+  deletable: boolean
+}
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; status: SectionStatus | null; files: SectionFile[]; canUpload: boolean }
 
-/** The file being uploaded, its place in the batch, and how much of it has been sent. */
-type Progress = { name: string; index: number; count: number; fraction: number }
+/** The file being uploaded, the slot it goes to, its place in the batch, and how much of it has been sent. */
+type Progress = { slot: string | null; name: string; index: number; count: number; fraction: number }
 
 /** Below md the uploader and time move into the file cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
@@ -32,19 +40,22 @@ const WIDE = 'hidden md:table-cell'
 const COLUMNS = ['', '', WIDE, WIDE, '']
 
 /**
- * One section of a course file: its files in the order staff set. The offering's coordinator and
- * lecturers upload PDFs here and drag them into order. The uploader or the coordinator deletes.
+ * One section of a course file: its files in the order staff set, one list per slot when the
+ * section has slots. The offering's coordinator and lecturers upload PDFs here and drag them into
+ * order. The uploader or the coordinator deletes.
  */
 export function CourseFileSection() {
   const params = useParams()
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && FILE_SECTIONS.has(s.number))
+  const slots = section && SECTION_SLOTS[section.number]
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
-  const [dragged, setDragged] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  /** The slot that the files picked next go to. */
+  const pickingSlot = useRef<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!section) return
@@ -57,7 +68,7 @@ export function CourseFileSection() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase
         .from('files')
-        .select('id, name, size, uploaded_at, uploader_name, deletable')
+        .select('id, slot, name, size, uploaded_at, uploader_name, deletable')
         .eq('offering_id', offeringId)
         .eq('section', section.number)
         .order('position')
@@ -111,19 +122,24 @@ export function CourseFileSection() {
   const files = data?.files ?? []
   const canUpload = data?.canUpload ?? false
 
+  function pick(slot: string | null) {
+    pickingSlot.current = slot
+    picker.current?.click()
+  }
+
   /** Uploads the picked files one after another, then reports what was uploaded and what was refused. */
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const picked = [...(event.target.files ?? [])]
     event.target.value = ''
     if (picked.length === 0) return
+    const slot = pickingSlot.current
+    const target = { offeringId, section: section!.number, slot: slot ?? undefined }
     setNotice(null)
     const refused: string[] = []
     for (const [index, file] of picked.entries()) {
-      setProgress({ name: file.name, index, count: picked.length, fraction: 0 })
+      setProgress({ slot, name: file.name, index, count: picked.length, fraction: 0 })
       try {
-        await uploadFile(supabase, { offeringId, section: section!.number }, file, (fraction) =>
-          setProgress({ name: file.name, index, count: picked.length, fraction }),
-        )
+        await uploadFile(supabase, target, file, (fraction) => setProgress({ slot, name: file.name, index, count: picked.length, fraction }))
       } catch (error) {
         refused.push(`${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -135,18 +151,41 @@ export function CourseFileSection() {
     else setNotice({ tone: 'error', text: `Uploaded ${plural(uploaded, 'file')}. ${refused.join(' ')}` })
   }
 
-  /** Moves a file to a new place in the list, shows the new order at once, and saves it. */
-  async function move(fileId: string, to: number) {
-    const from = files.findIndex((file) => file.id === fileId)
-    if (from === -1 || from === to || to < 0 || to >= files.length) return
-    const reordered = files.toSpliced(from, 1).toSpliced(to, 0, files[from])
-    setData({ ...data!, files: reordered })
+  /** Puts one slot's files in a new order, shows it at once, and saves it. */
+  async function reorder(reordered: SectionFile[]) {
+    const slot = reordered[0].slot
+    setData({ ...data!, files: [...files.filter((file) => file.slot !== slot), ...reordered] })
     const { error } = await supabase.rpc('reorder_files', { file_ids: reordered.map((file) => file.id) })
     if (error) {
       setNotice({ tone: 'error', text: error.message })
       await reload()
     }
   }
+
+  const uploadButton = (slot: string | null, label: string) =>
+    canUpload && (
+      <Button variant={slot ? 'outline' : 'default'} onClick={() => pick(slot)} disabled={progress !== null}>
+        {progress?.slot === slot ? <Spinner /> : <UploadIcon />}
+        {label}
+      </Button>
+    )
+
+  const tableFor = (slot: string | null, label: string) => (
+    <FileTable
+      label={label}
+      files={data && files.filter((file) => file.slot === slot)}
+      canUpload={canUpload}
+      emptyDescription={
+        !canUpload
+          ? 'The coordinator and lecturers upload files here.'
+          : section.kind === 'may-be-empty'
+            ? 'This section may stay empty. Upload PDF files if there are any.'
+            : 'Upload one or more PDF files.'
+      }
+      onReorder={(reordered) => void reorder(reordered)}
+      onDelete={setDeleting}
+    />
+  )
 
   return (
     <div className="grid gap-6">
@@ -160,12 +199,7 @@ export function CourseFileSection() {
         action={
           <div className="flex flex-wrap gap-2">
             {backLink}
-            {canUpload && (
-              <Button onClick={() => picker.current?.click()} disabled={progress !== null}>
-                {progress ? <Spinner /> : <UploadIcon />}
-                Upload PDFs
-              </Button>
-            )}
+            {!slots && uploadButton(null, 'Upload PDFs')}
           </div>
         }
       />
@@ -183,99 +217,17 @@ export function CourseFileSection() {
       )}
       {notice && <NoticeAlert notice={notice} />}
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <Table aria-label="Files">
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="w-10 px-2">
-                <span className="sr-only">Order</span>
-              </TableHead>
-              <TableHead className="px-4">File</TableHead>
-              <TableHead className={cn('px-4', WIDE)}>Uploaded by</TableHead>
-              <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
-              <TableHead className="w-14 px-4">
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!data ? (
-              <TableSkeleton columns={COLUMNS} />
-            ) : files.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={FileTextIcon}
-                title="No files yet"
-                description={canUpload ? 'Upload the section as one or more PDF files.' : 'The coordinator and lecturers upload files here.'}
-              />
-            ) : (
-              files.map((file, index) => {
-                const uploadedAt = new Date(file.uploaded_at).toLocaleString()
-                return (
-                  <TableRow
-                    key={file.id}
-                    draggable={canUpload}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData('text/plain', file.id)
-                      event.dataTransfer.effectAllowed = 'move'
-                      setDragged(file.id)
-                    }}
-                    onDragOver={(event) => {
-                      if (dragged) event.preventDefault()
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      if (dragged) void move(dragged, index)
-                    }}
-                    onDragEnd={() => setDragged(null)}
-                    className={cn(dragged === file.id && 'opacity-50')}
-                  >
-                    <TableCell className="text-muted-foreground px-2 py-3">
-                      {canUpload && <GripVerticalIcon aria-hidden="true" className="mx-auto size-4 cursor-grab" />}
-                    </TableCell>
-                    <TableCell className="px-4 py-3 whitespace-normal">
-                      <div className="grid gap-0.5">
-                        <span className="font-medium wrap-anywhere">{file.name}</span>
-                        <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
-                        <span className="text-muted-foreground text-xs md:hidden">
-                          {file.uploader_name}, {uploadedAt}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{file.uploader_name}</TableCell>
-                    <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
-                    <TableCell className="px-4 py-2 text-right">
-                      {(canUpload || file.deletable) && (
-                        <RowActions label={`Actions for ${file.name}`}>
-                          {canUpload && (
-                            <>
-                              <DropdownMenuItem disabled={index === 0} onSelect={() => void move(file.id, index - 1)}>
-                                <ArrowUpIcon />
-                                Move up
-                              </DropdownMenuItem>
-                              <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => void move(file.id, index + 1)}>
-                                <ArrowDownIcon />
-                                Move down
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          {canUpload && file.deletable && <DropdownMenuSeparator />}
-                          {file.deletable && (
-                            <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(file)}>
-                              <Trash2Icon />
-                              Delete
-                            </DropdownMenuItem>
-                          )}
-                        </RowActions>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+      {slots
+        ? slots.map((slot) => (
+            <section key={slot.name} aria-label={slot.title} className="grid gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold tracking-tight">{slot.title}</h2>
+                {uploadButton(slot.name, 'Upload PDFs')}
+              </div>
+              {tableFor(slot.name, `${slot.title} files`)}
+            </section>
+          ))
+        : tableFor(null, 'Files')}
 
       {deleting && (
         <ConfirmDialog
@@ -297,6 +249,126 @@ export function CourseFileSection() {
         />
       )}
     </div>
+  )
+}
+
+/**
+ * One section's or slot's files in their order, or placeholder rows while they load. Staff who
+ * may upload drag rows, or use the row menu, to reorder them. Rows drag only within this table.
+ */
+function FileTable({
+  label,
+  files,
+  canUpload,
+  emptyDescription,
+  onReorder,
+  onDelete,
+}: {
+  label: string
+  files: SectionFile[] | null
+  canUpload: boolean
+  emptyDescription: string
+  onReorder: (files: SectionFile[]) => void
+  onDelete: (file: SectionFile) => void
+}) {
+  const [dragged, setDragged] = useState<string | null>(null)
+
+  function move(fileId: string, to: number) {
+    if (!files) return
+    const from = files.findIndex((file) => file.id === fileId)
+    if (from === -1 || from === to || to < 0 || to >= files.length) return
+    onReorder(files.toSpliced(from, 1).toSpliced(to, 0, files[from]))
+  }
+
+  return (
+    <Card className="gap-0 overflow-hidden py-0">
+      <Table aria-label={label}>
+        <TableHeader className="bg-muted/50">
+          <TableRow>
+            <TableHead className="w-10 px-2">
+              <span className="sr-only">Order</span>
+            </TableHead>
+            <TableHead className="px-4">File</TableHead>
+            <TableHead className={cn('w-56 px-4', WIDE)}>Uploaded by</TableHead>
+            <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
+            <TableHead className="w-14 px-4">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!files ? (
+            <TableSkeleton columns={COLUMNS} />
+          ) : files.length === 0 ? (
+            <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title="No files yet" description={emptyDescription} />
+          ) : (
+            files.map((file, index) => {
+              const uploadedAt = new Date(file.uploaded_at).toLocaleString()
+              return (
+                <TableRow
+                  key={file.id}
+                  draggable={canUpload}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData('text/plain', file.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    setDragged(file.id)
+                  }}
+                  onDragOver={(event) => {
+                    if (dragged) event.preventDefault()
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    if (dragged) move(dragged, index)
+                  }}
+                  onDragEnd={() => setDragged(null)}
+                  className={cn(dragged === file.id && 'opacity-50')}
+                >
+                  <TableCell className="text-muted-foreground px-2 py-3">
+                    {canUpload && <GripVerticalIcon aria-hidden="true" className="mx-auto size-4 cursor-grab" />}
+                  </TableCell>
+                  <TableCell className="px-4 py-3 whitespace-normal">
+                    <div className="grid gap-0.5">
+                      <span className="font-medium wrap-anywhere">{file.name}</span>
+                      <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
+                      <span className="text-muted-foreground text-xs md:hidden">
+                        {file.uploader_name}, {uploadedAt}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{file.uploader_name}</TableCell>
+                  <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
+                  <TableCell className="px-4 py-2 text-right">
+                    {(canUpload || file.deletable) && (
+                      <RowActions label={`Actions for ${file.name}`}>
+                        {canUpload && (
+                          <>
+                            <DropdownMenuItem disabled={index === 0} onSelect={() => move(file.id, index - 1)}>
+                              <ArrowUpIcon />
+                              Move up
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => move(file.id, index + 1)}>
+                              <ArrowDownIcon />
+                              Move down
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {canUpload && file.deletable && <DropdownMenuSeparator />}
+                        {file.deletable && (
+                          <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
+                            <Trash2Icon />
+                            Delete
+                          </DropdownMenuItem>
+                        )}
+                      </RowActions>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })
+          )}
+        </TableBody>
+      </Table>
+    </Card>
   )
 }
 

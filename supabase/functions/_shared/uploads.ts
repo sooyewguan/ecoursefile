@@ -1,9 +1,13 @@
-// The rules every stored file meets. The browser checks them before an upload, and the files
-// Edge Function checks the stored item again at finalize.
+// The rules every stored file meets. The browser checks the type and size before an upload. The
+// files Edge Function checks the name when it opens an upload session, and the stored item's
+// type, size and first bytes at finalize.
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 export const PDF_TYPE = 'application/pdf'
+
+/** The bytes every PDF file starts with. */
+export const PDF_SIGNATURE = new TextEncoder().encode('%PDF-')
 
 /** Why a file may not be stored. The browser and the files function use these as error codes. */
 export type UploadProblem = 'not_pdf' | 'too_large'
@@ -18,4 +22,14 @@ export function uploadProblem(file: { size: number; type: string }): UploadProbl
   if (file.type !== PDF_TYPE) return 'not_pdf'
   if (file.size > MAX_UPLOAD_BYTES) return 'too_large'
   return null
+}
+
+/** Whether the name ends in .pdf, in any case. SharePoint takes an item's media type from it. */
+export function hasPdfName(name: string) {
+  return /\.pdf$/i.test(name)
+}
+
+/** Whether the bytes start with PDF_SIGNATURE. */
+export function hasPdfSignature(start: Uint8Array) {
+  return PDF_SIGNATURE.every((byte, index) => start[index] === byte)
 }

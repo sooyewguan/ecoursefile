@@ -30,6 +30,12 @@ export function fakeStorage(uploadUrl: string): Storage {
       return item ? { id: item.id, size: item.size, mimeType: item.mime_type } : null
     },
 
+    async readStart(id, length) {
+      const bytes = await rest<string | null>('POST', '/rpc/read_start', { item_id: id, length }, SERVICE, SCHEMA)
+      // PostgREST sends bytea as \x and two hex digits per byte.
+      return Uint8Array.from(bytes?.slice(2).match(/../g) ?? [], (pair) => parseInt(pair, 16))
+    },
+
     async deleteItem(id) {
       await rest('DELETE', `/items?id=eq.${encodeURIComponent(id)}`, undefined, SERVICE, SCHEMA)
     },
