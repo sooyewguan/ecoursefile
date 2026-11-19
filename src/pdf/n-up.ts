@@ -23,7 +23,7 @@ const FRAME = rgb(0.75, 0.75, 0.75)
  * and rotation. All pages are embedded in one call, so the resources they share, such as fonts,
  * are copied once.
  */
-export async function nUp(source: Uint8Array, perSheet: PagesPerSheet): Promise<Uint8Array> {
+export async function nUp(source: Uint8Array, perSheet: PagesPerSheet): Promise<Uint8Array<ArrayBuffer>> {
   const input = await PDFDocument.load(source)
   const output = await PDFDocument.create()
   const pages = input.getPages()
@@ -45,7 +45,8 @@ export async function nUp(source: Uint8Array, perSheet: PagesPerSheet): Promise<
       })
     }
   }
-  return output.save()
+  // save builds a new Uint8Array over its own ArrayBuffer. pdf-lib's types predate typed array generics.
+  return (await output.save()) as Uint8Array<ArrayBuffer>
 }
 
 /** Draws the page as large as fits in the area, centred, turned by its /Rotate, with a thin frame. */
