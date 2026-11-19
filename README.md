@@ -73,6 +73,17 @@ npm run stack:start
 
 The seed script exits with code 1 and names each missing variable.
 
+The Edge Functions read these secrets. On the local stack, `[edge_runtime.secrets]` in `supabase/config.toml` sets them. In a hosted project, set them with `npx supabase secrets set NAME=value`.
+
+| Secret | Used by | Value |
+| --- | --- | --- |
+| `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
+| `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
+| `GRAPH_TENANT_ID` | `files` function, with `graph` | The Entra tenant ID. |
+| `GRAPH_CLIENT_ID` | `files` function, with `graph` | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
+| `GRAPH_CLIENT_SECRET` | `files` function, with `graph` | The client secret of that app. |
+| `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
+
 ## Seeding root again
 
 You can run `npm run seed` more than once. The seed script sets root's password and the must-change-password flag only while root has never signed in. After root signs in, a new run only adds the `root` role back if it is missing. A new run never overwrites a password that root chose.
@@ -142,9 +153,71 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 
 | Status | Sections |
 | --- | --- |
-| `missing` | Every section that is on, except sections 7 to 9 |
-| `empty` | Sections 7 to 9, which may stay empty and never count as missing |
+| `missing` | Every section that is on and has no files, except sections 7 to 9 |
+| `pending_review` | Every section that is on and has files |
+| `empty` | Sections 7 to 9 while they have no files. They may stay empty and never count as missing. |
 | `off` | Sections 10 to 16 that the offering has off |
+
+## Files
+
+The coordinator and lecturers of an offering upload PDFs to Teaching Plan (section 2). Its title on the course file page opens the section page, which lists the files in their order. Everyone who reads the course file sees the list. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql`.
+
+| Table | What each entry holds |
+| --- | --- |
+| `files` | One file in one section of an offering: the storage item ID, the file name, the size, its `position` in the section, the uploader and the upload time. |
+| `activity_log` | One upload or delete: the offering, the section, the `action`, the actor and the file name. Rows are never changed or removed, not even by the service role. |
+
+Readers of an offering read both tables. Clients write neither. The `files` Edge Function writes them with the service role.
+
+| RPC or column | What it does |
+| --- | --- |
+| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for Teaching Plan, for the offering's coordinator and lecturers. |
+| `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. |
+| `uploader_name` | A column of `files`: the uploader's name. |
+| `reorder_files(file_ids)` | Sets the order of one section's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, fails with Postgres error `42501`. |
+
+### Upload flow
+
+`src/uploads.ts` holds the browser side. `uploadFile` takes these steps:
+
+1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`.
+2. The browser calls the `files` function with `create-upload-session`. The function asks `can_upload` as the caller, and returns a pre-authenticated `uploadUrl` and a `storedName`.
+3. The browser sends the file to `uploadUrl` in 5 MiB chunks with `PUT` and `Content-Range`, and without an Authorization header.
+4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path and checks the same rule. If the item fails the check, the function deletes it. Otherwise it records the file and logs the upload. The section's status becomes `pending_review`.
+
+Finalize looks the item up by its path, not by an item ID from the browser. A caller can therefore record or delete only items in a section that they may upload to. Finalizing the same upload twice returns the same record.
+
+Each file is stored at `eCourseFile/<semester>/<course code> <course title>/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/BITP1113 Programming/02 Teaching Plan/2026-11-19T10-30-00.123Z_plan.pdf`. Characters that SharePoint does not allow in names become `-`.
+
+### The files Edge Function
+
+The app calls `supabase/functions/files/index.ts` with `supabase.functions.invoke('files', { body })` as the signed-in user. The JSON body has an `action` field.
+
+| `action` | Other fields | Who may call it | What it returns |
+| --- | --- | --- | --- |
+| `create-upload-session` | `offeringId`, `section`, `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
+| `finalize-upload` | `offeringId`, `section`, `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
+| `delete-file` | `fileId` | Users who see the file with `deletable` true | `{ "fileId" }` |
+
+`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. On failure, the function returns `{ "code": "...", "message": "..." }`.
+
+| HTTP status | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_request` | The body is not one of the actions above. |
+| 401 | `unauthorized` | The request has no valid signed-in user. |
+| 403 | `forbidden` | The caller may not upload to the section, or may not delete the file. |
+| 404 | `not_found` | Finalize found no uploaded item, or the caller cannot see the file to delete. |
+| 422 | `not_pdf` | The stored item is not a PDF. The function deleted it. |
+| 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |
+
+### Storage adapters
+
+`supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
+
+- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. No automated test covers it.
+- `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. Seam 1 tests read `fake_storage.items` with the secret key.
+
+`supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
 
 ## The accounts Edge Function
 
@@ -166,14 +239,14 @@ On success, the function returns HTTP 200 and `{ "userId": "..." }`. On failure,
 | 403 | `forbidden` | The caller may not do this. |
 | 409 | `email_exists` | A user with this email already exists. |
 
-The function imports nothing. It calls the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without imports does not depend on that.
+The Edge Functions import only local files in `supabase/functions/_shared`. They call the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without remote imports does not depend on that.
 
 ## Tests
 
 `npm test` runs two Vitest projects.
 
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the `accounts` Edge Function. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset.
 
@@ -185,4 +258,11 @@ Tests that create users give each user a new email address. You can run the test
   SUPABASE_INTERNAL_IMAGE_REGISTRY=docker.io npm run stack:start
   ```
 
-- If calls to the `accounts` function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
+- If calls to an Edge Function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
+- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than the `fake_storage` migration, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
+
+  ```sh
+  npx supabase stop --no-backup
+  npm run stack:start
+  npm run seed
+  ```
