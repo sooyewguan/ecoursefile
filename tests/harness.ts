@@ -103,9 +103,9 @@ export async function callAccounts(client: SupabaseClient, body: Record<string, 
 
 /**
  * Offers a new course in a semester that no earlier run has used, with the service role, as a
- * test arrangement. The course type has sections 10 and 12 on.
+ * test arrangement. The course type has sectionsOn on, by default sections 10 and 12.
  */
-export async function createOffering(options: { coordinatorId: string; lecturerIds?: string[] }) {
+export async function createOffering(options: { coordinatorId: string; lecturerIds?: string[]; sectionsOn?: number[] }) {
   const service = adminClient()
   let semester: { id: string; code: string }
   for (;;) {
@@ -122,7 +122,7 @@ export async function createOffering(options: { coordinatorId: string; lecturerI
   }
   const courseType = await service
     .from('course_types')
-    .insert({ name: `Type-${randomUUID()}`, sections_on: [10, 12] })
+    .insert({ name: `Type-${randomUUID()}`, sections_on: options.sectionsOn ?? [10, 12] })
     .select('id')
     .single()
   if (courseType.error) throw courseType.error

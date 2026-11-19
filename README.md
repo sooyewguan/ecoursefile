@@ -166,9 +166,12 @@ The coordinator and lecturers of an offering upload PDFs to the sections that ho
 | --- | --- |
 | 2 Teaching Plan, 6 Attendance Record, 17 Week 12 Marks, 18 Grade List | The section |
 | 7 Replacement Notices, 8 Proof of Absence, 9 Warning Letters | The section. It may stay empty, and its status is then `empty`, never `missing`. |
+| 10 Lecture Notes | The section, while the offering has it on. The browser merges each PDF 8 pages to a page before it uploads it, and only the merged PDF is stored. Staff upload as many parts as they like. |
 | 19 LO/PO Analysis | One of four slots: PO Achievement (`po_achievement`), LO Achievement (`lo_achievement`), LO/PO Evaluation (`lo_po_evaluation`) and CQI (`cqi`). Each slot holds its own files in its own order. |
 
-The slots are the `SECTION_SLOTS` constant in `supabase/functions/_shared/sections.ts`, and the `files` table's check constraint lists the same names. Each of these sections' titles on the course file page opens the section page, which lists the files in their order, one list per slot. Everyone who reads the course file sees the lists. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql` and `supabase/migrations/20261119090100_plain_file_sections.sql`.
+The slots are the `SECTION_SLOTS` constant in `supabase/functions/_shared/sections.ts`, and the `files` table's check constraint lists the same names. Each of these sections' titles on the course file page opens the section page, which lists the files in their order, one list per slot. Everyone who reads the course file sees the lists. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql`, `supabase/migrations/20261119090100_plain_file_sections.sql` and `supabase/migrations/20261119100000_lecture_notes.sql`.
+
+A switched-off section shows as `off`, even when it holds files. Staff cannot upload to it or reorder its files, but the uploader or the coordinator can still delete them.
 
 | Table | What each entry holds |
 | --- | --- |
@@ -179,7 +182,7 @@ Readers of an offering read both tables. Clients write neither. The `files` Edge
 
 | RPC or column | What it does |
 | --- | --- |
-| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, for the offering's coordinator and lecturers. |
+| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for section 10 while the offering has it on, for the offering's coordinator and lecturers. |
 | `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. |
 | `uploader_name` | A column of `files`: the uploader's name. |
 | `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section or slot, fails with Postgres error `42501`. |
@@ -188,7 +191,7 @@ Readers of an offering read both tables. Clients write neither. The `files` Edge
 
 `src/uploads.ts` holds the browser side. `uploadFile` takes these steps:
 
-1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`.
+1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`. For a section in `MERGED_SECTIONS` in `src/sections.ts`, which is Lecture Notes, the browser first merges the PDF with the PDF engine and applies the rule to the merged PDF. A PDF that the engine cannot read, such as one with a password, is refused with the code `unreadable_pdf`.
 2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller, and returns a pre-authenticated `uploadUrl` and a `storedName`.
 3. The browser sends the file to `uploadUrl` in 5 MiB chunks with `PUT` and `Content-Range`, and without an Authorization header.
 4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path, checks the same rule, and reads the item's first 5 bytes, which must be the PDF signature `%PDF-`. If the item fails a check, the function deletes it. Otherwise it records the file and logs the upload. The section's status becomes `pending_review`.
@@ -222,10 +225,23 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 `supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
-- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header. No automated test covers it.
+- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. No automated test covers it.
 - `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
+
+## PDF engine
+
+`src/pdf/` holds the PDF engine: pure functions over PDF bytes, built on pdf-lib, that run in the browser and in Node. The app loads it only when it needs it, so pdf-lib is a separate chunk of the build.
+
+`nUp(bytes, perSheet)` in `src/pdf/n-up.ts` returns a new PDF with `perSheet` pages of the source on each A4 portrait page, in their order.
+
+| `perSheet` | Grid | Used for |
+| --- | --- | --- |
+| 8 | 2 columns, 4 rows | Lecture Notes |
+| 4 | 2 columns, 2 rows | Answer scripts |
+
+The grid fills left to right, then top to bottom. Each source page is scaled to fit its cell with a thin frame, and shows the way a viewer shows it: its crop box only, turned by its `/Rotate`. The engine embeds all source pages in one call, so a font that many pages share is copied once.
 
 ## The accounts Edge Function
 
@@ -253,7 +269,7 @@ The Edge Functions import only local files in `supabase/functions/_shared`. They
 
 `npm test` runs two Vitest projects.
 
-- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`.
+- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset.

@@ -1,5 +1,8 @@
+import { randomBytes } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { PDFDocument, PDFName } from 'pdf-lib'
 import { beforeAll, expect, test } from 'vitest'
+import { numberedPdf, readPdf } from '../src/pdf/fixtures.ts'
 import {
   createUploadSession,
   deleteFile,
@@ -13,6 +16,7 @@ import { adminClient, createOffering, createUser, fakeStoreItems, signIn, signIn
 
 const PERMISSION_DENIED = '42501'
 const TEACHING_PLAN = 2
+const LECTURE_NOTES = 10
 
 /** 20 MB, the largest file the platform takes. */
 const MAX_BYTES = 20 * 1024 * 1024
@@ -39,9 +43,10 @@ async function createStaff(): Promise<Staff> {
   return { id: user.id, client: await signIn(user.email, user.password) }
 }
 
-async function createCourse(): Promise<Course> {
+/** A course whose course type has sectionsOn on, by default sections 10 and 12. */
+async function createCourse(sectionsOn?: number[]): Promise<Course> {
   const [coordinator, lecturer, secondLecturer, outsider] = await Promise.all([createStaff(), createStaff(), createStaff(), createStaff()])
-  const offering = await createOffering({ coordinatorId: coordinator.id, lecturerIds: [lecturer.id, secondLecturer.id] })
+  const offering = await createOffering({ coordinatorId: coordinator.id, lecturerIds: [lecturer.id, secondLecturer.id], sectionsOn })
   await createOffering({ coordinatorId: outsider.id })
   const root = `eCourseFile/${offering.semesterCode.replace('/', '-')}/${offering.course.code} ${offering.course.title}`
   const slot = { offeringId: offering.id, section: TEACHING_PLAN }
@@ -72,10 +77,11 @@ async function filesOf(client: SupabaseClient, slot: Slot) {
   return data as { id: string; name: string; deletable: boolean }[]
 }
 
-async function teachingPlanStatus(client: SupabaseClient, slot: Slot) {
+/** The status of the slot's section, as this client reads it. */
+async function sectionStatus(client: SupabaseClient, slot: Slot) {
   const { data, error } = await client.rpc('section_statuses', { offering_id: slot.offeringId })
   if (error) throw error
-  return data.find((row: { section: number }) => row.section === TEACHING_PLAN)?.status
+  return data.find((row: { section: number }) => row.section === slot.section)?.status
 }
 
 /** Uploads the bytes to a new session and returns its stored name, without finalizing it. */
@@ -125,10 +131,10 @@ test.each(['outsider', 'auditor', 'admin', 'hod', 'dean', 'deputy_dean', 'root']
   },
 )
 
-test('staff cannot upload to the shared-file sections or the switchable sections', async () => {
-  const course = await createCourse()
+test('staff cannot upload to the shared-file sections or the switchable sections after Lecture Notes', async () => {
+  const course = await createCourse([10, 11, 12, 13, 14, 15, 16])
 
-  for (const section of [1, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16]) {
+  for (const section of [1, 3, 4, 5, 11, 12, 13, 14, 15, 16]) {
     await expect(
       createUploadSession(course.coordinator.client, { ...course.slot, section }, 'plan.pdf'),
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' })
@@ -284,7 +290,7 @@ test.each([
 
   expect(await fakeStoreItems(course.folder)).toEqual([])
   expect(await filesOf(course.coordinator.client, course.slot)).toEqual([])
-  expect(await teachingPlanStatus(course.coordinator.client, course.slot)).toBe('missing')
+  expect(await sectionStatus(course.coordinator.client, course.slot)).toBe('missing')
 })
 
 test('a file of exactly 20 MB is accepted', async () => {
@@ -403,7 +409,7 @@ test('Teaching Plan goes from Missing to Pending review, and back to Missing whe
 
   const first = await uploadFile(course.lecturer.client, course.slot, pdf('a.pdf'))
   expect(await statuses()).toEqual(withTeachingPlan('pending_review'))
-  expect(await teachingPlanStatus(auditor, course.slot)).toBe('pending_review')
+  expect(await sectionStatus(auditor, course.slot)).toBe('pending_review')
 
   const second = await uploadFile(course.coordinator.client, course.slot, pdf('b.pdf'))
   await deleteFile(course.coordinator.client, first.id)
@@ -456,4 +462,122 @@ test('staff read the name of the uploader of each file in their offering', async
   const { data } = await course.lecturer.client.from('files').select('uploader_name').eq('offering_id', course.slot.offeringId)
 
   expect(data).toEqual([{ uploader_name: fullName }])
+})
+
+/** A PDF of count numbered 16:9 slides, as lecture notes are exported. */
+async function slides(name: string, count: number) {
+  return new File([await numberedPdf(count)], name, { type: 'application/pdf' })
+}
+
+/** The stored PDF of the file, as a viewer shows it. */
+async function storedPdf(file: FileRecord) {
+  const { data, error } = await adminClient().schema('fake_storage').from('items').select('content').eq('id', file.storage_item_id).single()
+  if (error) throw error
+  return readPdf(Buffer.from(data.content.slice(2), 'hex'))
+}
+
+/** The numbers of the source pages that the merged page shows, in ascending order. */
+function pagesOn(sheet: { texts: { text: string }[] }) {
+  return sheet.texts.flatMap(({ text }) => (text.startsWith('Page ') ? [Number(text.slice(5))] : [])).toSorted((a, b) => a - b)
+}
+
+test('a Lecture Notes upload is merged 8 slides to an A4 page before upload, and only the merged PDF is stored', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+
+  const file = await uploadFile(course.lecturer.client, notes, await slides('Chapter 1.pdf', 19))
+
+  expect(await fakeStoreItems(`${course.root}/10 Lecture Notes`)).toEqual([
+    {
+      id: file.storage_item_id,
+      path: expect.stringMatching(new RegExp(`/10 Lecture Notes/${STORED_NAME}Chapter 1\\.pdf$`)),
+      size: file.size,
+      mime_type: 'application/pdf',
+    },
+  ])
+  const sheets = await storedPdf(file)
+  expect(sheets.map((sheet) => [sheet.width, sheet.height])).toEqual(Array(3).fill([595.28, 841.89]))
+  expect(sheets.map(pagesOn)).toEqual([
+    [1, 2, 3, 4, 5, 6, 7, 8],
+    [9, 10, 11, 12, 13, 14, 15, 16],
+    [17, 18, 19],
+  ])
+})
+
+test('Lecture Notes apply the 20 MB limit to the merged PDF, not to the file picked', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+  // 21 MB that no page uses, so the merged PDF leaves it out.
+  const padded = await PDFDocument.load(await numberedPdf(9))
+  padded.context.register(padded.context.stream(new Uint8Array(MAX_BYTES + 1)))
+  const picked = new File([await padded.save()], 'padded.pdf', { type: 'application/pdf' })
+  expect(picked.size).toBeGreaterThan(MAX_BYTES)
+
+  await expect(uploadFile(course.lecturer.client, course.slot, picked)).rejects.toMatchObject({ code: 'too_large', status: null })
+  const file = await uploadFile(course.lecturer.client, notes, picked)
+  expect(file.size).toBeLessThan(MAX_BYTES)
+  expect((await storedPdf(file)).map(pagesOn)).toEqual([[1, 2, 3, 4, 5, 6, 7, 8], [9]])
+
+  // 21 MB that the page draws stays in the merged PDF, which is then too large.
+  const heavy = await PDFDocument.load(await numberedPdf(1))
+  heavy.getPage(0).node.set(PDFName.of('Contents'), heavy.context.register(heavy.context.stream(randomBytes(MAX_BYTES + 1))))
+  const tooLarge = new File([await heavy.save()], 'heavy.pdf', { type: 'application/pdf' })
+  await expect(uploadFile(course.lecturer.client, notes, tooLarge)).rejects.toMatchObject({ code: 'too_large', status: null })
+  expect((await fakeStoreItems(`${course.root}/10 Lecture Notes`)).map((item) => item.id)).toEqual([file.storage_item_id])
+})
+
+test('the browser refuses a Lecture Notes file that is not a PDF it can read, before it uploads anything', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+  const pptx = new File(['notes'], 'notes.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' })
+
+  await expect(uploadFile(course.lecturer.client, notes, pptx)).rejects.toMatchObject({ code: 'not_pdf', status: null })
+  await expect(uploadFile(course.lecturer.client, notes, pdf('broken.pdf'))).rejects.toMatchObject({ code: 'unreadable_pdf', status: null })
+
+  expect(await fakeStoreItems(`${course.root}/10 Lecture Notes`)).toEqual([])
+})
+
+test('Lecture Notes take any number of uploads, listed in the order staff set', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+  const names = async () => (await filesOf(auditor, notes)).map((file) => file.name)
+  const first = await uploadFile(course.lecturer.client, notes, await slides('week 1-4.pdf', 30))
+  const second = await uploadFile(course.coordinator.client, notes, await slides('week 5-9.pdf', 41))
+  const third = await uploadFile(course.lecturer.client, notes, await slides('week 10-14.pdf', 8))
+  expect(await names()).toEqual(['week 1-4.pdf', 'week 5-9.pdf', 'week 10-14.pdf'])
+  expect(await Promise.all([first, second, third].map(async (file) => (await storedPdf(file)).length))).toEqual([4, 6, 1])
+
+  expect((await course.outsider.client.rpc('reorder_files', { file_ids: [third.id, first.id, second.id] })).error?.code).toBe(PERMISSION_DENIED)
+  expect((await course.secondLecturer.client.rpc('reorder_files', { file_ids: [third.id, first.id, second.id] })).error).toBeNull()
+  expect(await names()).toEqual(['week 10-14.pdf', 'week 1-4.pdf', 'week 5-9.pdf'])
+
+  await uploadFile(course.coordinator.client, notes, await slides('revision.pdf', 2))
+  await deleteFile(course.coordinator.client, first.id)
+  expect(await names()).toEqual(['week 10-14.pdf', 'week 5-9.pdf', 'revision.pdf'])
+})
+
+test('Lecture Notes is Missing until it has files, and Off and closed to uploads, not deletes, while the offering has it off', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+  expect(await sectionStatus(course.coordinator.client, notes)).toBe('missing')
+  for (const client of [course.outsider.client, auditor]) {
+    await expect(createUploadSession(client, notes, 'notes.pdf')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  }
+  const file = await uploadFile(course.lecturer.client, notes, await slides('notes.pdf', 3))
+  expect(await sectionStatus(auditor, notes)).toBe('pending_review')
+
+  // The service role switches the section off, as a section toggle would.
+  const { error } = await adminClient().from('offerings').update({ sections_on: [12] }).eq('id', notes.offeringId)
+  expect(error).toBeNull()
+  expect(await sectionStatus(auditor, notes)).toBe('off')
+  await expect(uploadFile(course.lecturer.client, notes, await slides('more.pdf', 3))).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  expect((await filesOf(auditor, notes)).map((row) => row.id)).toEqual([file.id])
+  await deleteFile(course.lecturer.client, file.id)
+  expect(await filesOf(auditor, notes)).toEqual([])
+  expect(await sectionStatus(auditor, notes)).toBe('off')
+
+  const off = await createCourse([12])
+  const offNotes = { ...off.slot, section: LECTURE_NOTES }
+  expect(await sectionStatus(off.coordinator.client, offNotes)).toBe('off')
+  await expect(createUploadSession(off.coordinator.client, offNotes, 'notes.pdf')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
 })
