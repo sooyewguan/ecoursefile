@@ -110,7 +110,7 @@ async function deleteFile(fileId: string, caller: string) {
 
 /**
  * The slot's folder in the storage library, once the caller is found to be allowed to upload to
- * it: /eCourseFile/<semester>/<course code> <course title>/<NN section>.
+ * it: eCourseFile/<semester>/<course code> <course title>/<NN section>.
  */
 async function uploadFolder(slot: Slot, caller: string) {
   const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: slot.offeringId, section: slot.section }, caller)

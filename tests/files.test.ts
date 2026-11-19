@@ -11,7 +11,7 @@ import {
 } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, fakeStoreItems, signIn, signInAs } from './harness.ts'
 
-const RLS_VIOLATION = '42501'
+const PERMISSION_DENIED = '42501'
 const TEACHING_PLAN = 2
 
 /** 20 MB, the largest file the platform takes. */
@@ -176,6 +176,22 @@ test('finalize without an upload is refused, and finalizing twice records the fi
   expect(log.data).toEqual([{ action: 'upload' }])
 })
 
+test('staff cannot record or remove files without the files function', async () => {
+  const course = await createCourse()
+  const file = await uploadFile(course.coordinator.client, course.slot, pdf('plan.pdf'))
+  const client = course.coordinator.client
+  const record = { offering_id: course.slot.offeringId, section: TEACHING_PLAN, storage_item_id: 'forged', name: 'forged.pdf', size: 1 }
+
+  expect((await client.rpc('add_file', { ...record, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
+  expect((await client.from('files').insert({ ...record, position: 9, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
+  expect((await client.rpc('remove_file', { file_id: file.id, actor_id: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
+  await client.from('files').delete().eq('id', file.id)
+  await client.from('files').update({ name: 'renamed.pdf' }).eq('id', file.id)
+
+  expect(await filesOf(adminClient(), course.slot)).toEqual([{ id: file.id, name: 'plan.pdf', deletable: false }])
+  expect((await fakeStoreItems(course.folder)).map((item) => item.id)).toEqual([file.storage_item_id])
+})
+
 test('several files keep the order staff set, and new files go last', async () => {
   const course = await createCourse()
   const names = (files: { name: string }[]) => files.map((file) => file.name)
@@ -211,10 +227,10 @@ test('only staff of the offering reorder its files, one section at a time', asyn
 
   for (const client of [course.outsider.client, auditor, await signInAs('admin')]) {
     const { error } = await client.rpc('reorder_files', { file_ids: [second.id, first.id] })
-    expect(error?.code).toBe(RLS_VIOLATION)
+    expect(error?.code).toBe(PERMISSION_DENIED)
   }
   const mixed = await other.lecturer.client.rpc('reorder_files', { file_ids: [elsewhere.id, second.id, first.id] })
-  expect(mixed.error?.code).toBe(RLS_VIOLATION)
+  expect(mixed.error?.code).toBe(PERMISSION_DENIED)
 
   expect((await filesOf(course.coordinator.client, course.slot)).map((file) => file.name)).toEqual(['a.pdf', 'b.pdf'])
 })
@@ -289,9 +305,9 @@ test('each upload and delete adds an activity log entry that only readers of the
 
   for (const client of [course.coordinator.client, adminClient()]) {
     const update = await client.from('activity_log').update({ file_name: 'changed.pdf' }).eq('offering_id', course.slot.offeringId)
-    expect(update.error?.code).toBe(RLS_VIOLATION)
+    expect(update.error?.code).toBe(PERMISSION_DENIED)
     const removal = await client.from('activity_log').delete().eq('offering_id', course.slot.offeringId)
-    expect(removal.error?.code).toBe(RLS_VIOLATION)
+    expect(removal.error?.code).toBe(PERMISSION_DENIED)
   }
   expect(await logOf(course.lecturer.client)).toEqual(expected)
 })
