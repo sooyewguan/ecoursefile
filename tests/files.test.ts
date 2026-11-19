@@ -194,11 +194,11 @@ test.each([
   const course = await createCourse()
   const statuses = async () => (await course.lecturer.client.rpc('section_statuses', { offering_id: course.slot.offeringId })).data
   const before = await statuses()
-  expect(before[section - 1]).toEqual({ section, status: empty })
+  expect(before[section - 1]).toEqual({ section, status: empty, counts_toward_completeness: true })
 
   const first = await uploadFile(course.lecturer.client, { ...course.slot, section, slot }, pdf('a.pdf'))
   const second = await uploadFile(course.lecturer.client, { ...course.slot, section, slot }, pdf('b.pdf'))
-  const withFiles = before.map((row: { section: number }) => (row.section === section ? { section, status: 'pending_review' } : row))
+  const withFiles = before.map((row: { section: number }) => (row.section === section ? { ...row, status: 'pending_review' } : row))
   expect(await statuses()).toEqual(withFiles)
 
   await deleteFile(course.coordinator.client, first.id)
@@ -404,7 +404,7 @@ test('Teaching Plan goes from Missing to Pending review, and back to Missing whe
   const course = await createCourse()
   const statuses = async () => (await course.coordinator.client.rpc('section_statuses', { offering_id: course.slot.offeringId })).data
   const missing = await statuses()
-  expect(missing[TEACHING_PLAN - 1]).toEqual({ section: TEACHING_PLAN, status: 'missing' })
+  expect(missing[TEACHING_PLAN - 1]).toEqual({ section: TEACHING_PLAN, status: 'missing', counts_toward_completeness: true })
   const withTeachingPlan = (status: string) => missing.map((row: { section: number }) => (row.section === TEACHING_PLAN ? { ...row, status } : row))
 
   const first = await uploadFile(course.lecturer.client, course.slot, pdf('a.pdf'))
@@ -566,8 +566,12 @@ test('Lecture Notes is Missing until it has files, and Off and closed to uploads
   const file = await uploadFile(course.lecturer.client, notes, await slides('notes.pdf', 3))
   expect(await sectionStatus(auditor, notes)).toBe('pending_review')
 
-  // The service role switches the section off, as a section toggle would.
-  const { error } = await adminClient().from('offerings').update({ sections_on: [12] }).eq('id', notes.offeringId)
+  const { error } = await course.coordinator.client.rpc('switch_section', {
+    offering_id: notes.offeringId,
+    section: LECTURE_NOTES,
+    is_on: false,
+    reason: 'Notes are in the textbook',
+  })
   expect(error).toBeNull()
   expect(await sectionStatus(auditor, notes)).toBe('off')
   await expect(uploadFile(course.lecturer.client, notes, await slides('more.pdf', 3))).rejects.toMatchObject({ status: 403, code: 'forbidden' })

@@ -274,30 +274,30 @@ test('an offering copies its toggles from the course type when it is created, an
   expect(await sectionsOn(laterOfferingId)).toEqual([14, 15, 16])
 })
 
-/** The 19 sections of a new course file whose course type has sections 10 and 12 on. */
+/** The 19 sections of a new course file whose course type has sections 10 and 12 on. Switched-off sections do not count toward completeness. */
 const NEW_COURSE_FILE = [
-  { section: 1, status: 'missing' },
-  { section: 2, status: 'missing' },
-  { section: 3, status: 'missing' },
-  { section: 4, status: 'missing' },
-  { section: 5, status: 'missing' },
-  { section: 6, status: 'missing' },
-  { section: 7, status: 'empty' },
-  { section: 8, status: 'empty' },
-  { section: 9, status: 'empty' },
-  { section: 10, status: 'missing' },
-  { section: 11, status: 'off' },
-  { section: 12, status: 'missing' },
-  { section: 13, status: 'off' },
-  { section: 14, status: 'off' },
-  { section: 15, status: 'off' },
-  { section: 16, status: 'off' },
-  { section: 17, status: 'missing' },
-  { section: 18, status: 'missing' },
-  { section: 19, status: 'missing' },
+  { section: 1, status: 'missing', counts_toward_completeness: true },
+  { section: 2, status: 'missing', counts_toward_completeness: true },
+  { section: 3, status: 'missing', counts_toward_completeness: true },
+  { section: 4, status: 'missing', counts_toward_completeness: true },
+  { section: 5, status: 'missing', counts_toward_completeness: true },
+  { section: 6, status: 'missing', counts_toward_completeness: true },
+  { section: 7, status: 'empty', counts_toward_completeness: true },
+  { section: 8, status: 'empty', counts_toward_completeness: true },
+  { section: 9, status: 'empty', counts_toward_completeness: true },
+  { section: 10, status: 'missing', counts_toward_completeness: true },
+  { section: 11, status: 'off', counts_toward_completeness: false },
+  { section: 12, status: 'missing', counts_toward_completeness: true },
+  { section: 13, status: 'off', counts_toward_completeness: false },
+  { section: 14, status: 'off', counts_toward_completeness: false },
+  { section: 15, status: 'off', counts_toward_completeness: false },
+  { section: 16, status: 'off', counts_toward_completeness: false },
+  { section: 17, status: 'missing', counts_toward_completeness: true },
+  { section: 18, status: 'missing', counts_toward_completeness: true },
+  { section: 19, status: 'missing', counts_toward_completeness: true },
 ]
 
-test('a new course file lists the 19 sections in order, missing except sections 7 to 9 and switched-off sections', async () => {
+test('a new course file lists the 19 sections in order, missing except sections 7 to 9 and switched-off sections, which do not count', async () => {
   const lecturer = await createLecturer()
   const courseTypeId = await createCourseType([10, 12])
   const offeringId = await offer({ courseId: await createCourse(courseTypeId), coordinatorId: lecturer.id })

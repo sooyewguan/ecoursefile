@@ -474,8 +474,12 @@ test('a switched-off section takes no new items or uploads, and its items can st
   const sheet = { offeringId: course.offeringId, section: LAB, item: 1, slot: 'lab_sheet' }
   const file = await uploadFile(course.lecturer.client, sheet, await script('sheet.pdf'))
 
-  // The service role switches the section off, as a section toggle would.
-  const { error } = await adminClient().from('offerings').update({ sections_on: [12] }).eq('id', course.offeringId)
+  const { error } = await course.coordinator.client.rpc('switch_section', {
+    offering_id: course.offeringId,
+    section: LAB,
+    is_on: false,
+    reason: 'No labs this semester',
+  })
   expect(error).toBeNull()
   expect(await sectionStatus(auditor, course.offeringId, LAB)).toBe('off')
   expect((await addItem(course.lecturer.client, course.offeringId, LAB)).error?.code).toBe(PERMISSION_DENIED)
