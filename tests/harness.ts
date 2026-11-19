@@ -102,24 +102,28 @@ export async function callAccounts(client: SupabaseClient, body: Record<string, 
 }
 
 /**
- * Offers a new course in a semester that no earlier run has used, with the service role, as a
- * test arrangement. The course type has sectionsOn on, by default sections 10 and 12.
+ * A semester with a random code, and the given number if there is one: new, inserted by the
+ * client (by default the service role), or the existing one when an earlier test or run took the
+ * code. There are only 3,000 codes, start years 2000 to 2999 times numbers 1 to 3, and semesters
+ * with offerings are never deleted, so a test cannot count on a semester of its own.
+ */
+export async function pickSemester(client: SupabaseClient = adminClient(), number?: number) {
+  const code = { start_year: 2000 + Math.floor(Math.random() * 1000), number: number ?? 1 + Math.floor(Math.random() * 3) }
+  const inserted = await client.from('semesters').insert(code).select('id, start_year, number, code').single()
+  if (!inserted.error) return inserted.data
+  if (inserted.error.code !== '23505') throw inserted.error
+  const { data, error } = await adminClient().from('semesters').select('id, start_year, number, code').match(code).single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Offers a new course in a semester from pickSemester, with the service role, as a test
+ * arrangement. The course type has sectionsOn on, by default sections 10 and 12.
  */
 export async function createOffering(options: { coordinatorId: string; lecturerIds?: string[]; sectionsOn?: number[] }) {
   const service = adminClient()
-  let semester: { id: string; code: string }
-  for (;;) {
-    const { data, error } = await service
-      .from('semesters')
-      .insert({ start_year: 2000 + Math.floor(Math.random() * 1000), number: 1 + Math.floor(Math.random() * 3) })
-      .select('id, code')
-      .single()
-    if (!error) {
-      semester = data
-      break
-    }
-    if (error.code !== '23505') throw error
-  }
+  const semester = await pickSemester()
   const courseType = await service
     .from('course_types')
     .insert({ name: `Type-${randomUUID()}`, sections_on: options.sectionsOn ?? [10, 12] })
