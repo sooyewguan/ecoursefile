@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [claude/dazzling-gauss-vovmdy]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Start the local Supabase stack
+        run: npm run stack:start
+
+      - name: Seam 1 and unit tests
+        run: npm test
