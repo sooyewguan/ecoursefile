@@ -5,6 +5,9 @@ export { SECTIONS }
 /** The sections that a course type switches on or off by default, in section order. */
 export const SWITCHABLE_SECTIONS = SECTIONS.filter((section) => section.kind === 'switchable')
 
+/** The sections whose files staff upload and arrange on the section page. */
+export const FILE_SECTIONS: ReadonlySet<number> = new Set([2])
+
 /** A section's status, as the section_statuses RPC returns it. */
 export type SectionStatus = 'missing' | 'pending_review' | 'empty' | 'off'
 
