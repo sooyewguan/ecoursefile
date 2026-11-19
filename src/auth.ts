@@ -8,17 +8,22 @@ export type AuthState =
   | { kind: 'must-change-password'; profile: Profile }
   | { kind: 'ready'; profile: Profile; roles: GlobalRole[] }
 
-/** Pages that only some roles may open. Every other page is open to any signed-in user. */
+/**
+ * Pages that only some roles may open, with the pages below them, such as /semesters/<id>.
+ * Every other page is open to any signed-in user.
+ */
 export const ROLE_PAGES = [
+  { path: '/course-files', label: 'Course files', roles: ['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] },
   { path: '/users', label: 'Users', roles: ['root', 'admin'] },
   { path: '/departments', label: 'Departments', roles: ['admin'] },
   { path: '/course-types', label: 'Course types', roles: ['admin'] },
   { path: '/courses', label: 'Courses', roles: ['admin'] },
   { path: '/program-codes', label: 'Program codes', roles: ['admin'] },
+  { path: '/semesters', label: 'Semesters', roles: ['admin'] },
 ] as const satisfies readonly { path: string; label: string; roles: readonly GlobalRole[] }[]
 
 export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
-  const page = ROLE_PAGES.find((p) => p.path === path)
+  const page = ROLE_PAGES.find((p) => path === p.path || path.startsWith(`${p.path}/`))
   return !page || page.roles.some((role) => roles.includes(role))
 }
 

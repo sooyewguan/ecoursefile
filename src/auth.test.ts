@@ -20,9 +20,20 @@ const states: Record<string, AuthState> = {
 }
 
 const otherPage = '/reports'
+const semesterPage = '/semesters/semester-1'
+const courseFilePage = '/course-files/offering-1'
 
 const expected: Record<keyof typeof states, Record<string, string | null>> = {
-  loading: { '/': null, '/sign-in': null, '/change-password': null, [otherPage]: null, '/users': null, '/departments': null },
+  loading: {
+    '/': null,
+    '/sign-in': null,
+    '/change-password': null,
+    [otherPage]: null,
+    '/users': null,
+    '/departments': null,
+    [semesterPage]: null,
+    [courseFilePage]: null,
+  },
   'signed-out': {
     '/': '/sign-in',
     '/sign-in': null,
@@ -30,6 +41,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     [otherPage]: '/sign-in',
     '/users': '/sign-in',
     '/departments': '/sign-in',
+    [semesterPage]: '/sign-in',
+    [courseFilePage]: '/sign-in',
   },
   'must-change-password': {
     '/': '/change-password',
@@ -38,12 +51,59 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     [otherPage]: '/change-password',
     '/users': '/change-password',
     '/departments': '/change-password',
+    [semesterPage]: '/change-password',
+    [courseFilePage]: '/change-password',
   },
-  'ready lecturer': { '/': null, '/sign-in': '/', '/change-password': '/', [otherPage]: null, '/users': '/', '/departments': '/' },
-  'ready no roles': { '/': null, '/sign-in': '/', '/change-password': '/', [otherPage]: null, '/users': '/', '/departments': '/' },
-  'ready root': { '/': null, '/sign-in': '/', '/change-password': '/', [otherPage]: null, '/users': null, '/departments': '/' },
-  'ready admin': { '/': null, '/sign-in': '/', '/change-password': '/', [otherPage]: null, '/users': null, '/departments': null },
-  'ready hod and admin': { '/': null, '/sign-in': '/', '/change-password': '/', [otherPage]: null, '/users': null, '/departments': null },
+  'ready lecturer': {
+    '/': null,
+    '/sign-in': '/',
+    '/change-password': '/',
+    [otherPage]: null,
+    '/users': '/',
+    '/departments': '/',
+    [semesterPage]: '/',
+    [courseFilePage]: null,
+  },
+  'ready no roles': {
+    '/': null,
+    '/sign-in': '/',
+    '/change-password': '/',
+    [otherPage]: null,
+    '/users': '/',
+    '/departments': '/',
+    [semesterPage]: '/',
+    [courseFilePage]: '/',
+  },
+  'ready root': {
+    '/': null,
+    '/sign-in': '/',
+    '/change-password': '/',
+    [otherPage]: null,
+    '/users': null,
+    '/departments': '/',
+    [semesterPage]: '/',
+    [courseFilePage]: '/',
+  },
+  'ready admin': {
+    '/': null,
+    '/sign-in': '/',
+    '/change-password': '/',
+    [otherPage]: null,
+    '/users': null,
+    '/departments': null,
+    [semesterPage]: null,
+    [courseFilePage]: null,
+  },
+  'ready hod and admin': {
+    '/': null,
+    '/sign-in': '/',
+    '/change-password': '/',
+    [otherPage]: null,
+    '/users': null,
+    '/departments': null,
+    [semesterPage]: null,
+    [courseFilePage]: null,
+  },
 }
 
 const cases = Object.entries(expected).flatMap(([state, byPath]) =>
