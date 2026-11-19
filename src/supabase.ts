@@ -7,3 +7,6 @@ if (!url || !publishableKey) {
 }
 
 export const supabase = createClient(url, publishableKey)
+
+/** The Postgres error code for a write that would repeat a value a unique column already holds. */
+export const UNIQUE_VIOLATION = '23505'

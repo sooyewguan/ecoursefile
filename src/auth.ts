@@ -12,6 +12,9 @@ export type AuthState =
 export const ROLE_PAGES = [
   { path: '/users', label: 'Users', roles: ['root', 'admin'] },
   { path: '/departments', label: 'Departments', roles: ['admin'] },
+  { path: '/course-types', label: 'Course types', roles: ['admin'] },
+  { path: '/courses', label: 'Courses', roles: ['admin'] },
+  { path: '/program-codes', label: 'Program codes', roles: ['admin'] },
 ] as const satisfies readonly { path: string; label: string; roles: readonly GlobalRole[] }[]
 
 export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
