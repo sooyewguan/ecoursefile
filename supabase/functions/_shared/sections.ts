@@ -18,13 +18,18 @@ export type Section = {
   itemTitle?: string
   /** Set when the browser merges every PDF of the section before upload. */
   perSheet?: PagesPerSheet
+  /**
+   * Set when the section's file is a shared file: the admin uploads one for each semester, and
+   * every course file of the semester links it. The files table's check constraint lists the same sections.
+   */
+  sharedFile?: true
 }
 
 /** The 19 sections of every course file, in the fixed order. */
 export const SECTIONS: readonly Section[] = [
-  { number: 1, title: 'Academic Calendar', kind: 'always' },
+  { number: 1, title: 'Academic Calendar', kind: 'always', sharedFile: true },
   { number: 2, title: 'Teaching Plan', kind: 'always' },
-  { number: 3, title: 'Appointment Letter', kind: 'always' },
+  { number: 3, title: 'Appointment Letter', kind: 'always', sharedFile: true },
   { number: 4, title: 'Lecturer Timetable', kind: 'always' },
   { number: 5, title: 'Student Timetable', kind: 'always' },
   { number: 6, title: 'Attendance Record', kind: 'always' },

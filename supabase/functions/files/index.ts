@@ -1,8 +1,8 @@
-// Uploads and deletes the files of course file sections, and deletes items with their files. The
-// browser asks for an upload session, PUTs the file's chunks straight to the session's URL, and
-// then asks to finalize. The SQL functions can_upload and deletable decide who may do what, asked
-// as the caller. The add_file and remove_file RPCs write the file records and the activity log
-// with the service role.
+// Uploads and deletes the files of course file sections and the shared files of semesters, and
+// deletes items with their files. The browser asks for an upload session, PUTs the file's chunks
+// straight to the session's URL, and then asks to finalize. The SQL functions can_upload,
+// can_upload_shared_file and deletable decide who may do what, asked as the caller. The add_file and
+// remove_file RPCs write the file records and the activity log with the service role.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { itemName, SECTION_SLOTS, SECTIONS, type SectionSlot } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
@@ -16,10 +16,14 @@ import {
 } from '../_shared/uploads.ts'
 
 /**
- * Where a file goes: one section of one offering's course file, the number of one of its items
- * when the section has items, and one of its slots when it has slots.
+ * Where a file goes. A course file target is one section of one offering's course file, the number
+ * of one of its items when the section has items, and one of its slots when it has slots. A shared
+ * target is a shared-file section of one semester, whose one file every course file of the semester
+ * links.
  */
-type Target = { offeringId: string; section: number; item: number | null; slot: SectionSlot | null }
+type Target =
+  | { kind: 'course-file'; offeringId: string; section: number; item: number | null; slot: SectionSlot | null }
+  | { kind: 'shared'; semesterId: string; section: number }
 
 /** One item of a section with items. */
 type ItemRef = { offeringId: string; section: number; item: number }
@@ -27,7 +31,7 @@ type ItemRef = { offeringId: string; section: number; item: number }
 type FilesRequest =
   | { action: 'create-upload-session'; target: Target; fileName: string }
   | { action: 'finalize-upload'; target: Target; storedName: string }
-  | { action: 'delete-file'; fileId: string }
+  | { action: 'delete-file'; fileId: string; confirmed: boolean }
   | { action: 'delete-item'; item: ItemRef }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
@@ -43,13 +47,14 @@ serveJson(async (body, caller) => {
     case 'finalize-upload':
       return finalizeUpload(request.target, request.storedName, caller)
     case 'delete-file':
-      return deleteFile(request.fileId, caller)
+      return deleteFile(request.fileId, request.confirmed, caller)
     case 'delete-item':
       return deleteItemAndFiles(request.item, caller)
   }
 })
 
-const TARGET_FIELDS = 'offeringId, section, an item for a section with items, a slot for a section with slots'
+const TARGET_FIELDS =
+  'offeringId, section, an item for a section with items and a slot for a section with slots, or semesterId and a shared-file section'
 
 function parseRequest(body: unknown): FilesRequest {
   const input = isRecord(body) ? body : {}
@@ -69,8 +74,9 @@ function parseRequest(body: unknown): FilesRequest {
       return { action: 'finalize-upload', target, storedName }
     }
     case 'delete-file': {
-      if (!isUuid(input.fileId)) throw invalid('delete-file needs fileId.')
-      return { action: 'delete-file', fileId: input.fileId }
+      const { fileId, confirmed = false } = input
+      if (!isUuid(fileId) || typeof confirmed !== 'boolean') throw invalid('delete-file needs fileId, and confirmed: true for a shared file.')
+      return { action: 'delete-file', fileId, confirmed }
     }
     case 'delete-item': {
       const { offeringId, section, item } = input
@@ -84,17 +90,23 @@ function parseRequest(body: unknown): FilesRequest {
 }
 
 /**
- * The target, when section is one of the 19, item is an item number exactly when the section has
+ * The target. With semesterId, section is a shared-file section, and there is no offeringId, item or
+ * slot. Otherwise section is one of the 19, item is an item number exactly when the section has
  * items, and slot names one of the section's slots exactly when it has slots.
  */
-function parseTarget({ offeringId, section, item, slot }: Record<string, unknown>): Target | null {
+function parseTarget({ offeringId, semesterId, section, item, slot }: Record<string, unknown>): Target | null {
   const definition = SECTIONS.find((s) => s.number === section)
-  if (!isUuid(offeringId) || !definition) return null
+  if (!definition) return null
+  if (semesterId !== undefined) {
+    if (!isUuid(semesterId) || !definition.sharedFile || offeringId != null || item != null || slot != null) return null
+    return { kind: 'shared', semesterId, section: definition.number }
+  }
+  if (!isUuid(offeringId)) return null
   if (definition.itemTitle ? !isItemNumber(item) : item != null) return null
   const slots = SECTION_SLOTS[definition.number]
   const named = slots?.find((s) => s.name === slot) ?? null
   if (slots ? !named : slot != null) return null
-  return { offeringId, section: definition.number, item: isItemNumber(item) ? item : null, slot: named }
+  return { kind: 'course-file', offeringId, section: definition.number, item: isItemNumber(item) ? item : null, slot: named }
 }
 
 /** Whether the value can number an item: a whole number from 1 to the largest smallint. */
@@ -113,8 +125,8 @@ async function createUploadSession(target: Target, fileName: string, caller: str
 
 // Finalize looks the stored item up by the path its session wrote to, not by an item id from the
 // browser, so a caller can only record or delete stored items in a slot they may upload to. If
-// add_file refuses the file, such as for an item deleted or a one-file slot filled since the
-// session opened, the stored item goes too.
+// add_file refuses the file, such as for an item deleted, or a one-file slot or a shared file
+// filled, since the session opened, the stored item goes too.
 async function finalizeUpload(target: Target, storedName: string, caller: string) {
   const folder = await uploadFolder(target, caller)
   const stored = await storage.getItem(`${folder}/${storedName}`)
@@ -125,10 +137,7 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
     throw new Refusal(422, problem, UPLOAD_PROBLEM_MESSAGES[problem])
   }
   const file = await rest('POST', '/rpc/add_file', {
-    offering_id: target.offeringId,
-    section: target.section,
-    item: target.item,
-    slot: target.slot?.name ?? null,
+    ...slotKey(target),
     storage_item_id: stored.id,
     name: STORED_NAME.exec(storedName)![1],
     size: stored.size,
@@ -141,8 +150,24 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
   return { file }
 }
 
-/** Refuses an upload to an item that does not exist, or to a one-file slot that has its file. */
+/** The add_file arguments that name the target's slot: a course file's section, item and slot, or a shared file's semester and section. */
+function slotKey(target: Target) {
+  return target.kind === 'shared'
+    ? { offering_id: null, semester_id: target.semesterId, section: target.section, item: null, slot: null }
+    : { offering_id: target.offeringId, section: target.section, item: target.item, slot: target.slot?.name ?? null }
+}
+
+/**
+ * Refuses an upload to an item that does not exist, or to a place that holds one file and has it:
+ * a one-file slot, or a semester's shared file.
+ */
 async function checkRoom(target: Target, caller: string) {
+  if (target.kind === 'shared') {
+    const where = `semester_id=eq.${target.semesterId}&section=eq.${target.section}`
+    const files = await rest<unknown[]>('GET', `/files?${where}&select=id`, undefined, caller)
+    if (files.length > 0) throw new Refusal(409, 'slot_full', `This semester has its ${sectionOf(target.section).title}. Delete it to upload another.`)
+    return
+  }
   if (target.item === null) return
   const where = `offering_id=eq.${target.offeringId}&section=eq.${target.section}`
   const items = await rest<unknown[]>('GET', `/items?${where}&number=eq.${target.item}&select=number`, undefined, caller)
@@ -160,16 +185,27 @@ async function storedItemProblem(item: StoredItem): Promise<UploadProblem | null
 }
 
 // The stored item goes first. If removing the record then fails, the file is still listed, and
-// deleting it again finishes the job.
-async function deleteFile(fileId: string, caller: string) {
-  const [file] = await rest<{ storage_item_id: string; deletable: boolean }[]>(
+// deleting it again finishes the job. Deleting a shared file leaves its section Missing in every
+// course file that links it, so the caller must confirm it.
+async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
+  const [file] = await rest<{ storage_item_id: string; deletable: boolean; semester_id: string | null }[]>(
     'GET',
-    `/files?id=eq.${fileId}&select=storage_item_id,deletable`,
+    `/files?id=eq.${fileId}&select=storage_item_id,deletable,semester_id`,
     undefined,
     caller,
   )
   if (!file) throw new Refusal(404, 'not_found', 'This file does not exist, or you cannot see it.')
-  if (!file.deletable) throw new Refusal(403, 'forbidden', 'Only the uploader or the coordinator may delete this file.')
+  const shared = file.semester_id !== null
+  if (!file.deletable) {
+    throw new Refusal(403, 'forbidden', shared ? 'Only the admin may delete shared files.' : 'Only the uploader or the coordinator may delete this file.')
+  }
+  if (shared && !confirmed) {
+    throw new Refusal(
+      409,
+      'confirmation_required',
+      'Every course file of the semester links this shared file, and its section becomes Missing in each. Confirm the delete to go ahead.',
+    )
+  }
   await storage.deleteItem(file.storage_item_id)
   await rest('POST', '/rpc/remove_file', { file_id: fileId, actor_id: await callerId(caller) }, SERVICE)
   return { fileId }
@@ -199,9 +235,16 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
 /**
  * The target's folder in the storage library, once the caller is found to be allowed to upload to
  * it: eCourseFile/<semester>/<course code> <course title>/<NN section>, then /<item name> for an
- * item and /<slot> for a slot.
+ * item and /<slot> for a slot. A shared file's folder is eCourseFile/<semester>/_shared/<NN section>.
  */
 async function uploadFolder(target: Target, caller: string) {
+  if (target.kind === 'shared') {
+    const { semesterId, section } = target
+    const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
+    if (!allowed) throw new Refusal(403, 'forbidden', 'Only the admin may upload shared files.')
+    const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
+    return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section)].join('/')
+  }
   const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
   if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')
   const [offering] = await rest<{ semester: { code: string }; course: { code: string; title: string } }[]>(
@@ -210,15 +253,29 @@ async function uploadFolder(target: Target, caller: string) {
     undefined,
     caller,
   )
-  const section = SECTIONS.find((s) => s.number === target.section)!
   return [
     'eCourseFile',
-    offering.semester.code.replace('/', '-'),
+    semesterFolder(offering.semester.code),
     safeName(`${offering.course.code} ${offering.course.title}`),
-    safeName(`${String(section.number).padStart(2, '0')} ${section.title}`),
+    sectionFolder(target.section),
     ...(target.item === null ? [] : [itemName(target.section, target.item)]),
     ...(target.slot ? [safeName(target.slot.title)] : []),
   ].join('/')
+}
+
+/** A semester's folder name, such as 2026-2027-1 for 2026/2027-1. */
+function semesterFolder(code: string) {
+  return code.replace('/', '-')
+}
+
+/** A section's folder name, such as 02 Teaching Plan. */
+function sectionFolder(number: number) {
+  const section = sectionOf(number)
+  return safeName(`${String(section.number).padStart(2, '0')} ${section.title}`)
+}
+
+function sectionOf(number: number) {
+  return SECTIONS.find((s) => s.number === number)!
 }
 
 /** text as one SharePoint path segment: no characters SharePoint forbids, and no trailing dots or spaces. */
