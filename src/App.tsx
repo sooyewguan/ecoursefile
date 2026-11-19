@@ -16,8 +16,9 @@ import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { Semester } from './pages/Semester.tsx'
 import { Semesters } from './pages/Semesters.tsx'
 import { SignIn } from './pages/SignIn.tsx'
+import { StudentTimetables } from './pages/StudentTimetables.tsx'
 import { Users } from './pages/Users.tsx'
-import { LECTURER_FILE_SECTION } from './sections.ts'
+import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 
 export function App() {
   return (
@@ -39,6 +40,7 @@ export function App() {
               <Route path="/course-files" element={<CourseFiles />} />
               <Route path="/course-files/:offeringId" element={<CourseFile />} />
               <Route path={`/course-files/:offeringId/sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+              <Route path={`/course-files/:offeringId/sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
               <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
