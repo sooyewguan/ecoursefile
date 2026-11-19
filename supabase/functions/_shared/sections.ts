@@ -6,8 +6,20 @@
  */
 type SectionKind = 'always' | 'may-be-empty' | 'switchable'
 
+/** How many pages the browser puts on each page of a PDF before it uploads it. */
+type PagesPerSheet = 4 | 8
+
+/** One of the 19 sections of every course file. */
+export type Section = {
+  number: number
+  title: string
+  kind: SectionKind
+  /** Set when the browser merges every PDF of the section before upload. */
+  perSheet?: PagesPerSheet
+}
+
 /** The 19 sections of every course file, in the fixed order. */
-export const SECTIONS = [
+export const SECTIONS: readonly Section[] = [
   { number: 1, title: 'Academic Calendar', kind: 'always' },
   { number: 2, title: 'Teaching Plan', kind: 'always' },
   { number: 3, title: 'Appointment Letter', kind: 'always' },
@@ -17,7 +29,7 @@ export const SECTIONS = [
   { number: 7, title: 'Replacement Notices', kind: 'may-be-empty' },
   { number: 8, title: 'Proof of Absence', kind: 'may-be-empty' },
   { number: 9, title: 'Warning Letters', kind: 'may-be-empty' },
-  { number: 10, title: 'Lecture Notes', kind: 'switchable' },
+  { number: 10, title: 'Lecture Notes', kind: 'switchable', perSheet: 8 },
   { number: 11, title: 'Lab Exercises', kind: 'switchable' },
   { number: 12, title: 'Tutorial', kind: 'switchable' },
   { number: 13, title: 'Quiz', kind: 'switchable' },
@@ -27,10 +39,15 @@ export const SECTIONS = [
   { number: 17, title: 'Week 12 Marks', kind: 'always' },
   { number: 18, title: 'Grade List', kind: 'always' },
   { number: 19, title: 'LO/PO Analysis', kind: 'always' },
-] as const satisfies readonly { number: number; title: string; kind: SectionKind }[]
+]
 
 /** A named place for files in a section. name is how the database stores it. */
-export type SectionSlot = { name: string; title: string }
+export type SectionSlot = {
+  name: string
+  title: string
+  /** Set when the browser merges every PDF of the slot before upload. */
+  perSheet?: PagesPerSheet
+}
 
 /**
  * The slots of each section whose files go into named slots. The files of other sections go

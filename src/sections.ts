@@ -12,8 +12,14 @@ export const SWITCHABLE_SECTIONS = SECTIONS.filter((section) => section.kind ===
  */
 export const FILE_SECTIONS: ReadonlySet<number> = new Set([2, 6, 7, 8, 9, 10, 17, 18, 19])
 
-/** The sections whose PDFs the browser merges before upload, with how many pages it puts on each page. */
-export const MERGED_SECTIONS: Readonly<Partial<Record<number, PagesPerSheet>>> = { 10: 8 }
+/**
+ * How many pages the browser puts on each page of a PDF before it uploads it to the slot: the
+ * slot's perSheet, such as 4 for answer scripts, else the section's, such as 8 for Lecture Notes.
+ * Undefined when the PDF goes up as it is.
+ */
+export function pagesPerSheet({ section, slot }: { section: number; slot?: string | null }): PagesPerSheet | undefined {
+  return SECTION_SLOTS[section]?.find((s) => s.name === slot)?.perSheet ?? SECTIONS.find((s) => s.number === section)?.perSheet
+}
 
 /** A section's status, as the section_statuses RPC returns it. */
 export type SectionStatus = 'missing' | 'pending_review' | 'empty' | 'off'

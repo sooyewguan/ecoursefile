@@ -1,7 +1,7 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
-import { MERGED_SECTIONS } from './sections.ts'
+import { pagesPerSheet } from './sections.ts'
 
 /**
  * Where a file goes: one section of one offering's course file. slot is the name of one of the
@@ -43,9 +43,9 @@ export class FileActionError extends Error {
 const CHUNK_BYTES = 16 * 320 * 1024
 
 /**
- * Uploads a PDF to the slot: merges it when the section is in MERGED_SECTIONS, checks the result,
- * asks for an upload session, sends its chunks to the session URL, and finalizes it. Resolves to
- * the new file record. onProgress gets the fraction sent, from 0 once the bytes are ready.
+ * Uploads a PDF to the slot: merges it when pagesPerSheet says so, checks the result, asks for an
+ * upload session, sends its chunks to the session URL, and finalizes it. Resolves to the new file
+ * record. onProgress gets the fraction sent, from 0 once the bytes are ready.
  */
 export async function uploadFile(
   client: SupabaseClient,
@@ -53,7 +53,7 @@ export async function uploadFile(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<FileRecord> {
-  const bytes = await storedBytes(slot.section, file)
+  const bytes = await storedBytes(slot, file)
   const session = await createUploadSession(client, slot, file.name)
   onProgress?.(0)
   await sendChunks(session.uploadUrl, bytes, onProgress)
@@ -61,11 +61,11 @@ export async function uploadFile(
 }
 
 /**
- * The bytes to store for the file: the file itself, or in a merged section the PDF merged N-up.
- * Only the merged PDF is stored, so the size rule applies to it.
+ * The bytes to store for the file: the file itself, or in a merged slot the PDF merged N-up. Only
+ * the merged PDF is stored, so the size rule applies to it.
  */
-async function storedBytes(section: number, file: File): Promise<Blob> {
-  const perSheet = MERGED_SECTIONS[section]
+async function storedBytes(slot: Slot, file: File): Promise<Blob> {
+  const perSheet = pagesPerSheet(slot)
   const bytes = perSheet && file.type === PDF_TYPE ? await merge(file, perSheet) : file
   const problem = uploadProblem(bytes)
   if (problem === 'too_large' && perSheet) {

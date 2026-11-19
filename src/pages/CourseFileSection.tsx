@@ -11,7 +11,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { FILE_SECTIONS, MERGED_SECTIONS, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { FILE_SECTIONS, pagesPerSheet, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, uploadFile } from '../uploads.ts'
 
@@ -52,7 +52,7 @@ export function CourseFileSection() {
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && FILE_SECTIONS.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
-  const perSheet = section && MERGED_SECTIONS[section.number]
+  const perSheet = section && pagesPerSheet({ section: section.number })
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
