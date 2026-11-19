@@ -22,7 +22,7 @@ export function graphStorage(config: GraphConfig): Storage {
         grant_type: 'client_credentials',
       }),
     })
-    if (!response.ok) throw new Error(`The Graph token request failed with ${response.status}: ${await response.text()}`)
+    if (!response.ok) throw await failure(response, 'token request')
     const body: { access_token: string; expires_in: number } = await response.json()
     token = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 }
     return token.value
@@ -34,10 +34,6 @@ export function graphStorage(config: GraphConfig): Storage {
       headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-  }
-
-  async function failure(response: Response, what: string) {
-    return new Error(`Graph ${what} failed with ${response.status}: ${await response.text()}`)
   }
 
   const itemAt = (path: string) => `${drive}/root:/${path.split('/').map(encodeURIComponent).join('/')}`
@@ -60,19 +56,21 @@ export function graphStorage(config: GraphConfig): Storage {
       return { id: item.id, size: item.size, mimeType: item.file?.mimeType ?? '' }
     },
 
-    // /content redirects to a pre-authenticated download URL. Graph takes the Range header only
-    // on that URL, so the redirect is followed by hand.
+    // /content usually redirects to a pre-authenticated download URL. Graph takes the Range header
+    // only on that URL, so the redirect is followed by hand. When /content sends the bytes itself,
+    // or the download URL ignores Range, only the first bytes are read.
     async readStart(id, length) {
       const content = await fetch(`${drive}/items/${encodeURIComponent(id)}/content`, {
         headers: { Authorization: `Bearer ${await accessToken()}` },
         redirect: 'manual',
       })
       const downloadUrl = content.headers.get('Location')
+      if (content.ok && !downloadUrl) return firstBytes(content, length)
       if (!downloadUrl) throw await failure(content, 'get content')
       await content.body?.cancel()
       const response = await fetch(downloadUrl, { headers: { Range: `bytes=0-${length - 1}` } })
       if (!response.ok) throw await failure(response, 'download')
-      return new Uint8Array(await response.arrayBuffer()).slice(0, length)
+      return firstBytes(response, length)
     },
 
     async deleteItem(id) {
@@ -80,4 +78,26 @@ export function graphStorage(config: GraphConfig): Storage {
       if (!response.ok && response.status !== 404) throw await failure(response, 'permanentDelete')
     },
   }
+}
+
+/** An error with the status and the start of the body, which may be long or binary. */
+async function failure(response: Response, what: string) {
+  const body = new TextDecoder().decode(await firstBytes(response, 500))
+  return new Error(`Graph ${what} failed with ${response.status}: ${body}`)
+}
+
+/** The first length bytes of the body, or all of them when it is shorter. The rest is never read. */
+async function firstBytes(response: Response, length: number) {
+  const bytes = new Uint8Array(length)
+  let received = 0
+  const reader = response.body?.getReader()
+  while (reader && received < length) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const part = value.subarray(0, length - received)
+    bytes.set(part, received)
+    received += part.length
+  }
+  await reader?.cancel()
+  return bytes.slice(0, received)
 }
