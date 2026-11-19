@@ -1,7 +1,7 @@
-import { SECTION_SLOTS, SECTIONS } from '../supabase/functions/_shared/sections.ts'
+import { itemName, SECTION_SLOTS, SECTIONS, type Section, type SectionSlot } from '../supabase/functions/_shared/sections.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 
-export { SECTION_SLOTS, SECTIONS }
+export { itemName, SECTION_SLOTS, SECTIONS, type Section, type SectionSlot }
 
 /** The sections that a course type switches on or off by default, in section order. */
 export const SWITCHABLE_SECTIONS = SECTIONS.filter((section) => section.kind === 'switchable')
