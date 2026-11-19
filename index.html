@@ -10,6 +10,12 @@
       input { display: block; width: 100%; box-sizing: border-box; padding: 0.4rem; }
       button { margin-top: 0.5rem; padding: 0.4rem 0.8rem; }
       [role='alert'] { color: #b00020; }
+      input[type='checkbox'] { display: inline; width: auto; margin-right: 0.4rem; }
+      body:has(main.wide) { max-width: 72rem; }
+      main.wide > form { max-width: 28rem; }
+      table { border-collapse: collapse; width: 100%; margin-top: 1.5rem; }
+      th, td { text-align: left; vertical-align: top; padding: 0.4rem; border-bottom: 1px solid #ddd; }
+      td label { margin-bottom: 0.25rem; white-space: nowrap; }
     </style>
   </head>
   <body>

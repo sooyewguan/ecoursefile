@@ -1,6 +1,6 @@
+import type { Session } from '@supabase/supabase-js'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { AuthState } from './auth.ts'
-import type { GlobalRole } from './roles.ts'
+import { rolesFromAccessToken, type AuthState } from './auth.ts'
 import { supabase } from './supabase.ts'
 
 const AuthContext = createContext<AuthState>({ kind: 'loading' })
@@ -15,7 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // supabase-js holds its auth lock during this callback and queries wait for that lock,
       // so read the profile after the callback returns.
       setTimeout(async () => {
-        const next = await readAuthState(session?.user.id ?? null)
+        const next = await readAuthState(session)
         if (read === latest) setState(next)
       })
     })
@@ -29,21 +29,22 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
-async function readAuthState(userId: string | null): Promise<AuthState> {
-  if (!userId) return { kind: 'signed-out' }
+async function readAuthState(session: Session | null): Promise<AuthState> {
+  if (!session) return { kind: 'signed-out' }
 
-  const [profileResult, rolesResult] = await Promise.all([
-    supabase.from('profiles').select('id, email, full_name, must_change_password').eq('id', userId).single(),
-    supabase.from('user_roles').select('role').eq('user_id', userId),
-  ])
-  if (profileResult.error || rolesResult.error) {
-    console.error('Could not read the signed-in profile', profileResult.error ?? rolesResult.error)
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, must_change_password')
+    .eq('id', session.user.id)
+    .single()
+  if (error) {
+    console.error('Could not read the signed-in profile', error)
     return { kind: 'signed-out' }
   }
 
-  const row: { id: string; email: string; full_name: string; must_change_password: boolean } = profileResult.data
+  const row: { id: string; email: string; full_name: string; must_change_password: boolean } = data
   const profile = { id: row.id, email: row.email, fullName: row.full_name }
   if (row.must_change_password) return { kind: 'must-change-password', profile }
-  const roles: GlobalRole[] = rolesResult.data.map((r: { role: GlobalRole }) => r.role)
-  return { kind: 'ready', profile, roles }
+  // The same roles that RLS reads, so the pages offered match what the database allows.
+  return { kind: 'ready', profile, roles: rolesFromAccessToken(session.access_token) }
 }

@@ -2,8 +2,10 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'rea
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
+import { Departments } from './pages/Departments.tsx'
 import { Home } from './pages/Home.tsx'
 import { SignIn } from './pages/SignIn.tsx'
+import { Users } from './pages/Users.tsx'
 
 export function App() {
   return (
@@ -14,6 +16,8 @@ export function App() {
             <Route path="/" element={<Home />} />
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/users" element={<Users />} />
+            <Route path="/departments" element={<Departments />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
