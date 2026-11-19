@@ -38,7 +38,7 @@ A web platform where course coordinators and lecturers submit course files for t
    ```
 
 8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password before it shows any other page.
-9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments and staff.
+9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments, staff and the catalog.
 
 After you change `supabase/config.toml` or add an Edge Function, restart the stack. The edge runtime serves only the functions that existed when it started.
 
@@ -84,8 +84,8 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. |
-| Everyone else | Read their own profile and roles, and read departments. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. |
+| Everyone else | Read their own profile and roles, read departments, and read the catalog. |
 
 Some limits apply to everyone:
 
@@ -98,6 +98,18 @@ Some limits apply to everyone:
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+## Catalog
+
+The admin keeps the catalog on three pages. The tables and their RLS policies are in `supabase/migrations/20261119030000_catalog.sql`.
+
+| Page | Table | What each entry holds |
+| --- | --- | --- |
+| **Course types** | `course_types` | A unique name, and `sections_on`, the switchable sections (10 to 16) that are on by default. A switchable section that is not in the list is off. |
+| **Courses** | `courses` | A unique code, a title, a department and a course type. |
+| **Program codes** | `program_codes` | A unique code, such as `1 BITS S1G1`. |
+
+Only admins add and edit catalog entries. Every signed-in user except root reads them. Nobody deletes them, and a department that has courses cannot be deleted. A write that repeats a name or code fails with Postgres error `23505`, and the pages show it as a plain message.
 
 ## The accounts Edge Function
 
