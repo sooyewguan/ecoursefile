@@ -556,7 +556,7 @@ test('Lecture Notes take any number of uploads, listed in the order staff set', 
   expect(await names()).toEqual(['week 10-14.pdf', 'week 5-9.pdf', 'revision.pdf'])
 })
 
-test('Lecture Notes is Missing until it has files, and Off and closed to uploads while the offering has it off', async () => {
+test('Lecture Notes is Missing until it has files, and Off and closed to uploads, not deletes, while the offering has it off', async () => {
   const course = await createCourse()
   const notes = { ...course.slot, section: LECTURE_NOTES }
   expect(await sectionStatus(course.coordinator.client, notes)).toBe('missing')
@@ -572,6 +572,9 @@ test('Lecture Notes is Missing until it has files, and Off and closed to uploads
   expect(await sectionStatus(auditor, notes)).toBe('off')
   await expect(uploadFile(course.lecturer.client, notes, await slides('more.pdf', 3))).rejects.toMatchObject({ status: 403, code: 'forbidden' })
   expect((await filesOf(auditor, notes)).map((row) => row.id)).toEqual([file.id])
+  await deleteFile(course.lecturer.client, file.id)
+  expect(await filesOf(auditor, notes)).toEqual([])
+  expect(await sectionStatus(auditor, notes)).toBe('off')
 
   const off = await createCourse([12])
   const offNotes = { ...off.slot, section: LECTURE_NOTES }
