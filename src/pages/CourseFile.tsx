@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ErrorAlert } from '@/components/notice'
 import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
-import { Badge } from '@/components/ui/badge'
+import { SectionStatusBadge } from '@/components/section-status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { SECTION_STATUS_LABELS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { FILE_SECTIONS, SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type Offering = {
@@ -18,12 +18,6 @@ type Offering = {
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; statuses: { section: number; status: SectionStatus }[] }
-
-const STATUS_STYLES: Record<SectionStatus, string> = {
-  missing: 'border-destructive/30 bg-destructive/10 text-destructive',
-  empty: 'text-muted-foreground',
-  off: 'text-muted-foreground border-dashed',
-}
 
 /** The table's columns: number, section and status. */
 const COLUMNS = ['', '', '']
@@ -119,13 +113,22 @@ export function CourseFile() {
               <TableSkeleton columns={COLUMNS} rows={19} />
             ) : (
               data.statuses.map(({ section, status }) => (
-                <TableRow key={section}>
+                <TableRow key={section} className="relative">
                   <TableCell className="text-muted-foreground px-4 py-3 text-right tabular-nums">{section}</TableCell>
-                  <TableCell className="px-4 py-3 font-medium whitespace-normal">{sectionTitle.get(section)}</TableCell>
+                  <TableCell className="px-4 py-3 font-medium whitespace-normal">
+                    {FILE_SECTIONS.has(section) ? (
+                      <Link
+                        to={`/course-files/${offeringId}/sections/${section}`}
+                        className="after:absolute after:inset-0 hover:underline"
+                      >
+                        {sectionTitle.get(section)}
+                      </Link>
+                    ) : (
+                      sectionTitle.get(section)
+                    )}
+                  </TableCell>
                   <TableCell className="px-4 py-3">
-                    <Badge variant="outline" className={STATUS_STYLES[status]}>
-                      {SECTION_STATUS_LABELS[status]}
-                    </Badge>
+                    <SectionStatusBadge status={status} />
                   </TableCell>
                 </TableRow>
               ))

@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
 import { CourseFile } from './pages/CourseFile.tsx'
 import { CourseFiles } from './pages/CourseFiles.tsx'
+import { CourseFileSection } from './pages/CourseFileSection.tsx'
 import { Courses } from './pages/Courses.tsx'
 import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
@@ -35,6 +36,7 @@ export function App() {
               <Route path="/semesters/:semesterId" element={<Semester />} />
               <Route path="/course-files" element={<CourseFiles />} />
               <Route path="/course-files/:offeringId" element={<CourseFile />} />
+              <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

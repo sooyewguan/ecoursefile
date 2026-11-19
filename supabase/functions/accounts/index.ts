@@ -1,6 +1,7 @@
 // Account administration that needs the service role: creating a user with a temporary
 // password and resetting a password. The SQL functions assignable_roles and can_manage decide
-// who may do what, asked as the caller. This file imports nothing (see README).
+// who may do what, asked as the caller.
+import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 
 const GLOBAL_ROLES = ['root', 'admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as const
 type GlobalRole = (typeof GLOBAL_ROLES)[number]
@@ -16,43 +17,9 @@ type AccountRequest =
     }
   | { action: 'reset-password'; userId: string; temporaryPassword: string }
 
-type ErrorCode = 'invalid_request' | 'unauthorized' | 'forbidden' | 'email_exists' | 'internal_error'
-
-class Refusal extends Error {
-  status: number
-  code: ErrorCode
-  constructor(status: number, code: ErrorCode, message: string) {
-    super(message)
-    this.status = status
-    this.code = code
-  }
-}
-
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
-const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const SERVICE = `Bearer ${SERVICE_KEY}`
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
-  try {
-    if (req.method !== 'POST') throw new Refusal(405, 'invalid_request', 'Use POST.')
-    const caller = req.headers.get('Authorization')
-    if (!caller) throw new Refusal(401, 'unauthorized', 'Sign in first.')
-    const request = parseRequest(await req.json().catch(() => null))
-    const result = request.action === 'create-user' ? await createUser(request, caller) : await resetPassword(request, caller)
-    return json(200, result)
-  } catch (error) {
-    if (error instanceof Refusal) return json(error.status, { code: error.code, message: error.message })
-    console.error(error)
-    return json(500, { code: 'internal_error', message: 'The request failed.' })
-  }
+serveJson(async (body, caller) => {
+  const request = parseRequest(body)
+  return request.action === 'create-user' ? await createUser(request, caller) : await resetPassword(request, caller)
 })
 
 function parseRequest(body: unknown): AccountRequest {
@@ -132,52 +99,16 @@ async function resetPassword(request: Extract<AccountRequest, { action: 'reset-p
 }
 
 function callerRpc<T>(name: string, args: Record<string, unknown>, caller: string): Promise<T> {
-  return rest('POST', `/rpc/${name}`, args, caller) as Promise<T>
-}
-
-async function rest(method: string, path: string, body: unknown, authorization: string): Promise<unknown> {
-  const apikey = authorization === SERVICE ? SERVICE_KEY : ANON_KEY
-  const response = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
-    method,
-    headers: { apikey, Authorization: authorization, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
-  if (response.ok) return payload
-  if (response.status === 401) throw new Refusal(401, 'unauthorized', 'Sign in again.')
-  if (response.status === 403) throw new Refusal(403, 'forbidden', payload?.message ?? 'Not allowed.')
-  if (response.status < 500) throw invalid(payload?.message ?? 'The request was refused.')
-  throw new Error(`${method} ${path} failed with ${response.status}: ${text}`)
+  return rest<T>('POST', `/rpc/${name}`, args, caller)
 }
 
 async function auth<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
-    method,
-    headers: { apikey: SERVICE_KEY, Authorization: SERVICE, 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  const response = await authFetch(method, path, body, SERVICE)
   const payload = await response.json().catch(() => null)
   if (response.ok) return payload as T
   if (payload?.error_code === 'email_exists') throw new Refusal(409, 'email_exists', payload.msg)
   if (response.status < 500) throw invalid(payload?.msg ?? 'The request was refused.')
   throw new Error(`${method} ${path} failed with ${response.status}: ${JSON.stringify(payload)}`)
-}
-
-function json(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
-}
-
-function invalid(message: string) {
-  return new Refusal(400, 'invalid_request', message)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
 
 function isGlobalRole(value: unknown): value is GlobalRole {

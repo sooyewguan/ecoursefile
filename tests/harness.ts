@@ -100,3 +100,56 @@ export async function callAccounts(client: SupabaseClient, body: Record<string, 
   }
   throw error
 }
+
+/**
+ * Offers a new course in a semester that no earlier run has used, with the service role, as a
+ * test arrangement. The course type has sections 10 and 12 on.
+ */
+export async function createOffering(options: { coordinatorId: string; lecturerIds?: string[] }) {
+  const service = adminClient()
+  let semester: { id: string; code: string }
+  for (;;) {
+    const { data, error } = await service
+      .from('semesters')
+      .insert({ start_year: 2000 + Math.floor(Math.random() * 1000), number: 1 + Math.floor(Math.random() * 3) })
+      .select('id, code')
+      .single()
+    if (!error) {
+      semester = data
+      break
+    }
+    if (error.code !== '23505') throw error
+  }
+  const courseType = await service
+    .from('course_types')
+    .insert({ name: `Type-${randomUUID()}`, sections_on: [10, 12] })
+    .select('id')
+    .single()
+  if (courseType.error) throw courseType.error
+  const course = await service
+    .from('courses')
+    .insert({ code: `BITP-${randomUUID()}`, title: 'Seam1 Course', department_id: await createDepartment(), course_type_id: courseType.data.id })
+    .select('id, code, title')
+    .single()
+  if (course.error) throw course.error
+  const { data: id, error } = await service.rpc('create_offering', {
+    semester_id: semester.id,
+    course_id: course.data.id,
+    coordinator_id: options.coordinatorId,
+    lecturer_ids: options.lecturerIds ?? [],
+  })
+  if (error) throw error
+  return { id: id as string, semesterCode: semester.code, course: course.data as { code: string; title: string } }
+}
+
+/** The items in the fake storage library whose path starts with the folder, sorted by path. */
+export async function fakeStoreItems(folder: string) {
+  const { data, error } = await adminClient()
+    .schema('fake_storage')
+    .from('items')
+    .select('id, path, size, mime_type')
+    .like('path', `${folder}/%`)
+    .order('path')
+  if (error) throw error
+  return data as { id: string; path: string; size: number; mime_type: string }[]
+}

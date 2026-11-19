@@ -1,0 +1,99 @@
+// HTTP plumbing shared by the Edge Functions. Functions import only files in this folder, never
+// remote modules (see README).
+
+/** A refusal the caller can act on. The function answers with its status and { code, message }. */
+export class Refusal extends Error {
+  status: number
+  code: string
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.status = status
+    this.code = code
+  }
+}
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+/** The Authorization header for calls that bypass RLS. */
+export const SERVICE = `Bearer ${SERVICE_KEY}`
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+/**
+ * Serves a JSON API on POST for signed-in callers. The handler gets the parsed body and the
+ * caller's Authorization header, and its result is the 200 response. A Refusal becomes its
+ * status and { code, message }, and any other error a 500.
+ */
+export function serveJson(handle: (body: unknown, caller: string) => Promise<unknown>) {
+  Deno.serve(async (req) => {
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
+    try {
+      if (req.method !== 'POST') throw new Refusal(405, 'invalid_request', 'Use POST.')
+      const caller = req.headers.get('Authorization')
+      if (!caller) throw new Refusal(401, 'unauthorized', 'Sign in first.')
+      return json(200, await handle(await req.json().catch(() => null), caller))
+    } catch (error) {
+      if (error instanceof Refusal) return json(error.status, { code: error.code, message: error.message })
+      console.error(error)
+      return json(500, { code: 'internal_error', message: 'The request failed.' })
+    }
+  })
+}
+
+/** Calls PostgREST as the caller, or as the service role when authorization is SERVICE. */
+export async function rest<T = unknown>(
+  method: string,
+  path: string,
+  body: unknown,
+  authorization: string,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  const apikey = authorization === SERVICE ? SERVICE_KEY : ANON_KEY
+  const response = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    method,
+    headers: { apikey, Authorization: authorization, 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  })
+  const text = await response.text()
+  const payload = text ? JSON.parse(text) : null
+  if (response.ok) return payload
+  if (response.status === 401) throw new Refusal(401, 'unauthorized', 'Sign in again.')
+  if (response.status === 403) throw new Refusal(403, 'forbidden', payload?.message ?? 'Not allowed.')
+  if (response.status < 500) throw invalid(payload?.message ?? 'The request was refused.')
+  throw new Error(`${method} ${path} failed with ${response.status}: ${text}`)
+}
+
+/** Calls the Supabase Auth API, as the caller or with the service role. */
+export function authFetch(method: string, path: string, body: unknown, authorization: string) {
+  return fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+    method,
+    headers: {
+      apikey: authorization === SERVICE ? SERVICE_KEY : ANON_KEY,
+      Authorization: authorization,
+      'Content-Type': 'application/json',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+export function invalid(message: string) {
+  return new Refusal(400, 'invalid_request', message)
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
+function json(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
+}
