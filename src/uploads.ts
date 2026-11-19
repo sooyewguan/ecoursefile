@@ -11,19 +11,25 @@ import { pagesPerSheet } from './sections.ts'
 export type Slot = { offeringId: string; section: number; item?: number; slot?: string }
 
 /**
- * A shared file: the one file of a shared-file section, such as 1 Academic Calendar, for one
- * semester. Every course file of the semester links it.
+ * A shared file: the one file of a shared-file section for one semester. In a section shared by
+ * semester, such as 1 Academic Calendar, every course file of the semester links it. In a section
+ * shared by lecturer, 4 Lecturer Timetable, it is the caller's own, and every course file they
+ * teach in the semester links it.
  */
 export type SharedSlot = { semesterId: string; section: number }
 
 /** One item of a section with items, such as Lab 2 of Lab Exercises. */
 export type Item = { offeringId: string; section: number; item: number }
 
-/** A row of the files table. A course file's file has an offering_id, and a shared file a semester_id. */
+/**
+ * A row of the files table. A course file's file has an offering_id, and a shared file a
+ * semester_id, and a lecturer_id when it is that lecturer's timetable.
+ */
 export type FileRecord = {
   id: string
   offering_id: string | null
   semester_id: string | null
+  lecturer_id: string | null
   section: number
   item: number | null
   slot: string | null
@@ -127,7 +133,7 @@ export async function deleteFile(client: SupabaseClient, fileId: string) {
 }
 
 /**
- * Deletes a shared file, as deleteFile does, after the admin has confirmed it. Its section becomes
+ * Deletes a shared file, as deleteFile does, after the user has confirmed it. Its section becomes
  * Missing in every course file that linked it.
  */
 export async function deleteSharedFile(client: SupabaseClient, fileId: string) {

@@ -12,7 +12,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
+import { cn, formatSize } from '@/lib/utils'
 import { itemName, pagesPerSheet, SECTION_SLOTS, SECTIONS, SECTIONS_WITH_PAGES, type SectionSlot, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
@@ -543,9 +543,4 @@ function FileTable({
 
 function plural(count: number, noun: string) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
-}
-
-function formatSize(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

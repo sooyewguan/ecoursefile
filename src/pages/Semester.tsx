@@ -1,7 +1,8 @@
 import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FolderOpenIcon, PlusIcon, Trash2Icon, UploadIcon, UsersIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
-import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
+import { FormDialog } from '@/components/action-dialogs'
+import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
@@ -16,9 +17,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { GlobalRole } from '../roles.ts'
-import { SHARED_FILE_SECTIONS, type Section } from '../sections.ts'
+import { SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
-import { deleteSharedFile, uploadFile } from '../uploads.ts'
+import { uploadFile } from '../uploads.ts'
 
 type Person = { id: string; full_name: string; email: string; active: boolean; user_roles: { role: GlobalRole }[] }
 
@@ -34,14 +35,7 @@ type Offering = {
 }
 
 /** One of the semester's shared files, and the offerings whose course files link it. */
-type SharedFile = {
-  id: string
-  section: number
-  name: string
-  uploaded_at: string
-  uploader_name: string
-  linked_offerings: { id: string; course: { code: string; title: string } }[]
-}
+type SharedFile = LinkedSharedFile & { section: number; uploaded_at: string; uploader_name: string }
 
 /** The page's data. A semester of null means no semester has the id in the address. */
 type PageData = {
@@ -94,6 +88,7 @@ export function Semester() {
         .from('files')
         .select('id, section, name, uploaded_at, uploader_name, linked_offerings(id, course:courses(code, title))')
         .eq('semester_id', semesterId!)
+        .in('section', SEMESTER_FILE_SECTIONS.map((section) => section.number))
         .overrideTypes<SharedFile[], { merge: false }>(),
       supabase.from('courses').select('id, code, title').order('code'),
       supabase.from('profiles').select('id, full_name, email, active, user_roles(role)').order('full_name'),
@@ -221,9 +216,9 @@ export function Semester() {
             </TableHeader>
             <TableBody>
               {!data ? (
-                <TableSkeleton columns={SHARED_COLUMNS} rows={SHARED_FILE_SECTIONS.length} />
+                <TableSkeleton columns={SHARED_COLUMNS} rows={SEMESTER_FILE_SECTIONS.length} />
               ) : (
-                SHARED_FILE_SECTIONS.map((section) => {
+                SEMESTER_FILE_SECTIONS.map((section) => {
                   const file = data.sharedFiles.find((shared) => shared.section === section.number)
                   const uploaded = file && `${file.uploader_name}, ${new Date(file.uploaded_at).toLocaleString()}`
                   return (
@@ -395,7 +390,7 @@ export function Semester() {
         <DeleteSharedFileDialog
           file={dialog.file}
           section={dialog.section}
-          semesterCode={data!.semester!.code}
+          subject={`The ${dialog.section.title} of ${data!.semester!.code}`}
           onClose={close}
           onDeleted={async () => {
             await reload()
@@ -404,61 +399,6 @@ export function Semester() {
         />
       )}
     </div>
-  )
-}
-
-/**
- * Confirms the delete of a shared file. It lists the offerings whose course files link the file,
- * because the section becomes Missing in each of them.
- */
-function DeleteSharedFileDialog({
-  file,
-  section,
-  semesterCode,
-  onClose,
-  onDeleted,
-}: {
-  file: SharedFile
-  section: Section
-  semesterCode: string
-  onClose: () => void
-  onDeleted: () => Promise<void>
-}) {
-  const linked = file.linked_offerings.toSorted((a, b) => a.course.code.localeCompare(b.course.code))
-  const sectionName = `section ${section.number} ${section.title}`
-  return (
-    <ConfirmDialog
-      title={`Delete ${file.name}?`}
-      description={
-        linked.length === 0
-          ? `The ${section.title} of ${semesterCode} is deleted for good, from SharePoint. No course file links it yet.`
-          : `The ${section.title} of ${semesterCode} is deleted for good, from SharePoint and from the course files that link it. ${
-              linked.length === 1 ? `This offering loses it, and ${sectionName} becomes Missing:` : `These ${linked.length} offerings lose it, and ${sectionName} becomes Missing in each:`
-            }`
-      }
-      confirmLabel="Delete file"
-      destructive
-      onClose={onClose}
-      onConfirm={async () => {
-        try {
-          await deleteSharedFile(supabase, file.id)
-        } catch (error) {
-          return error instanceof Error ? error.message : String(error)
-        }
-        await onDeleted()
-        return null
-      }}
-    >
-      {linked.length > 0 && (
-        <ul aria-label="Affected offerings" className="max-h-48 overflow-y-auto rounded-md border text-sm">
-          {linked.map((offering) => (
-            <li key={offering.id} className="border-b px-3 py-2 last:border-b-0">
-              <span className="font-medium">{offering.course.code}</span> {offering.course.title}
-            </li>
-          ))}
-        </ul>
-      )}
-    </ConfirmDialog>
   )
 }
 

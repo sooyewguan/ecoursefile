@@ -155,7 +155,6 @@ test('a shared file names a semester and a shared-file section, and no offering,
 
   for (const slot of [
     { semesterId: semester.id, section: 2 },
-    { semesterId: semester.id, section: 4 },
     { semesterId: semester.id, section: 5 },
     { semesterId: 'not-a-uuid', section: CALENDAR },
     { semesterId: semester.id, section: CALENDAR, offeringId },

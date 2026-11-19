@@ -19,18 +19,21 @@ export type Section = {
   /** Set when the browser merges every PDF of the section before upload. */
   perSheet?: PagesPerSheet
   /**
-   * Set when the section's file is a shared file: the admin uploads one for each semester, and
-   * every course file of the semester links it. The files table's check constraint lists the same sections.
+   * Set when the section's files are shared files, stored once and linked into many course files,
+   * and what each one is shared by. A semester's file: the admin uploads one for each semester, and
+   * every course file of the semester links it. A lecturer's file: each lecturer uploads their own
+   * for each semester, and every course file they teach in the semester links it. The files table's
+   * check constraints list the same sections.
    */
-  sharedFile?: true
+  sharedFile?: 'semester' | 'lecturer'
 }
 
 /** The 19 sections of every course file, in the fixed order. */
 export const SECTIONS: readonly Section[] = [
-  { number: 1, title: 'Academic Calendar', kind: 'always', sharedFile: true },
+  { number: 1, title: 'Academic Calendar', kind: 'always', sharedFile: 'semester' },
   { number: 2, title: 'Teaching Plan', kind: 'always' },
-  { number: 3, title: 'Appointment Letter', kind: 'always', sharedFile: true },
-  { number: 4, title: 'Lecturer Timetable', kind: 'always' },
+  { number: 3, title: 'Appointment Letter', kind: 'always', sharedFile: 'semester' },
+  { number: 4, title: 'Lecturer Timetable', kind: 'always', sharedFile: 'lecturer' },
   { number: 5, title: 'Student Timetable', kind: 'always' },
   { number: 6, title: 'Attendance Record', kind: 'always' },
   { number: 7, title: 'Replacement Notices', kind: 'may-be-empty' },
