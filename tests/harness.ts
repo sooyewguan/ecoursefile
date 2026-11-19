@@ -59,9 +59,33 @@ export async function createUser(options: { roles?: GlobalRole[]; departmentId?:
   return { id, email, password }
 }
 
+export async function userIdOf(client: SupabaseClient) {
+  const { data } = await client.auth.getSession()
+  if (!data.session) throw new Error('The client has no session')
+  return data.session.user.id
+}
+
 /** The claims of the client's current access token, decoded the way any reader of the JWT would. */
 export async function accessTokenClaims(client: SupabaseClient): Promise<Record<string, unknown>> {
   const { data } = await client.auth.getSession()
   if (!data.session) throw new Error('The client has no session')
   return JSON.parse(Buffer.from(data.session.access_token.split('.')[1], 'base64url').toString())
+}
+
+/** Adds a department with the service role, as a test arrangement, and returns its id. */
+export async function createDepartment() {
+  const { data, error } = await adminClient()
+    .from('departments')
+    .insert({ code: `D-${randomUUID()}`, name: 'Seam1 Department' })
+    .select('id')
+    .single()
+  if (error) throw error
+  return data.id as string
+}
+
+/** The user's roles as this client reads them, sorted. */
+export async function rolesOf(client: SupabaseClient, userId: string) {
+  const { data, error } = await client.from('user_roles').select('role').eq('user_id', userId)
+  if (error) throw error
+  return data.map((row: { role: GlobalRole }) => row.role).toSorted()
 }

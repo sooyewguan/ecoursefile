@@ -30,13 +30,27 @@ test('a new user has the flag set, and signing in does not clear it', async () =
   expect(await readOwnFlag(client)).toBe(true)
 })
 
-test('a user cannot clear their own flag by writing their profile', async () => {
+test('a user cannot write their own flag, email or active state', async () => {
   const user = await createStaffUser()
   const client = await signIn(user.email, user.password)
 
   await client.from('profiles').update({ must_change_password: false }).eq('id', user.id)
+  await client.from('profiles').update({ email: uniqueEmail('changed') }).eq('id', user.id)
+  await client.from('profiles').update({ active: false }).eq('id', user.id)
 
-  expect(await readOwnFlag(client)).toBe(true)
+  const { data } = await client.from('profiles').select('must_change_password, email, active').eq('id', user.id)
+  expect(data).toEqual([{ must_change_password: true, email: user.email, active: true }])
+})
+
+test('an admin cannot write the flag or email of a user they manage', async () => {
+  const user = await createStaffUser()
+  const admin = await signInAs('admin')
+
+  await admin.from('profiles').update({ must_change_password: false }).eq('id', user.id)
+  await admin.from('profiles').update({ email: uniqueEmail('changed') }).eq('id', user.id)
+
+  const { data } = await admin.from('profiles').select('must_change_password, email').eq('id', user.id)
+  expect(data).toEqual([{ must_change_password: true, email: user.email }])
 })
 
 test('setting a new password clears the flag', async () => {
