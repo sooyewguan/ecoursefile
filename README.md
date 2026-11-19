@@ -167,38 +167,60 @@ The coordinator and lecturers of an offering upload PDFs to the sections that ho
 | 2 Teaching Plan, 6 Attendance Record, 17 Week 12 Marks, 18 Grade List | The section |
 | 7 Replacement Notices, 8 Proof of Absence, 9 Warning Letters | The section. It may stay empty, and its status is then `empty`, never `missing`. |
 | 10 Lecture Notes | The section, while the offering has it on. The browser merges each PDF 8 pages to a page before it uploads it, and only the merged PDF is stored. Staff upload as many parts as they like. |
+| 11 Lab Exercises to 16 Final Exam | One slot of one numbered item, such as Lab 2 or Quiz 1, while the offering has the section on. See [Items](#items). |
 | 19 LO/PO Analysis | One of four slots: PO Achievement (`po_achievement`), LO Achievement (`lo_achievement`), LO/PO Evaluation (`lo_po_evaluation`) and CQI (`cqi`). Each slot holds its own files in its own order. |
 
-The slots are the `SECTION_SLOTS` constant in `supabase/functions/_shared/sections.ts`, and the `files` table's check constraint lists the same names. Each of these sections' titles on the course file page opens the section page, which lists the files in their order, one list per slot. Everyone who reads the course file sees the lists. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql`, `supabase/migrations/20261119090100_plain_file_sections.sql` and `supabase/migrations/20261119100000_lecture_notes.sql`.
+The slots are the `SECTION_SLOTS` constant in `supabase/functions/_shared/sections.ts`, and the `files` table's check constraint lists the same names. Each of these sections' titles on the course file page opens the section page, which lists the files in their order, one list per slot. Everyone who reads the course file sees the lists. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql`, `supabase/migrations/20261119090100_plain_file_sections.sql`, `supabase/migrations/20261119100000_lecture_notes.sql` and `supabase/migrations/20261119110000_item_sections.sql`.
 
-A switched-off section shows as `off`, even when it holds files. Staff cannot upload to it or reorder its files, but the uploader or the coordinator can still delete them.
+A switched-off section shows as `off`, even when it holds files. Staff cannot upload to it, add items to it or reorder its files, but they can still delete its files and items by the usual rights.
+
+### Items
+
+In sections 11 to 16, staff add numbered items with no fixed count. Each item has the slots of its section, in this order:
+
+| Section | Items are called | Slots |
+| --- | --- | --- |
+| 11 Lab Exercises | Lab | Lab Sheet (`lab_sheet`), Answer Scheme (`answer_scheme`), Script High (`script_high`), Script Medium (`script_medium`), Script Low (`script_low`) |
+| 12 Tutorial | Tutorial | Question (`question`), Answer Scheme (`answer_scheme`) |
+| 13 Quiz | Quiz | Question (`question`), Answer Scheme (`answer_scheme`), Scripts (`scripts`) |
+| 14 Assignment | Assignment | Question (`question`), Rubric (`rubric`), Moderation Form (`moderation_form`), Script High, Script Medium, Script Low |
+| 15 Mid-Term Test | Test | Question, Answer Scheme, Moderation Form, Script High, Script Medium, Script Low |
+| 16 Final Exam | Exam | Question, Answer Scheme, Moderation Form, Script High, Script Medium, Script Low |
+
+- Script High, Script Medium and Script Low hold one file each. The other slots, Scripts included, hold any number of files in the order staff set.
+- The browser merges every answer script, in Script High, Script Medium, Script Low and Scripts, 4 pages to a page before it uploads it. Each script is one upload.
+- A new item takes the number after the section's highest item. Deleting an item does not renumber the others.
+- The section is `pending_review` once any slot of any item has a file. An item without files does not count.
+- Deleting an item deletes its files from storage and from the database, and logs each file's delete. A caller may delete an item when they teach the offering and may delete every file in it. So the coordinator may delete any item, a lecturer an item whose files they all uploaded, and every lecturer an empty item.
 
 | Table | What each entry holds |
 | --- | --- |
-| `files` | One file in one section of an offering: its `slot` in section 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in the section or slot, the uploader and the upload time. |
+| `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. |
+| `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
 | `activity_log` | One upload or delete: the offering, the section, the `action`, the actor and the file name. Rows are never changed or removed, not even by the service role. |
 
-Readers of an offering read both tables. Clients write neither. The `files` Edge Function writes them with the service role.
+Readers of an offering read all three tables. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items.
 
 | RPC or column | What it does |
 | --- | --- |
-| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for section 10 while the offering has it on, for the offering's coordinator and lecturers. |
-| `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. |
+| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for sections 10 to 16 while the offering has them on, for the offering's coordinator and lecturers. |
+| `add_item(offering_id, section)` | Adds the next item to a section from 11 to 16 and returns its number. A caller for whom `can_upload` is false, or another section, fails with Postgres error `42501`. |
+| `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. Also a column of `items`: whether the caller teaches the offering and may delete every file in the item. |
 | `uploader_name` | A column of `files`: the uploader's name. |
-| `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section or slot, fails with Postgres error `42501`. |
+| `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, item or slot, fails with Postgres error `42501`. |
 
 ### Upload flow
 
 `src/uploads.ts` holds the browser side. `uploadFile` takes these steps:
 
-1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`. For a section in `MERGED_SECTIONS` in `src/sections.ts`, which is Lecture Notes, the browser first merges the PDF with the PDF engine and applies the rule to the merged PDF. A PDF that the engine cannot read, such as one with a password, is refused with the code `unreadable_pdf`.
-2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller, and returns a pre-authenticated `uploadUrl` and a `storedName`.
+1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`. Where `pagesPerSheet` in `src/sections.ts` gives a number, the browser first merges the PDF with the PDF engine and applies the rule to the merged PDF. The number is the slot's `perSheet` in `SECTION_SLOTS`, 4 for answer scripts, or else the section's `perSheet` in `SECTIONS`, 8 for Lecture Notes. A PDF that the engine cannot read, such as one with a password, is refused with the code `unreadable_pdf`.
+2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller. In sections 11 to 16 it also refuses an item that does not exist, and a slot that holds one file and has it. It returns a pre-authenticated `uploadUrl` and a `storedName`.
 3. The browser sends the file to `uploadUrl` in 5 MiB chunks with `PUT` and `Content-Range`, and without an Authorization header.
-4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path, checks the same rule, and reads the item's first 5 bytes, which must be the PDF signature `%PDF-`. If the item fails a check, the function deletes it. Otherwise it records the file and logs the upload. The section's status becomes `pending_review`.
+4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path, checks the same rule, and reads the item's first 5 bytes, which must be the PDF signature `%PDF-`. If the item fails a check, the function deletes it. Otherwise it records the file and logs the upload. If recording fails, such as when the item was deleted or the one-file slot filled after the session opened, the function deletes the stored item too. The section's status becomes `pending_review`.
 
 Finalize looks the item up by its path, not by an item ID from the browser. A caller can therefore record or delete only items in a section that they may upload to. Finalizing the same upload twice returns the same record.
 
-Each file is stored at `eCourseFile/<semester>/<course code> <course title>/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/BITP1113 Programming/02 Teaching Plan/2026-11-19T10-30-00.123Z_plan.pdf`. A file in a slot has the slot's title as one more folder, such as `.../19 LO-PO Analysis/CQI/<upload time>_<file name>`. Characters that SharePoint does not allow in names become `-`.
+Each file is stored at `eCourseFile/<semester>/<course code> <course title>/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/BITP1113 Programming/02 Teaching Plan/2026-11-19T10-30-00.123Z_plan.pdf`. A file in an item has the item's name as one more folder, and a file in a slot the slot's title, such as `.../11 Lab Exercises/Lab 2/Script High/<upload time>_<file name>` or `.../19 LO-PO Analysis/CQI/<upload time>_<file name>`. Characters that SharePoint does not allow in names become `-`.
 
 ### The files Edge Function
 
@@ -206,18 +228,20 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
-| `create-upload-session` | `offeringId`, `section`, `slot` (section 19 only), `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
-| `finalize-upload` | `offeringId`, `section`, `slot` (section 19 only), `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
+| `create-upload-session` | `offeringId`, `section`, `item` (sections 11 to 16 only), `slot` (sections 11 to 16 and 19 only), `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
+| `finalize-upload` | `offeringId`, `section`, `item` (sections 11 to 16 only), `slot` (sections 11 to 16 and 19 only), `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
 | `delete-file` | `fileId` | Users who see the file with `deletable` true | `{ "fileId" }` |
+| `delete-item` | `offeringId`, `section` (11 to 16), `item` | Users who see the item with `deletable` true | `{ "item" }` |
 
-`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. On failure, the function returns `{ "code": "...", "message": "..." }`.
+`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above. Section 19 needs one of its slot names in `slot`, and other sections take no `slot`. |
+| 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | The caller may not upload to the section, or may not delete the file. |
-| 404 | `not_found` | Finalize found no uploaded item, or the caller cannot see the file to delete. |
+| 403 | `forbidden` | The caller may not upload to the section, or may not delete the file or item. |
+| 404 | `not_found` | The upload's item does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. |
+| 409 | `slot_full` | The slot holds one file and has it. At finalize, the function deleted the stored item. |
 | 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
 | 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |
 
