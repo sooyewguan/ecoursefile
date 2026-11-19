@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createClient, FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { inject } from 'vitest'
 import type { GlobalRole } from '../src/roles.ts'
+import { deleteSharedFile } from '../src/uploads.ts'
 import { roleEmail, TEST_DOMAIN, TEST_PASSWORD } from './global-setup.ts'
 
 const clientOptions = { auth: { persistSession: false, autoRefreshToken: false } }
@@ -102,13 +103,44 @@ export async function callAccounts(client: SupabaseClient, body: Record<string, 
 }
 
 /**
- * A semester with a random code, and the given number if there is one: new, inserted by the
- * client (by default the service role), or the existing one when an earlier test or run took the
- * code. There are only 3,000 codes, start years 2000 to 2999 times numbers 1 to 3, and semesters
+ * The first start year of the semesters that pickSemester leaves to the tests of shared files. An
+ * upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the
+ * semester, so no other test's offering may share a semester with those tests.
+ */
+const SHARED_FILE_START_YEAR = 2900
+
+/** A whole number from 0 to below the limit. */
+function randomBelow(limit: number) {
+  return Math.floor(Math.random() * limit)
+}
+
+/**
+ * A semester with a random start year from 2000 to 2899, and the given number if there is one,
+ * else a random number: new, inserted by the client (by default the service role), or the existing
+ * one when an earlier test or run took the code. There are only 2,700 such codes, and semesters
  * with offerings are never deleted, so a test cannot count on a semester of its own.
  */
-export async function pickSemester(client: SupabaseClient = adminClient(), number?: number) {
-  const code = { start_year: 2000 + Math.floor(Math.random() * 1000), number: number ?? 1 + Math.floor(Math.random() * 3) }
+export function pickSemester(client: SupabaseClient = adminClient(), number?: number) {
+  return semesterWithCode({ start_year: 2000 + randomBelow(SHARED_FILE_START_YEAR - 2000), number: number ?? 1 + randomBelow(3) }, client)
+}
+
+/**
+ * A semester for tests of shared files: a random one of the 300 codes from start year 2900 on,
+ * which pickSemester never returns, with the calendar and letter that an earlier test or run left
+ * deleted by the admin. Only tests in one file upload calendars and letters, and they run one after
+ * another, so the semester stays without them until the test uploads one.
+ */
+export async function semesterWithoutSharedFiles() {
+  const semester = await semesterWithCode({ start_year: SHARED_FILE_START_YEAR + randomBelow(3000 - SHARED_FILE_START_YEAR), number: 1 + randomBelow(3) })
+  const { data, error } = await adminClient().from('files').select('id').eq('semester_id', semester.id)
+  if (error) throw error
+  const admin = await signInAs('admin')
+  for (const file of data) await deleteSharedFile(admin, file.id)
+  return semester
+}
+
+/** The semester with this code: inserted by the client, or the existing one when the code is taken. */
+async function semesterWithCode(code: { start_year: number; number: number }, client: SupabaseClient = adminClient()) {
   const inserted = await client.from('semesters').insert(code).select('id, start_year, number, code').single()
   if (!inserted.error) return inserted.data
   if (inserted.error.code !== '23505') throw inserted.error
@@ -118,12 +150,17 @@ export async function pickSemester(client: SupabaseClient = adminClient(), numbe
 }
 
 /**
- * Offers a new course in a semester from pickSemester, with the service role, as a test
- * arrangement. The course type has sectionsOn on, by default sections 10 and 12.
+ * Offers a new course in the semester, by default one from pickSemester, with the service role, as
+ * a test arrangement. The course type has sectionsOn on, by default sections 10 and 12.
  */
-export async function createOffering(options: { coordinatorId: string; lecturerIds?: string[]; sectionsOn?: number[] }) {
+export async function createOffering(options: {
+  coordinatorId: string
+  lecturerIds?: string[]
+  sectionsOn?: number[]
+  semester?: { id: string; code: string }
+}) {
   const service = adminClient()
-  const semester = await pickSemester()
+  const semester = options.semester ?? (await pickSemester())
   const courseType = await service
     .from('course_types')
     .insert({ name: `Type-${randomUUID()}`, sections_on: options.sectionsOn ?? [10, 12] })

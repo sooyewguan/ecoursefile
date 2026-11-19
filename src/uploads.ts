@@ -10,13 +10,20 @@ import { pagesPerSheet } from './sections.ts'
  */
 export type Slot = { offeringId: string; section: number; item?: number; slot?: string }
 
+/**
+ * A shared file: the one file of a shared-file section, such as 1 Academic Calendar, for one
+ * semester. Every course file of the semester links it.
+ */
+export type SharedSlot = { semesterId: string; section: number }
+
 /** One item of a section with items, such as Lab 2 of Lab Exercises. */
 export type Item = { offeringId: string; section: number; item: number }
 
-/** A row of the files table. */
+/** A row of the files table. A course file's file has an offering_id, and a shared file a semester_id. */
 export type FileRecord = {
   id: string
-  offering_id: string
+  offering_id: string | null
+  semester_id: string | null
   section: number
   item: number | null
   slot: string | null
@@ -54,7 +61,7 @@ const CHUNK_BYTES = 16 * 320 * 1024
  */
 export async function uploadFile(
   client: SupabaseClient,
-  slot: Slot,
+  slot: Slot | SharedSlot,
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<FileRecord> {
@@ -69,13 +76,13 @@ export async function uploadFile(
  * The bytes to store for the file: the file itself, or in a merged slot the PDF merged N-up. Only
  * the merged PDF is stored, so the size rule applies to it.
  */
-async function storedBytes(slot: Slot, file: File): Promise<Blob> {
+async function storedBytes(slot: Slot | SharedSlot, file: File): Promise<Blob> {
   const perSheet = pagesPerSheet(slot)
   const bytes = perSheet && file.type === PDF_TYPE ? await merge(file, perSheet) : file
   const problem = uploadProblem(bytes)
   if (problem === 'too_large' && perSheet) {
     // A merged section takes parts, such as Lecture Notes by chapter. A merged slot takes whole scripts.
-    const advice = slot.slot ? 'Scan the script at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
+    const advice = 'slot' in slot && slot.slot ? 'Scan the script at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
     throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. ${advice}`)
   }
   if (problem) throw new FileActionError(problem, UPLOAD_PROBLEM_MESSAGES[problem])
@@ -91,7 +98,7 @@ async function merge(file: File, perSheet: PagesPerSheet) {
   return new Blob([merged], { type: PDF_TYPE })
 }
 
-export function createUploadSession(client: SupabaseClient, slot: Slot, fileName: string) {
+export function createUploadSession(client: SupabaseClient, slot: Slot | SharedSlot, fileName: string) {
   return callFiles<UploadSession>(client, { action: 'create-upload-session', ...slot, fileName })
 }
 
@@ -109,14 +116,22 @@ export async function sendChunks(uploadUrl: string, bytes: Blob, onProgress?: (f
   }
 }
 
-export async function finalizeUpload(client: SupabaseClient, slot: Slot, storedName: string) {
+export async function finalizeUpload(client: SupabaseClient, slot: Slot | SharedSlot, storedName: string) {
   const { file } = await callFiles<{ file: FileRecord }>(client, { action: 'finalize-upload', ...slot, storedName })
   return file
 }
 
-/** Deletes the file from storage and from the database. */
+/** Deletes the file from storage and from the database. The files function refuses a shared file this way. */
 export async function deleteFile(client: SupabaseClient, fileId: string) {
   await callFiles(client, { action: 'delete-file', fileId })
+}
+
+/**
+ * Deletes a shared file, as deleteFile does, after the admin has confirmed it. Its section becomes
+ * Missing in every course file that linked it.
+ */
+export async function deleteSharedFile(client: SupabaseClient, fileId: string) {
+  await callFiles(client, { action: 'delete-file', fileId, confirmed: true })
 }
 
 /** Deletes the item's files, as deleteFile does, and then the item. */
