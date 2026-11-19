@@ -13,13 +13,13 @@ export function Home() {
   return (
     <div className="grid gap-8">
       <Card>
-        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <Initials name={state.profile.fullName} className="size-14 text-lg" />
+        <CardHeader className="flex items-start gap-4 sm:items-center">
+          <Initials name={state.profile.fullName} className="size-12 text-base sm:size-14 sm:text-lg" />
           <div className="grid min-w-0 gap-1.5">
             <CardTitle className="text-xl sm:text-2xl">
-              <h1 className="break-words">Welcome, {state.profile.fullName}</h1>
+              <h1 className="wrap-break-word">Welcome, {state.profile.fullName}</h1>
             </CardTitle>
-            <CardDescription className="break-all">Signed in as {state.profile.email}</CardDescription>
+            <CardDescription className="wrap-break-word">Signed in as {state.profile.email}</CardDescription>
             <RoleBadges roles={state.roles} className="mt-1" />
           </div>
         </CardHeader>

@@ -44,7 +44,11 @@ type OpenDialog =
   | { kind: 'reset-password'; user: UserRow }
   | { kind: 'set-active'; user: UserRow }
 
-const COLUMNS = 5
+/** Below md the department, roles and status move into the name cell, so a phone needs no sideways scroll. */
+const WIDE = 'hidden md:table-cell'
+
+/** The table's columns: name, department, roles, status and the row menu. */
+const COLUMNS = ['', WIDE, WIDE, WIDE, '']
 
 export function Users() {
   const state = useAuth()
@@ -117,10 +121,9 @@ export function Users() {
           <TableHeader className="bg-muted/50">
             <TableRow>
               <TableHead className="px-4">Name</TableHead>
-              {/* Below md these three move into the name cell, so a phone needs no sideways scroll. */}
-              <TableHead className="hidden px-4 md:table-cell">Department</TableHead>
-              <TableHead className="hidden px-4 md:table-cell">Roles</TableHead>
-              <TableHead className="hidden px-4 md:table-cell">Status</TableHead>
+              <TableHead className={cn('px-4', WIDE)}>Department</TableHead>
+              <TableHead className={cn('px-4', WIDE)}>Roles</TableHead>
+              <TableHead className={cn('px-4', WIDE)}>Status</TableHead>
               <TableHead className="w-14 px-4">
                 <span className="sr-only">Actions</span>
               </TableHead>
@@ -130,7 +133,7 @@ export function Users() {
             {!data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.users.length === 0 ? (
-              <TableEmpty columns={COLUMNS} icon={UsersIcon} title="No users yet" description="Add the first user." />
+              <TableEmpty columns={COLUMNS.length} icon={UsersIcon} title="No users yet" description="Add the first user." />
             ) : (
               data.users.map((user) => {
                 const roles = user.user_roles.map((r) => r.role)
@@ -155,13 +158,13 @@ export function Users() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="hidden px-4 py-3 whitespace-normal md:table-cell">
+                    <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
                       {department ?? <span className="text-muted-foreground">No department</span>}
                     </TableCell>
-                    <TableCell className="hidden px-4 py-3 md:table-cell">
+                    <TableCell className={cn('px-4 py-3', WIDE)}>
                       <RoleBadges roles={roles} className="min-w-32" />
                     </TableCell>
-                    <TableCell className="hidden px-4 py-3 md:table-cell">
+                    <TableCell className={cn('px-4 py-3', WIDE)}>
                       <StatusBadge active={user.active} />
                     </TableCell>
                     <TableCell className="px-4 py-2 text-right">
@@ -347,7 +350,7 @@ function RoleCheckboxes({
           <Label
             key={role}
             htmlFor={`${idPrefix}-${role}`}
-            className="hover:bg-accent/50 has-[[aria-checked=true]]:border-primary/40 has-[[aria-checked=true]]:bg-accent/60 rounded-md border px-3 py-2.5 font-normal"
+            className="hover:bg-accent/50 has-[[aria-checked=true]]:border-primary/40 has-[[aria-checked=true]]:bg-accent/60 rounded-md border px-2.5 py-2.5 leading-snug font-normal"
           >
             <Checkbox
               id={`${idPrefix}-${role}`}

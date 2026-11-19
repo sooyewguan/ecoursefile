@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/compon
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TableCell, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 export function PageHeader({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return (
@@ -18,12 +19,12 @@ export function PageHeader({ title, description, action }: { title: string; desc
   )
 }
 
-/** Placeholder rows while a table's data loads. */
-export function TableSkeleton({ columns, rows = 3 }: { columns: number; rows?: number }) {
+/** Placeholder rows while a table's data loads, one cell per column with that column's classes. */
+export function TableSkeleton({ columns, rows = 3 }: { columns: readonly string[]; rows?: number }) {
   return Array.from({ length: rows }, (_, row) => (
     <TableRow key={row} aria-hidden="true">
-      {Array.from({ length: columns }, (_, column) => (
-        <TableCell key={column} className="px-4 py-3">
+      {columns.map((className, column) => (
+        <TableCell key={column} className={cn('px-4 py-3', className)}>
           <Skeleton className="h-5 w-full max-w-40" />
         </TableCell>
       ))}

@@ -32,7 +32,6 @@ export type Action<T extends unknown[] = []> = (...args: T) => Promise<string | 
 export function FormDialog({
   title,
   description,
-  formLabel,
   submitLabel,
   submitDisabled = false,
   onSubmit,
@@ -41,8 +40,6 @@ export function FormDialog({
 }: {
   title: string
   description: ReactNode
-  /** The form's accessible name, when it differs from the title. */
-  formLabel?: string
   submitLabel: string
   submitDisabled?: boolean
   onSubmit: Action<[FormData]>
@@ -64,9 +61,9 @@ export function FormDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto">
-        <form onSubmit={submit} aria-label={formLabel ?? title} className="grid gap-6">
+        <form onSubmit={submit} aria-label={title} className="grid gap-6">
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle className="leading-snug">{title}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">{children}</div>

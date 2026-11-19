@@ -39,7 +39,7 @@ export function ChangePassword() {
           <Button
             type="button"
             variant="link"
-            className="h-auto p-0 text-sm"
+            className="h-auto p-0 text-sm underline"
             onClick={() => void supabase.auth.signOut()}
           >
             Sign out

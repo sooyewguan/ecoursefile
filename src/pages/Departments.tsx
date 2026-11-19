@@ -19,7 +19,8 @@ type OpenDialog =
   | { kind: 'rename'; department: Department }
   | { kind: 'delete'; department: Department }
 
-const COLUMNS = 3
+/** The table's columns: code, name and the row menu. */
+const COLUMNS = ['', '', '']
 
 export function Departments() {
   const [departments, setDepartments] = useState<Department[] | null>(null)
@@ -66,7 +67,7 @@ export function Departments() {
         <Table>
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="px-4">Code</TableHead>
+              <TableHead className="w-40 px-4">Code</TableHead>
               <TableHead className="px-4">Name</TableHead>
               <TableHead className="w-14 px-4">
                 <span className="sr-only">Actions</span>
@@ -78,7 +79,7 @@ export function Departments() {
               <TableSkeleton columns={COLUMNS} />
             ) : departments.length === 0 ? (
               <TableEmpty
-                columns={COLUMNS}
+                columns={COLUMNS.length}
                 icon={Building2Icon}
                 title="No departments yet"
                 description="Add a department so that you can place staff in it."
