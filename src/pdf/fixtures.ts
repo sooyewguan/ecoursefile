@@ -9,8 +9,8 @@ const INSET = 4
 /**
  * A PDF of count pages, width by height points as a viewer shows them. Page n shows "Page n" at
  * its centre and "n" just inside each corner, all upright on screen. rotate sets each page's
- * /Rotate, and the content is drawn turned the other way, as a scanner or a viewer's save does.
- * bleed puts that many points of media box around the crop box on every side.
+ * /Rotate, and the content is drawn turned against it, so it still reads upright. bleed puts that
+ * many points of media box around the crop box on every side.
  */
 export async function numberedPdf(count: number, { width = 960, height = 540, rotate = 0, bleed = 0 } = {}) {
   const pdf = await PDFDocument.create()

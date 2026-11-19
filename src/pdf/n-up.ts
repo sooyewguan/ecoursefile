@@ -5,7 +5,7 @@ import { degrees, PDFDocument, rgb, type PDFEmbeddedPage, type PDFPage } from 'p
 export type PagesPerSheet = 4 | 8
 
 /** A4 portrait in PDF points, the size of every merged page. */
-export const SHEET = { width: 595.28, height: 841.89 }
+const SHEET = { width: 595.28, height: 841.89 }
 
 /** The grid of each layout, filled left to right and then top to bottom. */
 const GRIDS: Record<PagesPerSheet, { columns: number; rows: number }> = {
