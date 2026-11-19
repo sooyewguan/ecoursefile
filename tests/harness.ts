@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { inject } from 'vitest'
 import type { GlobalRole } from '../src/roles.ts'
 import { roleEmail, TEST_DOMAIN, TEST_PASSWORD } from './global-setup.ts'
@@ -88,4 +88,15 @@ export async function rolesOf(client: SupabaseClient, userId: string) {
   const { data, error } = await client.from('user_roles').select('role').eq('user_id', userId)
   if (error) throw error
   return data.map((row: { role: GlobalRole }) => row.role).toSorted()
+}
+
+/** Calls the accounts Edge Function as this client, the way the app does, and returns the HTTP status and JSON body. */
+export async function callAccounts(client: SupabaseClient, body: Record<string, unknown>): Promise<{ status: number; body: any }> {
+  const { data, error } = await client.functions.invoke('accounts', { body })
+  if (!error) return { status: 200, body: data }
+  if (error instanceof FunctionsHttpError) {
+    const response: Response = error.context
+    return { status: response.status, body: await response.json() }
+  }
+  throw error
 }
