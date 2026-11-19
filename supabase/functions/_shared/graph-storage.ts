@@ -60,6 +60,21 @@ export function graphStorage(config: GraphConfig): Storage {
       return { id: item.id, size: item.size, mimeType: item.file?.mimeType ?? '' }
     },
 
+    // /content redirects to a pre-authenticated download URL. Graph takes the Range header only
+    // on that URL, so the redirect is followed by hand.
+    async readStart(id, length) {
+      const content = await fetch(`${drive}/items/${encodeURIComponent(id)}/content`, {
+        headers: { Authorization: `Bearer ${await accessToken()}` },
+        redirect: 'manual',
+      })
+      const downloadUrl = content.headers.get('Location')
+      if (!downloadUrl) throw await failure(content, 'get content')
+      await content.body?.cancel()
+      const response = await fetch(downloadUrl, { headers: { Range: `bytes=0-${length - 1}` } })
+      if (!response.ok) throw await failure(response, 'download')
+      return new Uint8Array(await response.arrayBuffer()).slice(0, length)
+    },
+
     async deleteItem(id) {
       const response = await graph('POST', `${drive}/items/${encodeURIComponent(id)}/permanentDelete`)
       if (!response.ok && response.status !== 404) throw await failure(response, 'permanentDelete')

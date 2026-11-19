@@ -181,9 +181,9 @@ Readers of an offering read both tables. Clients write neither. The `files` Edge
 `src/uploads.ts` holds the browser side. `uploadFile` takes these steps:
 
 1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`.
-2. The browser calls the `files` function with `create-upload-session`. The function asks `can_upload` as the caller, and returns a pre-authenticated `uploadUrl` and a `storedName`.
+2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller, and returns a pre-authenticated `uploadUrl` and a `storedName`.
 3. The browser sends the file to `uploadUrl` in 5 MiB chunks with `PUT` and `Content-Range`, and without an Authorization header.
-4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path and checks the same rule. If the item fails the check, the function deletes it. Otherwise it records the file and logs the upload. The section's status becomes `pending_review`.
+4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path, checks the same rule, and reads the item's first 5 bytes, which must be the PDF signature `%PDF-`. If the item fails a check, the function deletes it. Otherwise it records the file and logs the upload. The section's status becomes `pending_review`.
 
 Finalize looks the item up by its path, not by an item ID from the browser. A caller can therefore record or delete only items in a section that they may upload to. Finalizing the same upload twice returns the same record.
 
@@ -207,14 +207,14 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not upload to the section, or may not delete the file. |
 | 404 | `not_found` | Finalize found no uploaded item, or the caller cannot see the file to delete. |
-| 422 | `not_pdf` | The stored item is not a PDF. The function deleted it. |
+| 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
 | 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |
 
 ### Storage adapters
 
-`supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
+`supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
-- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. No automated test covers it.
+- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header. No automated test covers it.
 - `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.

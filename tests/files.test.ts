@@ -44,8 +44,18 @@ async function createCourse(): Promise<Course> {
   return { slot: { offeringId: offering.id, section: TEACHING_PLAN }, folder, coordinator, lecturer, secondLecturer, outsider }
 }
 
+/** The bytes every PDF starts with. */
+const PDF_START = new TextEncoder().encode('%PDF-')
+
+/** size bytes that start like a PDF. */
+function pdfBytes(size: number, byteAt = (_: number) => 37) {
+  const bytes = Uint8Array.from({ length: size }, (_, i) => byteAt(i))
+  bytes.set(PDF_START)
+  return bytes
+}
+
 function pdf(name: string, size = 1024) {
-  return new File([new Uint8Array(size).fill(37)], name, { type: 'application/pdf' })
+  return new File([pdfBytes(size)], name, { type: 'application/pdf' })
 }
 
 /** The slot's files as this client reads them, in their order. */
@@ -89,7 +99,7 @@ test.each(['coordinator', 'lecturer'] as const)('the %s uploads a PDF to Teachin
 
 test('a file larger than one chunk is stored byte for byte', async () => {
   const course = await createCourse()
-  const bytes = Uint8Array.from({ length: 6 * 1024 * 1024 + 7 }, (_, i) => (i * 7 + (i >> 13)) & 255)
+  const bytes = pdfBytes(6 * 1024 * 1024 + 7, (i) => (i * 7 + (i >> 13)) & 255)
 
   const file = await uploadFile(course.lecturer.client, course.slot, new File([bytes], 'plan.pdf', { type: 'application/pdf' }))
 
@@ -137,13 +147,25 @@ test('the browser refuses a non-PDF and a file over 20 MB before it uploads anyt
   expect(await fakeStoreItems(course.folder)).toEqual([])
 })
 
-test.each([
-  ['a non-PDF', 'plan.docx', 100, 'not_pdf'],
-  ['a file over 20 MB', 'big.pdf', MAX_BYTES + 1, 'too_large'],
-] as const)('finalize refuses %s that skipped the browser check, and deletes it from storage', async (_, name, size, code) => {
+test('an upload session is refused for a file name that does not end in .pdf', async () => {
   const course = await createCourse()
-  const storedName = await uploadWithoutFinalize(course.lecturer.client, course.slot, name, new Blob([new Uint8Array(size)]))
-  expect((await fakeStoreItems(course.folder)).map((item) => item.size)).toEqual([size])
+
+  for (const name of ['plan.docx', 'plan', 'plan.pdf.exe', 'plan.pdfx']) {
+    await expect(createUploadSession(course.lecturer.client, course.slot, name)).rejects.toMatchObject({ status: 422, code: 'not_pdf' })
+  }
+  const session = await createUploadSession(course.lecturer.client, course.slot, 'PLAN.PDF')
+  await sendChunks(session.uploadUrl, pdf('PLAN.PDF'))
+  expect((await finalizeUpload(course.lecturer.client, course.slot, session.storedName)).name).toBe('PLAN.PDF')
+})
+
+test.each([
+  ['a non-PDF named .pdf', 'plan.pdf', new TextEncoder().encode('PK\u0003\u0004 a zipped document'), 'not_pdf'],
+  ['a non-PDF with part of the PDF signature', 'plan.pdf', new TextEncoder().encode('%PDF'), 'not_pdf'],
+  ['a file over 20 MB', 'big.pdf', new Uint8Array(MAX_BYTES + 1), 'too_large'],
+] as const)('finalize refuses %s that skipped the browser check, and deletes it from storage', async (_, name, bytes, code) => {
+  const course = await createCourse()
+  const storedName = await uploadWithoutFinalize(course.lecturer.client, course.slot, name, new Blob([bytes]))
+  expect((await fakeStoreItems(course.folder)).map((item) => item.size)).toEqual([bytes.length])
 
   await expect(finalizeUpload(course.lecturer.client, course.slot, storedName)).rejects.toMatchObject({ status: 422, code })
 

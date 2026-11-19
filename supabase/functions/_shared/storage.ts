@@ -13,6 +13,8 @@ export interface Storage {
   createUploadSession(path: string): Promise<UploadSession>
   /** The item at path, or null when there is none. */
   getItem(path: string): Promise<StoredItem | null>
+  /** The first length bytes of the item, or all of them when the item is shorter. */
+  readStart(id: string, length: number): Promise<Uint8Array>
   /** Deletes the item for good. Deleting an item that is already gone succeeds. */
   deleteItem(id: string): Promise<void>
 }

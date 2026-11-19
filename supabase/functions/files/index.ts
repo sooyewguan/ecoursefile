@@ -4,8 +4,15 @@
 // and remove_file RPCs write the file records and the activity log with the service role.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { SECTIONS } from '../_shared/sections.ts'
-import { storageFromEnv } from '../_shared/storage.ts'
-import { UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../_shared/uploads.ts'
+import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
+import {
+  hasPdfName,
+  hasPdfSignature,
+  PDF_SIGNATURE,
+  UPLOAD_PROBLEM_MESSAGES,
+  uploadProblem,
+  type UploadProblem,
+} from '../_shared/uploads.ts'
 
 /** Where a file goes: one section of one offering's course file. */
 type Slot = { offeringId: string; section: number }
@@ -64,6 +71,7 @@ function parseSlot({ offeringId, section }: Record<string, unknown>): Slot | nul
 }
 
 async function createUploadSession(slot: Slot, fileName: string, caller: string) {
+  if (!hasPdfName(fileName)) throw new Refusal(422, 'not_pdf', UPLOAD_PROBLEM_MESSAGES.not_pdf)
   const folder = await uploadFolder(slot, caller)
   const storedName = `${new Date().toISOString().replaceAll(':', '-')}_${fileName}`
   const session = await storage.createUploadSession(`${folder}/${storedName}`)
@@ -76,7 +84,7 @@ async function finalizeUpload(slot: Slot, storedName: string, caller: string) {
   const folder = await uploadFolder(slot, caller)
   const item = await storage.getItem(`${folder}/${storedName}`)
   if (!item) throw new Refusal(404, 'not_found', 'The upload was not found. Upload the file again.')
-  const problem = uploadProblem({ size: item.size, type: item.mimeType })
+  const problem = await storedItemProblem(item)
   if (problem) {
     await storage.deleteItem(item.id)
     throw new Refusal(422, problem, UPLOAD_PROBLEM_MESSAGES[problem])
@@ -90,6 +98,13 @@ async function finalizeUpload(slot: Slot, storedName: string, caller: string) {
     uploaded_by: await callerId(caller),
   }, SERVICE)
   return { file }
+}
+
+/** Why the stored item may not stay, or null when it may. Its type comes from its name, so its first bytes must be a PDF's too. */
+async function storedItemProblem(item: StoredItem): Promise<UploadProblem | null> {
+  const problem = uploadProblem({ size: item.size, type: item.mimeType })
+  if (problem) return problem
+  return hasPdfSignature(await storage.readStart(item.id, PDF_SIGNATURE.length)) ? null : 'not_pdf'
 }
 
 // The stored item goes first. If removing the record then fails, the file is still listed, and
