@@ -204,7 +204,7 @@ Readers of an offering read all three tables. Clients write none of them. The `f
 | RPC or column | What it does |
 | --- | --- |
 | `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for sections 10 to 16 while the offering has them on, for the offering's coordinator and lecturers. |
-| `add_item(offering_id, section)` | Adds the next item to a section from 11 to 16 and returns its number. A caller for whom `can_upload` is false, or another section, fails with Postgres error `42501`. |
+| `add_item(offering_id, section)` | Adds the next item to a section from 11 to 16 and returns its number. Adds made at the same time run one after another, so each gets its own number. A caller for whom `can_upload` is false, or another section, fails with Postgres error `42501`. |
 | `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. Also a column of `items`: whether the caller teaches the offering and may delete every file in the item. |
 | `uploader_name` | A column of `files`: the uploader's name. |
 | `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, item or slot, fails with Postgres error `42501`. |
