@@ -19,3 +19,10 @@ export function SuccessAlert({ children }: { children: ReactNode }) {
     </Alert>
   )
 }
+
+/** The outcome of the last action on a page. */
+export type Notice = { tone: 'success' | 'error'; text: string }
+
+export function NoticeAlert({ notice }: { notice: Notice }) {
+  return notice.tone === 'success' ? <SuccessAlert>{notice.text}</SuccessAlert> : <ErrorAlert>{notice.text}</ErrorAlert>
+}
