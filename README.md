@@ -129,7 +129,7 @@ The admin sets up each semester on the **Semesters** page. The tables, their RLS
 | Table | What each entry holds |
 | --- | --- |
 | `semesters` | A start year and a number from 1 to 3, where 3 is the short semester. The database generates the unique `code`, such as `2026/2027-1`. |
-| `offerings` | One catalog course in one semester, at most once per semester. `coordinator_id` is the coordinator. `sections_on` is a copy of the course type's `sections_on`, taken when the offering is created. Later edits to the type, or a new type for the course, leave the offering as it was. |
+| `offerings` | One catalog course in one semester, at most once per semester. `coordinator_id` is the coordinator. `default_sections_on` is a copy of the course type's `sections_on`, taken when the offering is created. Later edits to the type, or a new type for the course, leave the offering as it was. `section_reasons` and `sections_on` hold the offering's own setting. See [Switching sections](#switching-sections). |
 | `offering_lecturers` | The lecturers of each offering. The coordinator is always one of them, so the coordinator counts as a lecturer. Only users with the `lecturer` role can be added. |
 
 The app writes offerings through two RPCs. Both run as the caller, so RLS lets only admins write.
@@ -149,7 +149,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 | Lecturer | The offerings they teach or coordinate, in every semester |
 | Root | None |
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page with the 19 sections in their fixed order. The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's status from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page with the 19 sections in their fixed order. The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -157,6 +157,20 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 | `pending_review` | Every section that is on and has files |
 | `empty` | Sections 7 to 9 while they have no files. They may stay empty and never count as missing. |
 | `off` | Sections 10 to 16 that the offering has off |
+
+Each row also has `counts_toward_completeness`, which is false for a switched-off section and true for every other section. The spec makes a switched-off section with an open Needs fix verdict count too. That rule goes in `section_statuses` once verdicts exist.
+
+### Switching sections
+
+The coordinator and lecturers of an offering switch sections 10 to 16 on or off from the row menu on the course file page. Nobody else can, not even the admin, and sections 1 to 9 and 17 to 19 cannot be switched. The migration is `supabase/migrations/20261119130000_section_toggles.sql`.
+
+| RPC or column | What it does |
+| --- | --- |
+| `switch_section(offering_id, section, is_on, reason)` | Switches the section on (`is_on` true) or off. Setting a section differently from `default_sections_on` needs a reason that is not blank, which is stored without its outer blanks. Setting it back clears the reason, so `reason` may be left out. Switching a section to the setting it has changes nothing. A caller who does not teach the offering, or another section, fails with Postgres error `42501`, and a missing or blank reason with `23514`. |
+| `section_reasons` | A column of `offerings`: a JSON object with one reason for each section set differently from `default_sections_on`, keyed by section number, such as `{ "11": "Labs run this semester" }`. |
+| `sections_on` | A column of `offerings`, generated from the two above: `default_sections_on` with each section that has a reason switched the other way. Nobody writes it. |
+
+The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
 
 ## Files
 
@@ -197,7 +211,7 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload or delete: the offering, the section, the `action`, the actor and the file name. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete or switch: the offering, the section, the `action` (`upload`, `delete`, `switch_on` or `switch_off`), the actor, the file name of an upload or delete, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
 
 Readers of an offering read all three tables. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items.
 
@@ -296,7 +310,7 @@ The Edge Functions import only local files in `supabase/functions/_shared`. They
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
-Tests that create users give each user a new email address. You can run the tests again without a database reset.
+Tests that create users give each user a new email address. You can run the tests again without a database reset. There are only 3,000 semester codes, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
 ## Troubleshooting
 
