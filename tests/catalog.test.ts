@@ -134,6 +134,17 @@ test('course codes are unique when a course is created or edited', async () => {
   expect((await admin.from('courses').select('code').eq('id', other.id)).data).toEqual([{ code: other.code }])
 })
 
+test('a department that has courses cannot be deleted', async () => {
+  const course = await createCourse()
+
+  const { error } = await admin.from('departments').delete().eq('id', course.department_id)
+
+  expect(error).not.toBeNull()
+  expect((await admin.from('departments').select('id').eq('id', course.department_id)).data).toEqual([
+    { id: course.department_id },
+  ])
+})
+
 test('admin creates, edits and lists program codes', async () => {
   const code = unique('1 BITS S1G1')
 
