@@ -36,10 +36,13 @@ export function uniqueEmail(label: string) {
   return `${label}-${randomUUID()}@${TEST_DOMAIN}`
 }
 
-/** Creates a user with the service role, as a test arrangement, and returns their id and credentials. */
-export async function createUser(options: { roles?: GlobalRole[]; departmentId?: string } = {}) {
+/**
+ * Creates a user with the service role, as a test arrangement, and returns their id and
+ * credentials. The email is a new one unless the test gives its own.
+ */
+export async function createUser(options: { roles?: GlobalRole[]; departmentId?: string; email?: string } = {}) {
   const admin = adminClient()
-  const email = uniqueEmail('user')
+  const email = options.email ?? uniqueEmail('user')
   const password = 'temporary-password'
   const { data, error } = await admin.auth.admin.createUser({
     email,

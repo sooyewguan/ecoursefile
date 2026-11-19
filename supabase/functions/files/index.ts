@@ -260,7 +260,8 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
  * The target's folder in the storage library, once the caller is found to be allowed to upload to
  * it: eCourseFile/<semester>/<course code> <course title>/<NN section>, then /<item name> for an
  * item and /<slot> for a slot. A shared file's folder is eCourseFile/<semester>/_shared/<NN section>,
- * then /<email> for a lecturer's file, so each lecturer finalizes only their own uploads.
+ * then /<id> <email> for a lecturer's file, so each lecturer finalizes only their own uploads. The id
+ * keeps two lecturers apart whose emails make the same folder name, such as a/b@x and a-b@x.
  */
 async function uploadFolder(target: Target, caller: string) {
   if (target.kind === 'shared') {
@@ -274,7 +275,7 @@ async function uploadFolder(target: Target, caller: string) {
       )
     }
     const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
-    return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(lecturer ? [safeName(lecturer.email)] : [])].join('/')
+    return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(lecturer ? [safeName(`${lecturer.id} ${lecturer.email}`)] : [])].join('/')
   }
   const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
   if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')
