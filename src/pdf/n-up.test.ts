@@ -85,14 +85,13 @@ test.each([
   merged.forEach((sheet, index) => expectGrid(sheet, pages.slice(index * perSheet, (index + 1) * perSheet), perSheet))
 })
 
-test.each([90, 180, 270])('pages with /Rotate %i show upright and fit their cells', async (rotate) => {
+test.each([90, 180, 270])('pages with /Rotate %i show upright and fit their cells, 8-up and 4-up', async (rotate) => {
   for (const source of [SLIDE, SCRIPT]) {
     const fixture = await numberedPdf(5, { ...source, rotate })
     expect((await readPdf(fixture))[0]).toMatchObject(source)
 
-    const [sheet] = await readPdf(await nUp(fixture, 8))
-
-    expectGrid(sheet, [1, 2, 3, 4, 5], 8)
+    expectGrid((await readPdf(await nUp(fixture, 8)))[0], [1, 2, 3, 4, 5], 8)
+    expectGrid((await readPdf(await nUp(fixture, 4)))[0], [1, 2, 3, 4], 4)
   }
 })
 

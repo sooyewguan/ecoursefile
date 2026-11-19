@@ -1,19 +1,24 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
-import { MERGED_SECTIONS } from './sections.ts'
+import { pagesPerSheet } from './sections.ts'
 
 /**
- * Where a file goes: one section of one offering's course file. slot is the name of one of the
- * section's SECTION_SLOTS, for a section that has slots.
+ * Where a file goes: one section of one offering's course file. item is the number of one of its
+ * items, for a section that has items. slot is the name of one of the section's SECTION_SLOTS, for
+ * a section that has slots.
  */
-export type Slot = { offeringId: string; section: number; slot?: string }
+export type Slot = { offeringId: string; section: number; item?: number; slot?: string }
+
+/** One item of a section with items, such as Lab 2 of Lab Exercises. */
+export type Item = { offeringId: string; section: number; item: number }
 
 /** A row of the files table. */
 export type FileRecord = {
   id: string
   offering_id: string
   section: number
+  item: number | null
   slot: string | null
   storage_item_id: string
   name: string
@@ -43,9 +48,9 @@ export class FileActionError extends Error {
 const CHUNK_BYTES = 16 * 320 * 1024
 
 /**
- * Uploads a PDF to the slot: merges it when the section is in MERGED_SECTIONS, checks the result,
- * asks for an upload session, sends its chunks to the session URL, and finalizes it. Resolves to
- * the new file record. onProgress gets the fraction sent, from 0 once the bytes are ready.
+ * Uploads a PDF to the slot: merges it when pagesPerSheet says so, checks the result, asks for an
+ * upload session, sends its chunks to the session URL, and finalizes it. Resolves to the new file
+ * record. onProgress gets the fraction sent, from 0 once the bytes are ready.
  */
 export async function uploadFile(
   client: SupabaseClient,
@@ -53,7 +58,7 @@ export async function uploadFile(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<FileRecord> {
-  const bytes = await storedBytes(slot.section, file)
+  const bytes = await storedBytes(slot, file)
   const session = await createUploadSession(client, slot, file.name)
   onProgress?.(0)
   await sendChunks(session.uploadUrl, bytes, onProgress)
@@ -61,15 +66,17 @@ export async function uploadFile(
 }
 
 /**
- * The bytes to store for the file: the file itself, or in a merged section the PDF merged N-up.
- * Only the merged PDF is stored, so the size rule applies to it.
+ * The bytes to store for the file: the file itself, or in a merged slot the PDF merged N-up. Only
+ * the merged PDF is stored, so the size rule applies to it.
  */
-async function storedBytes(section: number, file: File): Promise<Blob> {
-  const perSheet = MERGED_SECTIONS[section]
+async function storedBytes(slot: Slot, file: File): Promise<Blob> {
+  const perSheet = pagesPerSheet(slot)
   const bytes = perSheet && file.type === PDF_TYPE ? await merge(file, perSheet) : file
   const problem = uploadProblem(bytes)
   if (problem === 'too_large' && perSheet) {
-    throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. Split it into parts and upload each part.`)
+    // A merged section takes parts, such as Lecture Notes by chapter. A merged slot takes whole scripts.
+    const advice = slot.slot ? 'Scan the script at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
+    throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. ${advice}`)
   }
   if (problem) throw new FileActionError(problem, UPLOAD_PROBLEM_MESSAGES[problem])
   return bytes
@@ -110,6 +117,11 @@ export async function finalizeUpload(client: SupabaseClient, slot: Slot, storedN
 /** Deletes the file from storage and from the database. */
 export async function deleteFile(client: SupabaseClient, fileId: string) {
   await callFiles(client, { action: 'delete-file', fileId })
+}
+
+/** Deletes the item's files, as deleteFile does, and then the item. */
+export async function deleteItem(client: SupabaseClient, item: Item) {
+  await callFiles(client, { action: 'delete-item', ...item })
 }
 
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {

@@ -1,24 +1,30 @@
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, LayersIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { FILE_SECTIONS, MERGED_SECTIONS, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { FILE_SECTIONS, itemName, pagesPerSheet, SECTION_SLOTS, SECTIONS, type SectionSlot, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
-import { deleteFile, uploadFile } from '../uploads.ts'
+import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
 
 type Offering = { semester: { code: string }; course: { code: string; title: string } }
 
+/** An item of a section with items, such as Lab 2. */
+type SectionItem = { number: number; deletable: boolean }
+
 type SectionFile = {
   id: string
+  item: number | null
   slot: string | null
   name: string
   size: number
@@ -28,13 +34,16 @@ type SectionFile = {
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
-type PageData = { offering: Offering | null; status: SectionStatus | null; files: SectionFile[]; canUpload: boolean }
+type PageData = { offering: Offering | null; status: SectionStatus | null; items: SectionItem[]; files: SectionFile[]; canUpload: boolean }
+
+/** One list of files: the section's, or one slot's, of one item in a section with items. */
+type Place = { item: number | null; slot: string | null }
 
 /**
- * The file being uploaded, the slot it goes to, its place in the batch, and how much of it has
- * been sent: null while the browser merges it.
+ * The file being uploaded, where it goes, its place in the batch, and how much of it has been
+ * sent: null while the browser merges it.
  */
-type Progress = { slot: string | null; name: string; index: number; count: number; fraction: number | null }
+type Progress = Place & { name: string; index: number; count: number; fraction: number | null }
 
 /** Below md the uploader and time move into the file cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
@@ -44,26 +53,32 @@ const COLUMNS = ['', '', WIDE, WIDE, '']
 
 /**
  * One section of a course file: its files in the order staff set, one list per slot when the
- * section has slots. The offering's coordinator and lecturers upload PDFs here and drag them into
- * order. The uploader or the coordinator deletes.
+ * section has slots, and its numbered items in sections 11 to 16, each with the section's slots.
+ * The offering's coordinator and lecturers add items, upload PDFs and drag them into order. The
+ * uploader or the coordinator deletes a file, and staff who may delete every file in an item
+ * delete the item.
  */
 export function CourseFileSection() {
   const params = useParams()
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && FILE_SECTIONS.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
-  const perSheet = section && MERGED_SECTIONS[section.number]
+  const perSheet = section && pagesPerSheet({ section: section.number })
+  /** How many pages the browser puts on each page of an answer script, in a section with script slots. */
+  const scriptsPerSheet = slots?.find((slot) => slot.perSheet)?.perSheet
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
+  const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
+  const [deletingItem, setDeletingItem] = useState<SectionItem | null>(null)
   const picker = useRef<HTMLInputElement>(null)
-  /** The slot that the files picked next go to. */
-  const pickingSlot = useRef<string | null>(null)
+  /** Where the files picked next go. */
+  const picking = useRef<Place>({ item: null, slot: null })
 
   const reload = useCallback(async () => {
     if (!section) return
-    const [offering, files, canUpload, statuses] = await Promise.all([
+    const [offering, items, files, canUpload, statuses] = await Promise.all([
       supabase
         .from('offerings')
         .select('semester:semesters(code), course:courses(code, title)')
@@ -71,8 +86,15 @@ export function CourseFileSection() {
         .maybeSingle()
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase
+        .from('items')
+        .select('number, deletable')
+        .eq('offering_id', offeringId)
+        .eq('section', section.number)
+        .order('number')
+        .overrideTypes<SectionItem[], { merge: false }>(),
+      supabase
         .from('files')
-        .select('id, slot, name, size, uploaded_at, uploader_name, deletable')
+        .select('id, item, slot, name, size, uploaded_at, uploader_name, deletable')
         .eq('offering_id', offeringId)
         .eq('section', section.number)
         .order('position')
@@ -81,13 +103,19 @@ export function CourseFileSection() {
       supabase.rpc('can_upload', { offering_id: offeringId, section: section.number }),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? files.error ?? canUpload.error ?? statuses.error
+    const error = offering.error ?? items.error ?? files.error ?? canUpload.error ?? statuses.error
     if (error) {
       setNotice({ tone: 'error', text: error.message })
       return
     }
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === section.number)
-    setData({ offering: offering.data, status: status?.status ?? null, files: files.data ?? [], canUpload: canUpload.data === true })
+    setData({
+      offering: offering.data,
+      status: status?.status ?? null,
+      items: items.data ?? [],
+      files: files.data ?? [],
+      canUpload: canUpload.data === true,
+    })
   }, [offeringId, section])
 
   useEffect(() => {
@@ -125,10 +153,15 @@ export function CourseFileSection() {
 
   const files = data?.files ?? []
   const canUpload = data?.canUpload ?? false
+  const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
+  const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
+  const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
 
-  function pick(slot: string | null) {
-    pickingSlot.current = slot
-    picker.current?.click()
+  function pick(place: Place, oneFile: boolean) {
+    picking.current = place
+    if (!picker.current) return
+    picker.current.multiple = !oneFile
+    picker.current.click()
   }
 
   /** Uploads the picked files one after another, then reports what was uploaded and what was refused. */
@@ -136,14 +169,14 @@ export function CourseFileSection() {
     const picked = [...(event.target.files ?? [])]
     event.target.value = ''
     if (picked.length === 0) return
-    const slot = pickingSlot.current
-    const target = { offeringId, section: section!.number, slot: slot ?? undefined }
+    const place = picking.current
+    const target = { offeringId, section: section!.number, item: place.item ?? undefined, slot: place.slot ?? undefined }
     setNotice(null)
     const refused: string[] = []
     for (const [index, file] of picked.entries()) {
-      setProgress({ slot, name: file.name, index, count: picked.length, fraction: null })
+      setProgress({ ...place, name: file.name, index, count: picked.length, fraction: null })
       try {
-        await uploadFile(supabase, target, file, (fraction) => setProgress({ slot, name: file.name, index, count: picked.length, fraction }))
+        await uploadFile(supabase, target, file, (fraction) => setProgress({ ...place, name: file.name, index, count: picked.length, fraction }))
       } catch (error) {
         refused.push(`${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -155,10 +188,10 @@ export function CourseFileSection() {
     else setNotice({ tone: 'error', text: `Uploaded ${plural(uploaded, 'file')}. ${refused.join(' ')}` })
   }
 
-  /** Puts one slot's files in a new order, shows it at once, and saves it. */
+  /** Puts one list's files in a new order, shows it at once, and saves it. */
   async function reorder(reordered: SectionFile[]) {
-    const slot = reordered[0].slot
-    setData({ ...data!, files: [...files.filter((file) => file.slot !== slot), ...reordered] })
+    const { item, slot } = reordered[0]
+    setData({ ...data!, files: [...files.filter((file) => file.item !== item || file.slot !== slot), ...reordered] })
     const { error } = await supabase.rpc('reorder_files', { file_ids: reordered.map((file) => file.id) })
     if (error) {
       setNotice({ tone: 'error', text: error.message })
@@ -166,19 +199,32 @@ export function CourseFileSection() {
     }
   }
 
-  const uploadButton = (slot: string | null, label: string) =>
+  async function addItem() {
+    setAdding(true)
+    setNotice(null)
+    const { data: added, error } = await supabase.rpc('add_item', { offering_id: offeringId, section: section!.number })
+    if (error) setNotice({ tone: 'error', text: error.message })
+    else {
+      await reload()
+      setNotice({ tone: 'success', text: `Added ${itemName(section!.number, added)}.` })
+    }
+    setAdding(false)
+  }
+
+  const uploadButton = (place: Place, oneFile = false) =>
     canUpload && (
-      <Button variant={slot ? 'outline' : 'default'} onClick={() => pick(slot)} disabled={progress !== null}>
-        {progress?.slot === slot ? <Spinner /> : <UploadIcon />}
-        {label}
+      <Button variant={place.slot ? 'outline' : 'default'} onClick={() => pick(place, oneFile)} disabled={progress !== null}>
+        {progress?.item === place.item && progress.slot === place.slot ? <Spinner /> : <UploadIcon />}
+        {oneFile ? 'Upload PDF' : 'Upload PDFs'}
       </Button>
     )
 
-  const tableFor = (slot: string | null, label: string) => (
+  const tableFor = (place: Place, label: string, oneFile = false) => (
     <FileTable
       label={label}
-      files={data && files.filter((file) => file.slot === slot)}
+      files={data && filesIn(place)}
       canUpload={canUpload}
+      compact={place.slot !== null}
       emptyDescription={
         data?.status === 'off'
           ? 'This section is off for this offering.'
@@ -186,12 +232,77 @@ export function CourseFileSection() {
             ? 'The coordinator and lecturers upload files here.'
             : section.kind === 'may-be-empty'
               ? 'This section may stay empty. Upload PDF files if there are any.'
-              : 'Upload one or more PDF files.'
+              : oneFile
+                ? 'Upload one PDF file.'
+                : 'Upload one or more PDF files.'
       }
       onReorder={(reordered) => void reorder(reordered)}
       onDelete={setDeleting}
     />
   )
+
+  /** One slot's heading, upload button and files. A slot that holds one file takes no upload while it has it. */
+  const slotList = (item: number | null, slot: SectionSlot) => {
+    const place = { item, slot: slot.name }
+    const title = item === null ? slot.title : `${itemName(section.number, item)} ${slot.title}`
+    const Heading = item === null ? 'h2' : 'h3'
+    return (
+      <section key={slot.name} aria-label={title} className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
+            {slot.oneFile && <Badge variant="secondary">One file</Badge>}
+            {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages to a page</Badge>}
+          </div>
+          {!(slot.oneFile && filesIn(place).length > 0) && uploadButton(place, slot.oneFile)}
+        </div>
+        {tableFor(place, `${title} files`, slot.oneFile)}
+      </section>
+    )
+  }
+
+  const itemList = !data ? (
+    tableFor({ item: null, slot: null }, 'Files')
+  ) : data.items.length === 0 ? (
+    <Card className="py-0">
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <LayersIcon />
+          </EmptyMedia>
+          <EmptyTitle>No items yet</EmptyTitle>
+          <EmptyDescription>
+            {data.status === 'off'
+              ? 'This section is off for this offering.'
+              : canUpload
+                ? `Add ${itemName(section.number, 1)} to upload its files.`
+                : 'The coordinator and lecturers add items here.'}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </Card>
+  ) : (
+    data.items.map((item) => {
+      const name = itemName(section.number, item.number)
+      return (
+        <section key={item.number} aria-label={name} className="bg-muted/30 grid gap-6 rounded-xl border p-4 md:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">{name}</h2>
+            {item.deletable && (
+              <Button variant="outline" size="sm" onClick={() => setDeletingItem(item)}>
+                <Trash2Icon />
+                Delete {name}
+              </Button>
+            )}
+          </div>
+          {slots!.map((slot) => slotList(item.number, slot))}
+        </section>
+      )
+    })
+  )
+
+  const deletingItemName = deletingItem && itemName(section.number, deletingItem.number)
+  const deletingItemFiles = deletingItem ? files.filter((file) => file.item === deletingItem.number).length : 0
 
   return (
     <div className="grid gap-6">
@@ -205,11 +316,18 @@ export function CourseFileSection() {
         action={
           <div className="flex flex-wrap gap-2">
             {backLink}
-            {!slots && uploadButton(null, 'Upload PDFs')}
+            {section.itemTitle
+              ? canUpload && (
+                  <Button onClick={() => void addItem()} disabled={adding}>
+                    {adding ? <Spinner /> : <PlusIcon />}
+                    Add {itemName(section.number, nextItem)}
+                  </Button>
+                )
+              : !slots && uploadButton({ item: null, slot: null })}
           </div>
         }
       />
-      <input ref={picker} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(event) => void upload(event)} />
+      <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         {data?.status && <SectionStatusBadge status={data.status} />}
@@ -217,7 +335,9 @@ export function CourseFileSection() {
           <span>
             {perSheet
               ? `PDF files, merged ${perSheet} pages to a page in your browser. A merged file can be at most 20 MB.`
-              : 'PDF files of up to 20 MB.'}{' '}
+              : scriptsPerSheet
+                ? `PDF files of up to 20 MB. Your browser merges answer scripts ${scriptsPerSheet} pages to a page first, and the limit applies to the merged file.`
+                : 'PDF files of up to 20 MB.'}{' '}
             Drag files to set their order in the compiled course file.
           </span>
         )}
@@ -225,24 +345,14 @@ export function CourseFileSection() {
 
       {progress && (
         <p role="status" className="text-sm">
-          {progress.fraction === null && perSheet
-            ? `Merging ${progress.name} ${perSheet} pages to a page (${progress.index + 1} of ${progress.count})`
+          {progress.fraction === null && progressPerSheet
+            ? `Merging ${progress.name} ${progressPerSheet} pages to a page (${progress.index + 1} of ${progress.count})`
             : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
       {notice && <NoticeAlert notice={notice} />}
 
-      {slots
-        ? slots.map((slot) => (
-            <section key={slot.name} aria-label={slot.title} className="grid gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold tracking-tight">{slot.title}</h2>
-                {uploadButton(slot.name, 'Upload PDFs')}
-              </div>
-              {tableFor(slot.name, `${slot.title} files`)}
-            </section>
-          ))
-        : tableFor(null, 'Files')}
+      {section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files')}
 
       {deleting && (
         <ConfirmDialog
@@ -263,6 +373,30 @@ export function CourseFileSection() {
           }}
         />
       )}
+
+      {deletingItem && (
+        <ConfirmDialog
+          title={`Delete ${deletingItemName}?`}
+          description={
+            deletingItemFiles === 0
+              ? `${deletingItemName} has no files. It is removed from this course file.`
+              : `${deletingItemName} and its ${deletingItemFiles === 1 ? 'file' : plural(deletingItemFiles, 'file')} are deleted for good, from SharePoint and from this course file.`
+          }
+          confirmLabel={`Delete ${deletingItemName}`}
+          destructive
+          onClose={() => setDeletingItem(null)}
+          onConfirm={async () => {
+            try {
+              await deleteItem(supabase, { offeringId, section: section.number, item: deletingItem.number })
+            } catch (error) {
+              return error instanceof Error ? error.message : String(error)
+            }
+            await reload()
+            setNotice({ tone: 'success', text: `Deleted ${deletingItemName}.` })
+            return null
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -270,11 +404,13 @@ export function CourseFileSection() {
 /**
  * One section's or slot's files in their order, or placeholder rows while they load. Staff who
  * may upload drag rows, or use the row menu, to reorder them. Rows drag only within this table.
+ * A compact table, one of several slots on the page, says it is empty in one line.
  */
 function FileTable({
   label,
   files,
   canUpload,
+  compact,
   emptyDescription,
   onReorder,
   onDelete,
@@ -282,6 +418,7 @@ function FileTable({
   label: string
   files: SectionFile[] | null
   canUpload: boolean
+  compact: boolean
   emptyDescription: string
   onReorder: (files: SectionFile[]) => void
   onDelete: (file: SectionFile) => void
@@ -314,6 +451,12 @@ function FileTable({
         <TableBody>
           {!files ? (
             <TableSkeleton columns={COLUMNS} />
+          ) : files.length === 0 && compact ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={COLUMNS.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
+                No files yet. {emptyDescription}
+              </TableCell>
+            </TableRow>
           ) : files.length === 0 ? (
             <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title="No files yet" description={emptyDescription} />
           ) : (

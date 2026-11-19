@@ -131,10 +131,10 @@ test.each(['outsider', 'auditor', 'admin', 'hod', 'dean', 'deputy_dean', 'root']
   },
 )
 
-test('staff cannot upload to the shared-file sections or the switchable sections after Lecture Notes', async () => {
-  const course = await createCourse([10, 11, 12, 13, 14, 15, 16])
+test('staff cannot upload to the shared-file sections', async () => {
+  const course = await createCourse()
 
-  for (const section of [1, 3, 4, 5, 11, 12, 13, 14, 15, 16]) {
+  for (const section of [1, 3, 4, 5]) {
     await expect(
       createUploadSession(course.coordinator.client, { ...course.slot, section }, 'plan.pdf'),
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' })
@@ -321,7 +321,7 @@ test('staff cannot record or remove files without the files function', async () 
   const course = await createCourse()
   const file = await uploadFile(course.coordinator.client, course.slot, pdf('plan.pdf'))
   const client = course.coordinator.client
-  const record = { offering_id: course.slot.offeringId, section: TEACHING_PLAN, slot: null, storage_item_id: 'forged', name: 'forged.pdf', size: 1 }
+  const record = { offering_id: course.slot.offeringId, section: TEACHING_PLAN, item: null, slot: null, storage_item_id: 'forged', name: 'forged.pdf', size: 1 }
 
   expect((await client.rpc('add_file', { ...record, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
   expect((await client.from('files').insert({ ...record, position: 9, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
