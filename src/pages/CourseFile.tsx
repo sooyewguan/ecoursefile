@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
-import { FILE_SECTIONS, SECTIONS, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
+import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type Offering = {
@@ -171,7 +171,7 @@ export function CourseFile() {
                   <TableRow key={section} className="relative">
                     <TableCell className="text-muted-foreground px-4 py-3 align-top text-right tabular-nums">{section}</TableCell>
                     <TableCell className="px-4 py-3 whitespace-normal">
-                      {FILE_SECTIONS.has(section) ? (
+                      {SECTIONS_WITH_PAGES.has(section) ? (
                         <Link
                           to={`/course-files/${offeringId}/sections/${section}`}
                           className="font-medium after:absolute after:inset-0 hover:underline"

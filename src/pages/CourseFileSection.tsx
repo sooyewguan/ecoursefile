@@ -13,11 +13,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { FILE_SECTIONS, itemName, pagesPerSheet, SECTION_SLOTS, SECTIONS, type SectionSlot, type SectionStatus } from '../sections.ts'
+import { itemName, pagesPerSheet, SECTION_SLOTS, SECTIONS, SECTIONS_WITH_PAGES, type SectionSlot, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
-
-type Offering = { semester: { code: string }; course: { code: string; title: string } }
 
 /** An item of a section with items, such as Lab 2. */
 type SectionItem = { number: number; deletable: boolean }
@@ -31,6 +29,13 @@ type SectionFile = {
   uploaded_at: string
   uploader_name: string
   deletable: boolean
+}
+
+/** The offering, and the shared files of the section that its course file links. */
+type Offering = {
+  semester: { code: string }
+  course: { code: string; title: string }
+  linked_files: Omit<SectionFile, 'deletable'>[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
@@ -56,12 +61,13 @@ const COLUMNS = ['', '', WIDE, WIDE, '']
  * section has slots, and its numbered items in sections 11 to 16, each with the section's slots.
  * The offering's coordinator and lecturers add items, upload PDFs and drag them into order. The
  * uploader or the coordinator deletes a file, and staff who may delete every file in an item
- * delete the item.
+ * delete the item. A section of a shared file, such as Academic Calendar, lists the file that the
+ * course file links.
  */
 export function CourseFileSection() {
   const params = useParams()
   const offeringId = params.offeringId!
-  const section = SECTIONS.find((s) => String(s.number) === params.section && FILE_SECTIONS.has(s.number))
+  const section = SECTIONS.find((s) => String(s.number) === params.section && SECTIONS_WITH_PAGES.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
   const perSheet = section && pagesPerSheet({ section: section.number })
   /** How many pages the browser puts on each page of an answer script, in a section with script slots. */
@@ -81,8 +87,9 @@ export function CourseFileSection() {
     const [offering, items, files, canUpload, statuses] = await Promise.all([
       supabase
         .from('offerings')
-        .select('semester:semesters(code), course:courses(code, title)')
+        .select('semester:semesters(code), course:courses(code, title), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)')
         .eq('id', offeringId)
+        .eq('linked_files.section', section.number)
         .maybeSingle()
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase
@@ -109,11 +116,13 @@ export function CourseFileSection() {
       return
     }
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === section.number)
+    // The admin deletes a shared file on the semester page, which first lists the offerings that link it.
+    const linkedFiles = (offering.data?.linked_files ?? []).map((file) => ({ ...file, deletable: false }))
     setData({
       offering: offering.data,
       status: status?.status ?? null,
       items: items.data ?? [],
-      files: files.data ?? [],
+      files: [...linkedFiles, ...(files.data ?? [])],
       canUpload: canUpload.data === true,
     })
   }, [offeringId, section])
@@ -228,13 +237,15 @@ export function CourseFileSection() {
       emptyDescription={
         data?.status === 'off'
           ? 'This section is off for this offering.'
-          : !canUpload
-            ? 'The coordinator and lecturers upload files here.'
-            : section.kind === 'may-be-empty'
-              ? 'This section may stay empty. Upload PDF files if there are any.'
-              : oneFile
-                ? 'Upload one PDF file.'
-                : 'Upload one or more PDF files.'
+          : section.sharedFile
+            ? `The admin uploads the ${section.title} of each semester, and every course file of the semester links it.`
+            : !canUpload
+              ? 'The coordinator and lecturers upload files here.'
+              : section.kind === 'may-be-empty'
+                ? 'This section may stay empty. Upload PDF files if there are any.'
+                : oneFile
+                  ? 'Upload one PDF file.'
+                  : 'Upload one or more PDF files.'
       }
       onReorder={(reordered) => void reorder(reordered)}
       onDelete={setDeleting}

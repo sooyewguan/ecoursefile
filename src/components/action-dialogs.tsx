@@ -85,7 +85,10 @@ export function FormDialog({
   )
 }
 
-/** A confirmation for one action. It shows the action's error, or closes when the action succeeds. */
+/**
+ * A confirmation for one action, with children shown below the description. It shows the action's
+ * error, or closes when the action succeeds.
+ */
 export function ConfirmDialog({
   title,
   description,
@@ -93,6 +96,7 @@ export function ConfirmDialog({
   destructive = false,
   onConfirm,
   onClose,
+  children,
 }: {
   title: string
   description: ReactNode
@@ -100,6 +104,7 @@ export function ConfirmDialog({
   destructive?: boolean
   onConfirm: Action
   onClose: () => void
+  children?: ReactNode
 }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -119,6 +124,7 @@ export function ConfirmDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {children}
         {error && <ErrorAlert>{error}</ErrorAlert>}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -1,7 +1,7 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FolderOpenIcon, PlusIcon, UsersIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FolderOpenIcon, PlusIcon, Trash2Icon, UploadIcon, UsersIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
-import { FormDialog } from '@/components/action-dialogs'
+import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
@@ -12,10 +12,13 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { GlobalRole } from '../roles.ts'
+import { SHARED_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
+import { deleteSharedFile, uploadFile } from '../uploads.ts'
 
 type Person = { id: string; full_name: string; email: string; active: boolean; user_roles: { role: GlobalRole }[] }
 
@@ -30,11 +33,27 @@ type Offering = {
   lecturers: { lecturer_id: string }[]
 }
 
-/** The page's data. A semester of null means no semester has the id in the address. */
-type PageData = { semester: { code: string } | null; offerings: Offering[]; courses: Course[]; people: Person[] }
+/** One of the semester's shared files, and the offerings whose course files link it. */
+type SharedFile = {
+  id: string
+  section: number
+  name: string
+  uploaded_at: string
+  uploader_name: string
+  linked_offerings: { id: string; course: { code: string; title: string } }[]
+}
 
-/** The dialog that is open, and the offering it acts on. */
-type OpenDialog = { kind: 'add' } | { kind: 'edit'; offering: Offering }
+/** The page's data. A semester of null means no semester has the id in the address. */
+type PageData = {
+  semester: { code: string } | null
+  offerings: Offering[]
+  sharedFiles: SharedFile[]
+  courses: Course[]
+  people: Person[]
+}
+
+/** The dialog that is open, and the offering or shared file it acts on. */
+type OpenDialog = { kind: 'add' } | { kind: 'edit'; offering: Offering } | { kind: 'delete-shared'; file: SharedFile; section: Section }
 
 /** Below md the coordinator and lecturers move into the course cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
@@ -42,15 +61,27 @@ const WIDE = 'hidden md:table-cell'
 /** The table's columns: course, coordinator, other lecturers and the row menu. */
 const COLUMNS = ['', WIDE, WIDE, '']
 
-/** One semester's offerings. The admin offers courses here and assigns their lecturers. */
+/** The shared files table's columns: section and file, uploaded, and the upload button or row menu. */
+const SHARED_COLUMNS = ['', WIDE, '']
+
+/**
+ * One semester's offerings and shared files. The admin offers courses here, assigns their
+ * lecturers, and uploads the semester's Academic Calendar and Appointment Letter, which every
+ * course file of the semester links.
+ */
 export function Semester() {
   const { semesterId } = useParams()
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
+  /** The shared-file section whose upload is running. */
+  const [uploading, setUploading] = useState<Section | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
+  /** The shared-file section that the file picked next goes to. */
+  const picking = useRef<Section | null>(null)
 
   const reload = useCallback(async () => {
-    const [semester, offerings, courses, people] = await Promise.all([
+    const [semester, offerings, sharedFiles, courses, people] = await Promise.all([
       supabase.from('semesters').select('code').eq('id', semesterId!).maybeSingle(),
       supabase
         .from('offerings')
@@ -59,16 +90,22 @@ export function Semester() {
         )
         .eq('semester_id', semesterId!)
         .overrideTypes<Offering[], { merge: false }>(),
+      supabase
+        .from('files')
+        .select('id, section, name, uploaded_at, uploader_name, linked_offerings(id, course:courses(code, title))')
+        .eq('semester_id', semesterId!)
+        .overrideTypes<SharedFile[], { merge: false }>(),
       supabase.from('courses').select('id, code, title').order('code'),
       supabase.from('profiles').select('id, full_name, email, active, user_roles(role)').order('full_name'),
     ])
-    if (semester.error || offerings.error || courses.error || people.error) {
-      setNotice({ tone: 'error', text: (semester.error ?? offerings.error ?? courses.error ?? people.error)!.message })
+    if (semester.error || offerings.error || sharedFiles.error || courses.error || people.error) {
+      setNotice({ tone: 'error', text: (semester.error ?? offerings.error ?? sharedFiles.error ?? courses.error ?? people.error)!.message })
       return
     }
     setData({
       semester: semester.data,
       offerings: offerings.data.toSorted((a, b) => a.course.code.localeCompare(b.course.code)),
+      sharedFiles: sharedFiles.data,
       courses: courses.data,
       people: people.data,
     })
@@ -120,6 +157,30 @@ export function Semester() {
     setDialog(null)
   }
 
+  function pick(section: Section) {
+    picking.current = section
+    picker.current?.click()
+  }
+
+  /** Uploads the picked PDF as the semester's file of the section, then reports the outcome. */
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    const section = picking.current
+    if (!file || !section) return
+    setUploading(section)
+    setNotice(null)
+    try {
+      await uploadFile(supabase, { semesterId: semesterId!, section: section.number }, file)
+      await reload()
+      setNotice({ tone: 'success', text: `Uploaded ${file.name} as the ${section.title}.` })
+    } catch (error) {
+      await reload()
+      setNotice({ tone: 'error', text: `${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}` })
+    }
+    setUploading(null)
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader
@@ -137,8 +198,76 @@ export function Semester() {
       />
       {notice && <NoticeAlert notice={notice} />}
 
+      <section aria-labelledby="shared-files-heading" className="grid gap-3">
+        <div className="grid gap-1">
+          <h2 id="shared-files-heading" className="text-lg font-semibold tracking-tight">
+            Shared files
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Every course file of this semester links these files. Upload one PDF of up to 20 MB for each. To replace one, delete it first.
+          </p>
+        </div>
+        <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table aria-label="Shared files">
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead className="px-4">Section</TableHead>
+                <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
+                <TableHead className="w-14 px-4">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!data ? (
+                <TableSkeleton columns={SHARED_COLUMNS} rows={SHARED_FILE_SECTIONS.length} />
+              ) : (
+                SHARED_FILE_SECTIONS.map((section) => {
+                  const file = data.sharedFiles.find((shared) => shared.section === section.number)
+                  const uploaded = file && `${file.uploader_name}, ${new Date(file.uploaded_at).toLocaleString()}`
+                  return (
+                    <TableRow key={section.number}>
+                      <TableCell className="px-4 py-3 whitespace-normal">
+                        <div className="grid gap-0.5">
+                          <span className="font-medium">
+                            {section.number} {section.title}
+                          </span>
+                          {file ? (
+                            <span className="wrap-anywhere">{file.name}</span>
+                          ) : (
+                            <span className="text-muted-foreground">Not uploaded. Section {section.number} is missing in every course file.</span>
+                          )}
+                          {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{uploaded}</TableCell>
+                      <TableCell className="px-4 py-2 text-right">
+                        {file ? (
+                          <RowActions label={`Actions for ${section.title}`}>
+                            <DropdownMenuItem variant="destructive" onSelect={() => setDialog({ kind: 'delete-shared', file, section })}>
+                              <Trash2Icon />
+                              Delete
+                            </DropdownMenuItem>
+                          </RowActions>
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => pick(section)} disabled={uploading !== null}>
+                            {uploading === section ? <Spinner /> : <UploadIcon />}
+                            Upload PDF
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+      </section>
+
       <Card className="gap-0 overflow-hidden py-0">
-        <Table>
+        <Table aria-label="Offerings">
           <TableHeader className="bg-muted/50">
             <TableRow>
               <TableHead className="px-4">Course</TableHead>
@@ -261,7 +390,75 @@ export function Semester() {
           <StaffFields people={people} offering={dialog.offering} />
         </FormDialog>
       )}
+
+      {dialog?.kind === 'delete-shared' && (
+        <DeleteSharedFileDialog
+          file={dialog.file}
+          section={dialog.section}
+          semesterCode={data!.semester!.code}
+          onClose={close}
+          onDeleted={async () => {
+            await reload()
+            setNotice({ tone: 'success', text: `Deleted ${dialog.file.name}.` })
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Confirms the delete of a shared file. It lists the offerings whose course files link the file,
+ * because the section becomes Missing in each of them.
+ */
+function DeleteSharedFileDialog({
+  file,
+  section,
+  semesterCode,
+  onClose,
+  onDeleted,
+}: {
+  file: SharedFile
+  section: Section
+  semesterCode: string
+  onClose: () => void
+  onDeleted: () => Promise<void>
+}) {
+  const linked = file.linked_offerings.toSorted((a, b) => a.course.code.localeCompare(b.course.code))
+  const sectionName = `section ${section.number} ${section.title}`
+  return (
+    <ConfirmDialog
+      title={`Delete ${file.name}?`}
+      description={
+        linked.length === 0
+          ? `The ${section.title} of ${semesterCode} is deleted for good, from SharePoint. No course file links it yet.`
+          : `The ${section.title} of ${semesterCode} is deleted for good, from SharePoint and from the course files that link it. ${
+              linked.length === 1 ? `This offering loses it, and ${sectionName} becomes Missing:` : `These ${linked.length} offerings lose it, and ${sectionName} becomes Missing in each:`
+            }`
+      }
+      confirmLabel="Delete file"
+      destructive
+      onClose={onClose}
+      onConfirm={async () => {
+        try {
+          await deleteSharedFile(supabase, file.id)
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error)
+        }
+        await onDeleted()
+        return null
+      }}
+    >
+      {linked.length > 0 && (
+        <ul aria-label="Affected offerings" className="max-h-48 overflow-y-auto rounded-md border text-sm">
+          {linked.map((offering) => (
+            <li key={offering.id} className="border-b px-3 py-2 last:border-b-0">
+              <span className="font-medium">{offering.course.code}</span> {offering.course.title}
+            </li>
+          ))}
+        </ul>
+      )}
+    </ConfirmDialog>
   )
 }
 
