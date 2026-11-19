@@ -8,9 +8,9 @@ export const SWITCHABLE_SECTIONS = SECTIONS.filter((section) => section.kind ===
 
 /**
  * The sections whose files staff upload and arrange on the section page. can_upload in SQL allows
- * the same ones, and Lecture Notes (10) only while the offering has it on.
+ * the same ones, and the switchable sections 10 to 16 only while the offering has them on.
  */
-export const FILE_SECTIONS: ReadonlySet<number> = new Set([2, 6, 7, 8, 9, 10, 17, 18, 19])
+export const FILE_SECTIONS: ReadonlySet<number> = new Set([2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
 
 /**
  * How many pages the browser puts on each page of a PDF before it uploads it to the slot: the
