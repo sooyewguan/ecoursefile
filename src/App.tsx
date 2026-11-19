@@ -4,11 +4,15 @@ import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
+import { CourseFile } from './pages/CourseFile.tsx'
+import { CourseFiles } from './pages/CourseFiles.tsx'
 import { Courses } from './pages/Courses.tsx'
 import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
 import { Home } from './pages/Home.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
+import { Semester } from './pages/Semester.tsx'
+import { Semesters } from './pages/Semesters.tsx'
 import { SignIn } from './pages/SignIn.tsx'
 import { Users } from './pages/Users.tsx'
 
@@ -27,6 +31,10 @@ export function App() {
               <Route path="/course-types" element={<CourseTypes />} />
               <Route path="/courses" element={<Courses />} />
               <Route path="/program-codes" element={<ProgramCodes />} />
+              <Route path="/semesters" element={<Semesters />} />
+              <Route path="/semesters/:semesterId" element={<Semester />} />
+              <Route path="/course-files" element={<CourseFiles />} />
+              <Route path="/course-files/:offeringId" element={<CourseFile />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

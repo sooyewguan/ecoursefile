@@ -84,8 +84,8 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. |
-| Everyone else | Read their own profile and roles, read departments, and read the catalog. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. |
+| Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
@@ -110,6 +110,41 @@ The admin keeps the catalog on three pages. The tables and their RLS policies ar
 | **Program codes** | `program_codes` | A unique code, such as `1 BITS S1G1`. |
 
 Only admins add and edit catalog entries. Every signed-in user except root reads them. Nobody deletes them, and a department that has courses cannot be deleted. A write that repeats a name or code fails with Postgres error `23505`, and the pages show it as a plain message.
+
+## Semesters and offerings
+
+The admin sets up each semester on the **Semesters** page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
+
+| Table | What each entry holds |
+| --- | --- |
+| `semesters` | A start year and a number from 1 to 3, where 3 is the short semester. The database generates the unique `code`, such as `2026/2027-1`. |
+| `offerings` | One catalog course in one semester, at most once per semester. `coordinator_id` is the coordinator. `sections_on` is a copy of the course type's `sections_on`, taken when the offering is created. Later edits to the type, or a new type for the course, leave the offering as it was. |
+| `offering_lecturers` | The lecturers of each offering. The coordinator is always one of them, so the coordinator counts as a lecturer. Only users with the `lecturer` role can be added. |
+
+The app writes offerings through two RPCs. Both run as the caller, so RLS lets only admins write.
+
+| RPC | What it does |
+| --- | --- |
+| `create_offering(semester_id, course_id, coordinator_id, lecturer_ids)` | Adds the offering with its coordinator and lecturers, and returns the offering's id. |
+| `set_offering_lecturers(offering_id, coordinator_id, lecturer_ids)` | Replaces the offering's coordinator and lecturers. |
+
+Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
+
+Who reads an offering, its lecturers and its course file is decided by `public.can_read_offering(offering_id)`:
+
+| Role | Offerings they read |
+| --- | --- |
+| Admin, Auditor, HoD, Dean, Deputy Dean | Every offering in every semester |
+| Lecturer | The offerings they teach or coordinate, in every semester |
+| Root | None |
+
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page with the 19 sections in their fixed order. The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's status from the `section_statuses(offering_id)` RPC:
+
+| Status | Sections |
+| --- | --- |
+| `missing` | Every section that is on, except sections 7 to 9 |
+| `empty` | Sections 7 to 9, which may stay empty and never count as missing |
+| `off` | Sections 10 to 16 that the offering has off |
 
 ## The accounts Edge Function
 
