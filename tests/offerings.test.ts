@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
-import { adminClient, createDepartment, createUser, signIn, signInAs, userIdOf } from './harness.ts'
+import { adminClient, createDepartment, createUser, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
 const RLS_VIOLATION = '42501'
 const UNIQUE_VIOLATION = '23505'
@@ -24,25 +24,6 @@ beforeAll(async () => {
 
 function unique(label: string) {
   return `${label}-${crypto.randomUUID()}`
-}
-
-/**
- * Inserts a semester with a start year, and a number unless one is given, that no earlier run
- * has used, so the tests rerun without a database reset. The service role arranges it unless
- * another client is given.
- */
-async function insertFreshSemester(client: SupabaseClient = adminClient(), number?: number) {
-  for (;;) {
-    const start_year = 2000 + Math.floor(Math.random() * 1000)
-    number ??= 1 + Math.floor(Math.random() * 3)
-    const { data, error } = await client
-      .from('semesters')
-      .insert({ start_year, number })
-      .select('id, start_year, number, code')
-      .single()
-    if (!error) return data
-    if (error.code !== UNIQUE_VIOLATION) throw error
-  }
 }
 
 async function createCourseType(sectionsOn: number[]) {
@@ -77,7 +58,7 @@ async function offer(options: {
   lecturerIds?: string[]
 }) {
   const { data, error } = await admin.rpc('create_offering', {
-    semester_id: options.semesterId ?? (await insertFreshSemester()).id,
+    semester_id: options.semesterId ?? (await pickSemester()).id,
     course_id: options.courseId ?? (await createCourse(await createCourseType([10, 12]))),
     coordinator_id: options.coordinatorId,
     lecturer_ids: options.lecturerIds ?? [],
@@ -102,13 +83,13 @@ async function staffOf(offeringId: string) {
 }
 
 test.each([1, 2, 3])('the code of semester %i is the start year, the next year and the number', async (number) => {
-  const semester = await insertFreshSemester(admin, number)
+  const semester = await pickSemester(admin, number)
 
   expect(semester.code).toBe(`${semester.start_year}/${semester.start_year + 1}-${number}`)
 })
 
 test('semester codes are unique', async () => {
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
 
   const { error } = await admin.from('semesters').insert({ start_year: semester.start_year, number: semester.number })
 
@@ -131,7 +112,7 @@ test.each(NOT_ADMIN)('the %s user cannot add a semester', async (role) => {
 
 test.each(['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as const)('the %s user reads semesters', async (role) => {
   const client = await signInAs(role)
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
 
   const { data } = await client.from('semesters').select('id, code').eq('id', semester.id)
 
@@ -140,7 +121,7 @@ test.each(['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as cons
 
 test('root reads no semesters', async () => {
   const root = await signInAs('root')
-  await insertFreshSemester()
+  await pickSemester()
 
   const { data, error } = await root.from('semesters').select('id')
 
@@ -181,7 +162,7 @@ test('the admin changes the coordinator and the lecturers, and the coordinator s
 
 test('an offering cannot be without a coordinator, or have a coordinator who is not its lecturer', async () => {
   const [coordinator, lecturer] = [await createLecturer(), await createLecturer()]
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
   const courseId = await createCourse(await createCourseType([]))
 
   const withoutCoordinator = await admin.from('offerings').insert({ semester_id: semester.id, course_id: courseId })
@@ -206,7 +187,7 @@ test('an offering cannot be without a coordinator, or have a coordinator who is 
 
 test('a course is offered at most once per semester', async () => {
   const lecturer = await createLecturer()
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
   const courseId = await createCourse(await createCourseType([10]))
   await offer({ semesterId: semester.id, courseId, coordinatorId: lecturer.id })
 
@@ -223,7 +204,7 @@ test('a course is offered at most once per semester', async () => {
 test.each(['auditor', 'root'] as const)('the %s user, who has no lecturer role, cannot teach an offering', async (role) => {
   const nonLecturer = { id: await userIdOf(await signInAs(role)) }
   const lecturer = await createLecturer()
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
   const courseId = await createCourse(await createCourseType([10]))
 
   const asCoordinator = await admin.rpc('create_offering', {
@@ -248,7 +229,7 @@ test.each(['auditor', 'root'] as const)('the %s user, who has no lecturer role, 
 test.each(NOT_ADMIN)('the %s user cannot offer a course or assign its lecturers', async (role) => {
   const client = await signInAs(role)
   const [coordinator, lecturer] = [await createLecturer(), await createLecturer()]
-  const semester = await insertFreshSemester()
+  const semester = await pickSemester()
   const courseId = await createCourse(await createCourseType([10]))
 
   const created = await client.rpc('create_offering', {
@@ -293,30 +274,30 @@ test('an offering copies its toggles from the course type when it is created, an
   expect(await sectionsOn(laterOfferingId)).toEqual([14, 15, 16])
 })
 
-/** The 19 sections of a new course file whose course type has sections 10 and 12 on. */
+/** The 19 sections of a new course file whose course type has sections 10 and 12 on. Switched-off sections do not count toward completeness. */
 const NEW_COURSE_FILE = [
-  { section: 1, status: 'missing' },
-  { section: 2, status: 'missing' },
-  { section: 3, status: 'missing' },
-  { section: 4, status: 'missing' },
-  { section: 5, status: 'missing' },
-  { section: 6, status: 'missing' },
-  { section: 7, status: 'empty' },
-  { section: 8, status: 'empty' },
-  { section: 9, status: 'empty' },
-  { section: 10, status: 'missing' },
-  { section: 11, status: 'off' },
-  { section: 12, status: 'missing' },
-  { section: 13, status: 'off' },
-  { section: 14, status: 'off' },
-  { section: 15, status: 'off' },
-  { section: 16, status: 'off' },
-  { section: 17, status: 'missing' },
-  { section: 18, status: 'missing' },
-  { section: 19, status: 'missing' },
+  { section: 1, status: 'missing', counts_toward_completeness: true },
+  { section: 2, status: 'missing', counts_toward_completeness: true },
+  { section: 3, status: 'missing', counts_toward_completeness: true },
+  { section: 4, status: 'missing', counts_toward_completeness: true },
+  { section: 5, status: 'missing', counts_toward_completeness: true },
+  { section: 6, status: 'missing', counts_toward_completeness: true },
+  { section: 7, status: 'empty', counts_toward_completeness: true },
+  { section: 8, status: 'empty', counts_toward_completeness: true },
+  { section: 9, status: 'empty', counts_toward_completeness: true },
+  { section: 10, status: 'missing', counts_toward_completeness: true },
+  { section: 11, status: 'off', counts_toward_completeness: false },
+  { section: 12, status: 'missing', counts_toward_completeness: true },
+  { section: 13, status: 'off', counts_toward_completeness: false },
+  { section: 14, status: 'off', counts_toward_completeness: false },
+  { section: 15, status: 'off', counts_toward_completeness: false },
+  { section: 16, status: 'off', counts_toward_completeness: false },
+  { section: 17, status: 'missing', counts_toward_completeness: true },
+  { section: 18, status: 'missing', counts_toward_completeness: true },
+  { section: 19, status: 'missing', counts_toward_completeness: true },
 ]
 
-test('a new course file lists the 19 sections in order, missing except sections 7 to 9 and switched-off sections', async () => {
+test('a new course file lists the 19 sections in order, missing except sections 7 to 9 and switched-off sections, which do not count', async () => {
   const lecturer = await createLecturer()
   const courseTypeId = await createCourseType([10, 12])
   const offeringId = await offer({ courseId: await createCourse(courseTypeId), coordinatorId: lecturer.id })
@@ -329,7 +310,9 @@ test('a new course file lists the 19 sections in order, missing except sections 
 
 test('a lecturer or coordinator reads only the offerings they teach, in current and past semesters', async () => {
   const [coordinator, lecturer, outsider] = [await createLecturer(), await createLecturer(), await createLecturer()]
-  const [past, current] = [await insertFreshSemester(), await insertFreshSemester()]
+  const past = await pickSemester()
+  let current = await pickSemester()
+  while (current.id === past.id) current = await pickSemester()
   const courseId = await createCourse(await createCourseType([10, 12]))
   const pastOffering = await offer({
     semesterId: past.id,

@@ -416,6 +416,19 @@ test('an item is deleted with its files by staff who may delete every file in it
   expect((await addItem(course.lecturer.client, course.offeringId, LAB)).data).toBe(1)
 })
 
+test('adds to one section at the same time all succeed, each with its own number', async () => {
+  const course = await createCourse()
+  const staff = [course.coordinator, course.lecturer, course.secondLecturer]
+  const clients = [...staff, ...staff, ...staff].map(({ client }) => client)
+  const numbers = clients.map((_, index) => index + 1)
+
+  const results = await Promise.all(clients.map((client) => addItem(client, course.offeringId, QUIZ)))
+
+  expect(results.map((result) => result.error)).toEqual(clients.map(() => null))
+  expect(results.map((result) => result.data).toSorted((a, b) => a - b)).toEqual(numbers)
+  expect((await itemsOf(auditor, course.offeringId, QUIZ)).map((item) => item.number)).toEqual(numbers)
+})
+
 test('a new item takes the number after the highest, so deleting a middle item leaves a gap', async () => {
   const course = await createCourse()
   for (let n = 0; n < 3; n++) await addItem(course.lecturer.client, course.offeringId, QUIZ)
@@ -461,8 +474,12 @@ test('a switched-off section takes no new items or uploads, and its items can st
   const sheet = { offeringId: course.offeringId, section: LAB, item: 1, slot: 'lab_sheet' }
   const file = await uploadFile(course.lecturer.client, sheet, await script('sheet.pdf'))
 
-  // The service role switches the section off, as a section toggle would.
-  const { error } = await adminClient().from('offerings').update({ sections_on: [12] }).eq('id', course.offeringId)
+  const { error } = await course.coordinator.client.rpc('switch_section', {
+    offering_id: course.offeringId,
+    section: LAB,
+    is_on: false,
+    reason: 'No labs this semester',
+  })
   expect(error).toBeNull()
   expect(await sectionStatus(auditor, course.offeringId, LAB)).toBe('off')
   expect((await addItem(course.lecturer.client, course.offeringId, LAB)).error?.code).toBe(PERMISSION_DENIED)

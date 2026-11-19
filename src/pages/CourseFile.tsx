@@ -1,47 +1,75 @@
-import { ArrowLeftIcon, FolderOpenIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeftIcon, FolderOpenIcon, PowerIcon, PowerOffIcon } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ErrorAlert } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
+import { ErrorAlert, NoticeAlert, type Notice } from '@/components/notice'
+import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { FILE_SECTIONS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { cn } from '@/lib/utils'
+import { useAuth } from '../auth-provider.tsx'
+import { FILE_SECTIONS, SECTIONS, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type Offering = {
   semester: { code: string }
   course: { code: string; title: string; department: { code: string; name: string } }
+  /** The switchable sections that are on. */
+  sections_on: number[]
+  /** The reason for each switchable section whose setting differs from the course type, by section number. */
+  section_reasons: Record<string, string>
+  lecturers: { lecturer_id: string }[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; statuses: { section: number; status: SectionStatus }[] }
 
-/** The table's columns: number, section and status. */
-const COLUMNS = ['', '', '']
+/**
+ * A switch the user is about to make. A section without a reason has its course type setting, so
+ * switching it needs a reason. A section with one goes back to the course type setting.
+ */
+type Switching = { section: number; title: string; isOn: boolean; reason: string | undefined }
 
-/** One offering's course file: its 19 sections in the fixed order, each with its status. */
+const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section) => section.number))
+
+/**
+ * One offering's course file: its 19 sections in the fixed order, each with its status. The
+ * coordinator and lecturers switch sections 10 to 16 on or off, with a reason when the setting
+ * differs from the course type.
+ */
 export function CourseFile() {
   const { offeringId } = useParams()
+  const auth = useAuth()
   const [data, setData] = useState<PageData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [switching, setSwitching] = useState<Switching | null>(null)
 
-  useEffect(() => {
-    void Promise.all([
+  const reload = useCallback(async () => {
+    const [offering, statuses] = await Promise.all([
       supabase
         .from('offerings')
-        .select('semester:semesters(code), course:courses(code, title, department:departments(code, name))')
+        .select(
+          'semester:semesters(code), course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id)',
+        )
         .eq('id', offeringId!)
         .maybeSingle()
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
-    ]).then(([offering, statuses]) => {
-      if (offering.error || statuses.error) setError((offering.error ?? statuses.error)!.message)
-      else setData({ offering: offering.data, statuses: statuses.data })
-    })
+    ])
+    if (offering.error || statuses.error) setError((offering.error ?? statuses.error)!.message)
+    else setData({ offering: offering.data, statuses: statuses.data })
   }, [offeringId])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
 
   const backLink = (
     <Button asChild variant="outline">
@@ -83,6 +111,23 @@ export function CourseFile() {
 
   const offering = data?.offering
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
+  const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** The table's columns: number, section, status, and the row menu for staff who switch sections. */
+  const columns = canSwitch ? ['', '', '', ''] : ['', '', '']
+
+  /** Switches the section as the user chose, reloads the page, and returns the error message or null. */
+  async function switchSection(target: Switching, reason?: string) {
+    const { error } = await supabase.rpc('switch_section', {
+      offering_id: offeringId,
+      section: target.section,
+      is_on: target.isOn,
+      reason,
+    })
+    await reload()
+    if (!error) setNotice({ tone: 'success', text: `Switched ${target.title} ${target.isOn ? 'on' : 'off'}.` })
+    return error?.message ?? null
+  }
 
   return (
     <div className="grid gap-6">
@@ -98,6 +143,7 @@ export function CourseFile() {
           <Skeleton className="h-5 w-56 max-w-full" />
         </div>
       )}
+      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Sections">
@@ -106,36 +152,92 @@ export function CourseFile() {
               <TableHead className="w-12 px-4 text-right">#</TableHead>
               <TableHead className="px-4">Section</TableHead>
               <TableHead className="w-32 px-4">Status</TableHead>
+              {canSwitch && (
+                <TableHead className="w-14 px-4">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
             {!data ? (
-              <TableSkeleton columns={COLUMNS} rows={19} />
+              <TableSkeleton columns={columns} rows={19} />
             ) : (
-              data.statuses.map(({ section, status }) => (
-                <TableRow key={section} className="relative">
-                  <TableCell className="text-muted-foreground px-4 py-3 text-right tabular-nums">{section}</TableCell>
-                  <TableCell className="px-4 py-3 font-medium whitespace-normal">
-                    {FILE_SECTIONS.has(section) ? (
-                      <Link
-                        to={`/course-files/${offeringId}/sections/${section}`}
-                        className="after:absolute after:inset-0 hover:underline"
-                      >
-                        {sectionTitle.get(section)}
-                      </Link>
-                    ) : (
-                      sectionTitle.get(section)
+              data.statuses.map(({ section, status }) => {
+                const title = sectionTitle.get(section)!
+                const reason = offering?.section_reasons[section]
+                const isOn = offering?.sections_on.includes(section) ?? false
+                return (
+                  <TableRow key={section} className="relative">
+                    <TableCell className="text-muted-foreground px-4 py-3 align-top text-right tabular-nums">{section}</TableCell>
+                    <TableCell className="px-4 py-3 whitespace-normal">
+                      {FILE_SECTIONS.has(section) ? (
+                        <Link
+                          to={`/course-files/${offeringId}/sections/${section}`}
+                          className="font-medium after:absolute after:inset-0 hover:underline"
+                        >
+                          {title}
+                        </Link>
+                      ) : (
+                        <span className="font-medium">{title}</span>
+                      )}
+                      {reason && (
+                        <p className="text-muted-foreground mt-0.5 text-sm wrap-anywhere">
+                          Switched {isOn ? 'on' : 'off'}: {reason}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-4 py-3 align-top">
+                      <SectionStatusBadge status={status} />
+                    </TableCell>
+                    {canSwitch && (
+                      <TableCell className={cn('px-4 py-2 text-right align-top', SWITCHABLE.has(section) && 'relative z-10')}>
+                        {SWITCHABLE.has(section) && (
+                          <RowActions label={`Actions for ${title}`}>
+                            <DropdownMenuItem onSelect={() => setSwitching({ section, title, isOn: !isOn, reason })}>
+                              {isOn ? <PowerOffIcon /> : <PowerIcon />}
+                              Switch {isOn ? 'off' : 'on'}
+                            </DropdownMenuItem>
+                          </RowActions>
+                        )}
+                      </TableCell>
                     )}
-                  </TableCell>
-                  <TableCell className="px-4 py-3">
-                    <SectionStatusBadge status={status} />
-                  </TableCell>
-                </TableRow>
-              ))
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
       </Card>
+
+      {switching && !switching.reason && (
+        <FormDialog
+          title={`Switch ${switching.title} ${switching.isOn ? 'on' : 'off'}`}
+          description={
+            switching.isOn
+              ? 'The course type has this section off. Say why this offering needs it. The reason shows on the course file.'
+              : 'The course type has this section on. Say why this offering does without it. The reason shows on the course file, and the section no longer counts toward completeness. Its files stay.'
+          }
+          submitLabel={`Switch ${switching.isOn ? 'on' : 'off'}`}
+          onClose={() => setSwitching(null)}
+          onSubmit={(form) => switchSection(switching, String(form.get('reason')))}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="switch-reason">Reason</Label>
+            <Input id="switch-reason" name="reason" autoComplete="off" required />
+          </div>
+        </FormDialog>
+      )}
+
+      {switching?.reason && (
+        <ConfirmDialog
+          title={`Switch ${switching.title} ${switching.isOn ? 'on' : 'off'}?`}
+          description={`This returns the section to its course type setting and clears the reason: ${switching.reason}`}
+          confirmLabel={`Switch ${switching.isOn ? 'on' : 'off'}`}
+          onConfirm={() => switchSection(switching)}
+          onClose={() => setSwitching(null)}
+        />
+      )}
     </div>
   )
 }
