@@ -22,8 +22,11 @@ const STORED_NAME = String.raw`\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_`
 
 type Staff = { id: string; client: SupabaseClient }
 
-/** An offering with a coordinator, two lecturers, and a lecturer who teaches another offering. */
-type Course = { slot: Slot; folder: string; coordinator: Staff; lecturer: Staff; secondLecturer: Staff; outsider: Staff }
+/**
+ * An offering with a coordinator, two lecturers, and a lecturer who teaches another offering. slot
+ * and folder are its Teaching Plan's, and root is the course file's folder.
+ */
+type Course = { slot: Slot; root: string; folder: string; coordinator: Staff; lecturer: Staff; secondLecturer: Staff; outsider: Staff }
 
 let auditor: SupabaseClient
 
@@ -40,8 +43,9 @@ async function createCourse(): Promise<Course> {
   const [coordinator, lecturer, secondLecturer, outsider] = await Promise.all([createStaff(), createStaff(), createStaff(), createStaff()])
   const offering = await createOffering({ coordinatorId: coordinator.id, lecturerIds: [lecturer.id, secondLecturer.id] })
   await createOffering({ coordinatorId: outsider.id })
-  const folder = `eCourseFile/${offering.semesterCode.replace('/', '-')}/${offering.course.code} ${offering.course.title}/02 Teaching Plan`
-  return { slot: { offeringId: offering.id, section: TEACHING_PLAN }, folder, coordinator, lecturer, secondLecturer, outsider }
+  const root = `eCourseFile/${offering.semesterCode.replace('/', '-')}/${offering.course.code} ${offering.course.title}`
+  const slot = { offeringId: offering.id, section: TEACHING_PLAN }
+  return { slot, root, folder: `${root}/02 Teaching Plan`, coordinator, lecturer, secondLecturer, outsider }
 }
 
 /** The bytes every PDF starts with. */
@@ -60,11 +64,8 @@ function pdf(name: string, size = 1024) {
 
 /** The slot's files as this client reads them, in their order. */
 async function filesOf(client: SupabaseClient, slot: Slot) {
-  const { data, error } = await client
-    .from('files')
-    .select('id, name, deletable')
-    .eq('offering_id', slot.offeringId)
-    .eq('section', slot.section)
+  const query = client.from('files').select('id, name, deletable').eq('offering_id', slot.offeringId).eq('section', slot.section)
+  const { data, error } = await (slot.slot ? query.eq('slot', slot.slot) : query.is('slot', null))
     .order('position')
     .order('uploaded_at')
   if (error) throw error
@@ -124,14 +125,126 @@ test.each(['outsider', 'auditor', 'admin', 'hod', 'dean', 'deputy_dean', 'root']
   },
 )
 
-test('staff cannot upload to sections other than Teaching Plan yet', async () => {
+test('staff cannot upload to the shared-file sections or the switchable sections', async () => {
   const course = await createCourse()
 
-  for (const section of [1, 3, 6, 17]) {
+  for (const section of [1, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16]) {
     await expect(
       createUploadSession(course.coordinator.client, { ...course.slot, section }, 'plan.pdf'),
     ).rejects.toMatchObject({ status: 403, code: 'forbidden' })
   }
+})
+
+test.each([
+  { section: 6, folder: '06 Attendance Record' },
+  { section: 7, folder: '07 Replacement Notices' },
+  { section: 8, folder: '08 Proof of Absence' },
+  { section: 9, folder: '09 Warning Letters' },
+  { section: 17, folder: '17 Week 12 Marks' },
+  { section: 18, folder: '18 Grade List' },
+  { section: 19, slot: 'cqi', folder: '19 LO-PO Analysis/CQI' },
+])('section $section takes uploads, reorders and deletes by the Teaching Plan rules, stored in $folder', async ({ section, slot, folder }) => {
+  const course = await createCourse()
+  const target = { ...course.slot, section, slot }
+  const pending = await uploadWithoutFinalize(course.lecturer.client, target, 'pending.pdf', pdf('pending.pdf'))
+  for (const client of [course.outsider.client, auditor]) {
+    await expect(createUploadSession(client, target, 'mine.pdf')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+    await expect(finalizeUpload(client, target, pending)).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  }
+
+  const first = await uploadFile(course.lecturer.client, target, pdf('a.pdf'))
+  const second = await uploadFile(course.coordinator.client, target, pdf('b.pdf'))
+  const third = await finalizeUpload(course.lecturer.client, target, pending)
+  // Stored names start with the time the upload session opened, so the pending upload comes first.
+  expect((await fakeStoreItems(`${course.root}/${folder}`)).map((item) => item.path)).toEqual(
+    [third, first, second].map((file) => expect.stringMatching(new RegExp(`^${course.root}/${folder}/${STORED_NAME}${file.name}$`))),
+  )
+  expect(await filesOf(adminClient(), course.slot)).toEqual([])
+
+  expect((await course.outsider.client.rpc('reorder_files', { file_ids: [third.id, first.id, second.id] })).error?.code).toBe(PERMISSION_DENIED)
+  expect((await course.secondLecturer.client.rpc('reorder_files', { file_ids: [third.id, first.id, second.id] })).error).toBeNull()
+  expect(await filesOf(auditor, target)).toEqual([
+    { id: third.id, name: 'pending.pdf', deletable: false },
+    { id: first.id, name: 'a.pdf', deletable: false },
+    { id: second.id, name: 'b.pdf', deletable: false },
+  ])
+
+  await expect(deleteFile(course.secondLecturer.client, first.id)).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  await deleteFile(course.lecturer.client, first.id)
+  await deleteFile(course.coordinator.client, second.id)
+  expect((await filesOf(course.lecturer.client, target)).map((file) => file.name)).toEqual(['pending.pdf'])
+  expect((await fakeStoreItems(`${course.root}/${folder}`)).map((item) => item.id)).toEqual([third.storage_item_id])
+})
+
+test.each([
+  { section: 6, empty: 'missing' },
+  { section: 7, empty: 'empty' },
+  { section: 8, empty: 'empty' },
+  { section: 9, empty: 'empty' },
+  { section: 17, empty: 'missing' },
+  { section: 18, empty: 'missing' },
+  { section: 19, slot: 'lo_po_evaluation', empty: 'missing' },
+])('section $section is $empty without files and Pending review with files', async ({ section, slot, empty }) => {
+  const course = await createCourse()
+  const statuses = async () => (await course.lecturer.client.rpc('section_statuses', { offering_id: course.slot.offeringId })).data
+  const before = await statuses()
+  expect(before[section - 1]).toEqual({ section, status: empty })
+
+  const first = await uploadFile(course.lecturer.client, { ...course.slot, section, slot }, pdf('a.pdf'))
+  const second = await uploadFile(course.lecturer.client, { ...course.slot, section, slot }, pdf('b.pdf'))
+  const withFiles = before.map((row: { section: number }) => (row.section === section ? { section, status: 'pending_review' } : row))
+  expect(await statuses()).toEqual(withFiles)
+
+  await deleteFile(course.coordinator.client, first.id)
+  expect(await statuses()).toEqual(withFiles)
+  await deleteFile(course.coordinator.client, second.id)
+  expect(await statuses()).toEqual(before)
+})
+
+test('each of the four LO/PO Analysis slots holds its own files, in its own folder and order', async () => {
+  const course = await createCourse()
+  const slotOf = (slot: string) => ({ ...course.slot, section: 19, slot })
+  const upload = (slot: string, name: string) => uploadFile(course.lecturer.client, slotOf(slot), pdf(name))
+  const po = [await upload('po_achievement', 'po 1.pdf'), await upload('cqi', 'cqi.pdf'), await upload('po_achievement', 'po 2.pdf')]
+  await upload('lo_achievement', 'lo.pdf')
+  await upload('lo_po_evaluation', 'evaluation.pdf')
+
+  const stored = async (title: string) => (await fakeStoreItems(`${course.root}/19 LO-PO Analysis/${title}`)).map((item) => item.path.split('_').pop())
+  expect(await stored('PO Achievement')).toEqual(['po 1.pdf', 'po 2.pdf'])
+  expect(await stored('LO Achievement')).toEqual(['lo.pdf'])
+  expect(await stored('LO-PO Evaluation')).toEqual(['evaluation.pdf'])
+  expect(await stored('CQI')).toEqual(['cqi.pdf'])
+
+  const names = async (slot: string) => (await filesOf(auditor, slotOf(slot))).map((file) => file.name)
+  expect(await names('po_achievement')).toEqual(['po 1.pdf', 'po 2.pdf'])
+  expect(await names('lo_achievement')).toEqual(['lo.pdf'])
+  expect(await names('lo_po_evaluation')).toEqual(['evaluation.pdf'])
+  expect(await names('cqi')).toEqual(['cqi.pdf'])
+
+  const [first, cqi, second] = po
+  expect((await course.coordinator.client.rpc('reorder_files', { file_ids: [cqi.id, first.id] })).error?.code).toBe(PERMISSION_DENIED)
+  expect((await course.coordinator.client.rpc('reorder_files', { file_ids: [second.id, first.id] })).error).toBeNull()
+  expect(await names('po_achievement')).toEqual(['po 2.pdf', 'po 1.pdf'])
+  await upload('po_achievement', 'po 3.pdf')
+  expect(await names('po_achievement')).toEqual(['po 2.pdf', 'po 1.pdf', 'po 3.pdf'])
+  expect(await names('cqi')).toEqual(['cqi.pdf'])
+})
+
+test('a file goes into section 19 only through one of its slots, and finalizes only in the slot it was uploaded to', async () => {
+  const course = await createCourse()
+  const loPo = { ...course.slot, section: 19 }
+
+  for (const target of [loPo, { ...loPo, slot: 'PO Achievement' }, { ...loPo, slot: 'grades' }, { ...course.slot, slot: 'cqi' }]) {
+    await expect(createUploadSession(course.lecturer.client, target, 'a.pdf')).rejects.toMatchObject({ status: 400, code: 'invalid_request' })
+  }
+
+  const pending = await uploadWithoutFinalize(course.lecturer.client, { ...loPo, slot: 'cqi' }, 'cqi.pdf', pdf('cqi.pdf'))
+  await expect(finalizeUpload(course.lecturer.client, { ...loPo, slot: 'po_achievement' }, pending)).rejects.toMatchObject({
+    status: 404,
+    code: 'not_found',
+  })
+  await expect(finalizeUpload(course.lecturer.client, loPo, pending)).rejects.toMatchObject({ status: 400, code: 'invalid_request' })
+  expect((await finalizeUpload(course.lecturer.client, { ...loPo, slot: 'cqi' }, pending)).slot).toBe('cqi')
 })
 
 test('the browser refuses a non-PDF and a file over 20 MB before it uploads anything', async () => {
@@ -202,7 +315,7 @@ test('staff cannot record or remove files without the files function', async () 
   const course = await createCourse()
   const file = await uploadFile(course.coordinator.client, course.slot, pdf('plan.pdf'))
   const client = course.coordinator.client
-  const record = { offering_id: course.slot.offeringId, section: TEACHING_PLAN, storage_item_id: 'forged', name: 'forged.pdf', size: 1 }
+  const record = { offering_id: course.slot.offeringId, section: TEACHING_PLAN, slot: null, storage_item_id: 'forged', name: 'forged.pdf', size: 1 }
 
   expect((await client.rpc('add_file', { ...record, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)
   expect((await client.from('files').insert({ ...record, position: 9, uploaded_by: course.coordinator.id })).error?.code).toBe(PERMISSION_DENIED)

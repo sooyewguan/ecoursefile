@@ -160,21 +160,29 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 
 ## Files
 
-The coordinator and lecturers of an offering upload PDFs to Teaching Plan (section 2). Its title on the course file page opens the section page, which lists the files in their order. Everyone who reads the course file sees the list. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql`.
+The coordinator and lecturers of an offering upload PDFs to the sections that hold plain files:
+
+| Section | Where the files go |
+| --- | --- |
+| 2 Teaching Plan, 6 Attendance Record, 17 Week 12 Marks, 18 Grade List | The section |
+| 7 Replacement Notices, 8 Proof of Absence, 9 Warning Letters | The section. It may stay empty, and its status is then `empty`, never `missing`. |
+| 19 LO/PO Analysis | One of four slots: PO Achievement (`po_achievement`), LO Achievement (`lo_achievement`), LO/PO Evaluation (`lo_po_evaluation`) and CQI (`cqi`). Each slot holds its own files in its own order. |
+
+The slots are the `SECTION_SLOTS` constant in `supabase/functions/_shared/sections.ts`, and the `files` table's check constraint lists the same names. Each of these sections' titles on the course file page opens the section page, which lists the files in their order, one list per slot. Everyone who reads the course file sees the lists. The tables, RPCs and their RLS policies are in `supabase/migrations/20261119050000_files_and_activity_log.sql` and `supabase/migrations/20261119090100_plain_file_sections.sql`.
 
 | Table | What each entry holds |
 | --- | --- |
-| `files` | One file in one section of an offering: the storage item ID, the file name, the size, its `position` in the section, the uploader and the upload time. |
+| `files` | One file in one section of an offering: its `slot` in section 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in the section or slot, the uploader and the upload time. |
 | `activity_log` | One upload or delete: the offering, the section, the `action`, the actor and the file name. Rows are never changed or removed, not even by the service role. |
 
 Readers of an offering read both tables. Clients write neither. The `files` Edge Function writes them with the service role.
 
 | RPC or column | What it does |
 | --- | --- |
-| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for Teaching Plan, for the offering's coordinator and lecturers. |
+| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, for the offering's coordinator and lecturers. |
 | `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. |
 | `uploader_name` | A column of `files`: the uploader's name. |
-| `reorder_files(file_ids)` | Sets the order of one section's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, fails with Postgres error `42501`. |
+| `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section or slot, fails with Postgres error `42501`. |
 
 ### Upload flow
 
@@ -187,7 +195,7 @@ Readers of an offering read both tables. Clients write neither. The `files` Edge
 
 Finalize looks the item up by its path, not by an item ID from the browser. A caller can therefore record or delete only items in a section that they may upload to. Finalizing the same upload twice returns the same record.
 
-Each file is stored at `eCourseFile/<semester>/<course code> <course title>/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/BITP1113 Programming/02 Teaching Plan/2026-11-19T10-30-00.123Z_plan.pdf`. Characters that SharePoint does not allow in names become `-`.
+Each file is stored at `eCourseFile/<semester>/<course code> <course title>/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/BITP1113 Programming/02 Teaching Plan/2026-11-19T10-30-00.123Z_plan.pdf`. A file in a slot has the slot's title as one more folder, such as `.../19 LO-PO Analysis/CQI/<upload time>_<file name>`. Characters that SharePoint does not allow in names become `-`.
 
 ### The files Edge Function
 
@@ -195,15 +203,15 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
-| `create-upload-session` | `offeringId`, `section`, `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
-| `finalize-upload` | `offeringId`, `section`, `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
+| `create-upload-session` | `offeringId`, `section`, `slot` (section 19 only), `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
+| `finalize-upload` | `offeringId`, `section`, `slot` (section 19 only), `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
 | `delete-file` | `fileId` | Users who see the file with `deletable` true | `{ "fileId" }` |
 
 `delete-file` deletes the item from storage for good, then deletes the record and logs the delete. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above. |
+| 400 | `invalid_request` | The body is not one of the actions above. Section 19 needs one of its slot names in `slot`, and other sections take no `slot`. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not upload to the section, or may not delete the file. |
 | 404 | `not_found` | Finalize found no uploaded item, or the caller cannot see the file to delete. |

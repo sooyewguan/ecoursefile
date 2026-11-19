@@ -3,7 +3,7 @@
 // functions can_upload and deletable decide who may do what, asked as the caller. The add_file
 // and remove_file RPCs write the file records and the activity log with the service role.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-import { SECTIONS } from '../_shared/sections.ts'
+import { SECTION_SLOTS, SECTIONS, type SectionSlot } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
 import {
   hasPdfName,
@@ -14,12 +14,12 @@ import {
   type UploadProblem,
 } from '../_shared/uploads.ts'
 
-/** Where a file goes: one section of one offering's course file. */
-type Slot = { offeringId: string; section: number }
+/** Where a file goes: one section of one offering's course file, and one of its slots when it has slots. */
+type Target = { offeringId: string; section: number; slot: SectionSlot | null }
 
 type FilesRequest =
-  | { action: 'create-upload-session'; slot: Slot; fileName: string }
-  | { action: 'finalize-upload'; slot: Slot; storedName: string }
+  | { action: 'create-upload-session'; target: Target; fileName: string }
+  | { action: 'finalize-upload'; target: Target; storedName: string }
   | { action: 'delete-file'; fileId: string }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
@@ -31,9 +31,9 @@ serveJson(async (body, caller) => {
   const request = parseRequest(body)
   switch (request.action) {
     case 'create-upload-session':
-      return createUploadSession(request.slot, request.fileName, caller)
+      return createUploadSession(request.target, request.fileName, caller)
     case 'finalize-upload':
-      return finalizeUpload(request.slot, request.storedName, caller)
+      return finalizeUpload(request.target, request.storedName, caller)
     case 'delete-file':
       return deleteFile(request.fileId, caller)
   }
@@ -43,18 +43,18 @@ function parseRequest(body: unknown): FilesRequest {
   const input = isRecord(body) ? body : {}
   switch (input.action) {
     case 'create-upload-session': {
-      const slot = parseSlot(input)
+      const target = parseTarget(input)
       const fileName = typeof input.fileName === 'string' ? safeName(input.fileName) : ''
-      if (!slot || !fileName) throw invalid('create-upload-session needs offeringId, section and fileName.')
-      return { action: 'create-upload-session', slot, fileName }
+      if (!target || !fileName) throw invalid('create-upload-session needs offeringId, section, a slot for a section with slots, and fileName.')
+      return { action: 'create-upload-session', target, fileName }
     }
     case 'finalize-upload': {
-      const slot = parseSlot(input)
+      const target = parseTarget(input)
       const { storedName } = input
-      if (!slot || typeof storedName !== 'string' || !STORED_NAME.test(storedName)) {
-        throw invalid('finalize-upload needs offeringId, section and the storedName of its upload session.')
+      if (!target || typeof storedName !== 'string' || !STORED_NAME.test(storedName)) {
+        throw invalid('finalize-upload needs offeringId, section, a slot for a section with slots, and the storedName of its upload session.')
       }
-      return { action: 'finalize-upload', slot, storedName }
+      return { action: 'finalize-upload', target, storedName }
     }
     case 'delete-file': {
       if (!isUuid(input.fileId)) throw invalid('delete-file needs fileId.')
@@ -65,14 +65,18 @@ function parseRequest(body: unknown): FilesRequest {
   }
 }
 
-function parseSlot({ offeringId, section }: Record<string, unknown>): Slot | null {
+/** The target, when section is one of the 19 and slot names one of its slots, or is absent for a section without slots. */
+function parseTarget({ offeringId, section, slot }: Record<string, unknown>): Target | null {
   if (!isUuid(offeringId) || !SECTIONS.some((s) => s.number === section)) return null
-  return { offeringId, section: section as number }
+  const slots = SECTION_SLOTS[section as number]
+  if (!slots) return slot === undefined || slot === null ? { offeringId, section: section as number, slot: null } : null
+  const named = slots.find((s) => s.name === slot)
+  return named ? { offeringId, section: section as number, slot: named } : null
 }
 
-async function createUploadSession(slot: Slot, fileName: string, caller: string) {
+async function createUploadSession(target: Target, fileName: string, caller: string) {
   if (!hasPdfName(fileName)) throw new Refusal(422, 'not_pdf', UPLOAD_PROBLEM_MESSAGES.not_pdf)
-  const folder = await uploadFolder(slot, caller)
+  const folder = await uploadFolder(target, caller)
   const storedName = `${new Date().toISOString().replaceAll(':', '-')}_${fileName}`
   const session = await storage.createUploadSession(`${folder}/${storedName}`)
   return { ...session, storedName }
@@ -80,8 +84,8 @@ async function createUploadSession(slot: Slot, fileName: string, caller: string)
 
 // Finalize looks the item up by the path its session wrote to, not by an item id from the
 // browser, so a caller can only record or delete items in a slot they may upload to.
-async function finalizeUpload(slot: Slot, storedName: string, caller: string) {
-  const folder = await uploadFolder(slot, caller)
+async function finalizeUpload(target: Target, storedName: string, caller: string) {
+  const folder = await uploadFolder(target, caller)
   const item = await storage.getItem(`${folder}/${storedName}`)
   if (!item) throw new Refusal(404, 'not_found', 'The upload was not found. Upload the file again.')
   const problem = await storedItemProblem(item)
@@ -90,8 +94,9 @@ async function finalizeUpload(slot: Slot, storedName: string, caller: string) {
     throw new Refusal(422, problem, UPLOAD_PROBLEM_MESSAGES[problem])
   }
   const file = await rest('POST', '/rpc/add_file', {
-    offering_id: slot.offeringId,
-    section: slot.section,
+    offering_id: target.offeringId,
+    section: target.section,
+    slot: target.slot?.name ?? null,
     storage_item_id: item.id,
     name: STORED_NAME.exec(storedName)![1],
     size: item.size,
@@ -124,24 +129,25 @@ async function deleteFile(fileId: string, caller: string) {
 }
 
 /**
- * The slot's folder in the storage library, once the caller is found to be allowed to upload to
- * it: eCourseFile/<semester>/<course code> <course title>/<NN section>.
+ * The target's folder in the storage library, once the caller is found to be allowed to upload to
+ * it: eCourseFile/<semester>/<course code> <course title>/<NN section>, then /<slot> for a slot.
  */
-async function uploadFolder(slot: Slot, caller: string) {
-  const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: slot.offeringId, section: slot.section }, caller)
+async function uploadFolder(target: Target, caller: string) {
+  const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
   if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')
   const [offering] = await rest<{ semester: { code: string }; course: { code: string; title: string } }[]>(
     'GET',
-    `/offerings?id=eq.${slot.offeringId}&select=semester:semesters(code),course:courses(code,title)`,
+    `/offerings?id=eq.${target.offeringId}&select=semester:semesters(code),course:courses(code,title)`,
     undefined,
     caller,
   )
-  const section = SECTIONS.find((s) => s.number === slot.section)!
+  const section = SECTIONS.find((s) => s.number === target.section)!
   return [
     'eCourseFile',
     offering.semester.code.replace('/', '-'),
     safeName(`${offering.course.code} ${offering.course.title}`),
     safeName(`${String(section.number).padStart(2, '0')} ${section.title}`),
+    ...(target.slot ? [safeName(target.slot.title)] : []),
   ].join('/')
 }
 
