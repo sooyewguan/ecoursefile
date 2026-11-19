@@ -1,7 +1,22 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { KeyRoundIcon, PencilIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
+import { useCallback, useEffect, useState, type ComponentProps } from 'react'
+import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
+import { RoleBadges } from '@/components/identity'
+import { NoticeAlert, type Notice } from '@/components/notice'
+import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
-import { GLOBAL_ROLES, ROLE_LABELS, type GlobalRole } from '../roles.ts'
+import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
 
 type UserRow = {
@@ -19,10 +34,23 @@ type Department = { id: string; code: string; name: string }
 
 type PageData = { users: UserRow[]; departments: Department[]; assignable: GlobalRole[] }
 
+/** What the edit dialog changes. A departmentId of undefined leaves the department as it is. */
+type UserChanges = { grant: GlobalRole[]; revoke: GlobalRole[]; departmentId?: string | null }
+
+/** The dialog that is open, and the user it acts on. */
+type OpenDialog =
+  | { kind: 'create' }
+  | { kind: 'edit'; user: UserRow }
+  | { kind: 'reset-password'; user: UserRow }
+  | { kind: 'set-active'; user: UserRow }
+
+const COLUMNS = 5
+
 export function Users() {
   const state = useAuth()
   const [data, setData] = useState<PageData | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [dialog, setDialog] = useState<OpenDialog | null>(null)
 
   const reload = useCallback(async () => {
     const [users, departments, assignable] = await Promise.all([
@@ -34,7 +62,7 @@ export function Users() {
       supabase.rpc('assignable_roles'),
     ])
     if (users.error || departments.error || assignable.error) {
-      setMessage((users.error ?? departments.error ?? assignable.error)!.message)
+      setNotice({ tone: 'error', text: (users.error ?? departments.error ?? assignable.error)!.message })
       return
     }
     setData({ users: users.data, departments: departments.data, assignable: assignable.data })
@@ -44,193 +72,375 @@ export function Users() {
     void reload()
   }, [reload])
 
-  if (state.kind !== 'ready' || !data) return <p>Loading…</p>
+  if (state.kind !== 'ready') return null
 
   const me = state.profile.id
   const choosesDepartment = state.roles.includes('admin')
-  const departmentName = new Map(data.departments.map((d) => [d.id, `${d.code} ${d.name}`]))
+  const departments = data?.departments ?? []
+  const assignable = data?.assignable ?? []
+  const departmentName = new Map(departments.map((d) => [d.id, `${d.code} ${d.name}`]))
 
-  async function run(action: () => Promise<string | null>, success: string | null = null) {
+  /** Runs an action, reloads the page data, and returns the action's error message or null. */
+  async function perform(action: Action, success: string) {
     const error = await action()
-    setMessage(error ?? success)
     await reload()
+    if (!error) setNotice({ tone: 'success', text: success })
+    return error
   }
 
-  async function onCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const formElement = event.currentTarget
-    const form = new FormData(formElement)
-    const email = String(form.get('email'))
-    await run(async () => {
-      const error = await callAccounts({
-        action: 'create-user',
-        email,
-        fullName: String(form.get('fullName')),
-        departmentId: String(form.get('departmentId') ?? '') || null,
-        roles: form.getAll('roles').map(String),
-        temporaryPassword: String(form.get('temporaryPassword')),
-      })
-      if (!error) formElement.reset()
-      return error
-    }, `Created ${email}. They must change the temporary password at first sign-in.`)
-  }
-
-  function toggleRole(user: UserRow, role: GlobalRole, granted: boolean) {
-    return run(async () => {
-      const { error } = granted
-        ? await supabase.from('user_roles').insert({ user_id: user.id, role })
-        : await supabase.from('user_roles').delete().match({ user_id: user.id, role })
-      return error?.message ?? null
-    })
-  }
-
-  function updateProfile(user: UserRow, changes: { department_id?: string | null; active?: boolean }) {
-    return run(async () => {
-      const { error } = await supabase.from('profiles').update(changes).eq('id', user.id)
-      return error?.message ?? null
-    })
-  }
-
-  async function onResetPassword(event: FormEvent<HTMLFormElement>, user: UserRow) {
-    event.preventDefault()
-    const formElement = event.currentTarget
-    const temporaryPassword = String(new FormData(formElement).get('temporaryPassword'))
-    await run(async () => {
-      const error = await callAccounts({ action: 'reset-password', userId: user.id, temporaryPassword })
-      if (!error) formElement.reset()
-      return error
-    }, `Reset the password of ${user.email}. They must change it at their next sign-in.`)
+  function close() {
+    setDialog(null)
   }
 
   return (
-    <div>
-      <h1>Users</h1>
-      {message && <p role="status">{message}</p>}
+    <div className="grid gap-6">
+      <PageHeader
+        title="Users"
+        description={
+          choosesDepartment
+            ? 'Add staff, set their department and roles, and manage their access.'
+            : 'Add admins, and grant or revoke the admin role.'
+        }
+        action={
+          assignable.length > 0 && (
+            <Button onClick={() => setDialog({ kind: 'create' })}>
+              <UserPlusIcon />
+              Add user
+            </Button>
+          )
+        }
+      />
+      {notice && <NoticeAlert notice={notice} />}
 
-      {data.assignable.length > 0 && (
-        <form onSubmit={onCreate} aria-label="Add a user">
-          <h2>Add a user</h2>
-          <label>
-            Full name
-            <input name="fullName" required />
-          </label>
-          <label>
-            Email
-            <input name="email" type="email" required />
-          </label>
-          <label>
-            Temporary password
-            <input name="temporaryPassword" type="text" autoComplete="off" required />
-          </label>
+      <Card className="gap-0 overflow-hidden py-0">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="px-4">Name</TableHead>
+              {/* Below md these three move into the name cell, so a phone needs no sideways scroll. */}
+              <TableHead className="hidden px-4 md:table-cell">Department</TableHead>
+              <TableHead className="hidden px-4 md:table-cell">Roles</TableHead>
+              <TableHead className="hidden px-4 md:table-cell">Status</TableHead>
+              <TableHead className="w-14 px-4">
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!data ? (
+              <TableSkeleton columns={COLUMNS} />
+            ) : data.users.length === 0 ? (
+              <TableEmpty columns={COLUMNS} icon={UsersIcon} title="No users yet" description="Add the first user." />
+            ) : (
+              data.users.map((user) => {
+                const roles = user.user_roles.map((r) => r.role)
+                const department = user.department_id ? departmentName.get(user.department_id) : undefined
+                // The database refuses role changes on yourself and on root, so the page offers none.
+                const editsRoles = assignable.length > 0 && user.id !== me && !roles.includes('root')
+                return (
+                  <TableRow key={user.id}>
+                    <TableCell className="px-4 py-3 whitespace-normal">
+                      <div className={cn('grid gap-0.5', !user.active && 'opacity-60')}>
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                          {user.full_name}
+                          {user.id === me && <Badge variant="outline">You</Badge>}
+                        </span>
+                        <span className="text-muted-foreground wrap-anywhere">{user.email}</span>
+                        <div className="mt-2 grid gap-2 md:hidden">
+                          {department && <span className="text-muted-foreground text-xs">{department}</span>}
+                          <div className="flex flex-wrap items-center gap-1">
+                            <RoleBadges roles={roles} />
+                            <StatusBadge active={user.active} />
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden px-4 py-3 whitespace-normal md:table-cell">
+                      {department ?? <span className="text-muted-foreground">No department</span>}
+                    </TableCell>
+                    <TableCell className="hidden px-4 py-3 md:table-cell">
+                      <RoleBadges roles={roles} className="min-w-32" />
+                    </TableCell>
+                    <TableCell className="hidden px-4 py-3 md:table-cell">
+                      <StatusBadge active={user.active} />
+                    </TableCell>
+                    <TableCell className="px-4 py-2 text-right">
+                      {(editsRoles || user.manageable) && (
+                        <RowActions label={`Actions for ${user.email}`}>
+                          {editsRoles && (
+                            <DropdownMenuItem onSelect={() => setDialog({ kind: 'edit', user })}>
+                              <PencilIcon />
+                              {user.manageable && choosesDepartment ? 'Edit user' : 'Edit roles'}
+                            </DropdownMenuItem>
+                          )}
+                          {user.manageable && (
+                            <>
+                              <DropdownMenuItem onSelect={() => setDialog({ kind: 'reset-password', user })}>
+                                <KeyRoundIcon />
+                                Reset password
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                variant={user.active ? 'destructive' : 'default'}
+                                onSelect={() => setDialog({ kind: 'set-active', user })}
+                              >
+                                {user.active ? <UserXIcon /> : <UserCheckIcon />}
+                                {user.active ? 'Deactivate' : 'Reactivate'}
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </RowActions>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {dialog?.kind === 'create' && (
+        <FormDialog
+          title="Add a user"
+          description="They sign in with the temporary password and must change it at their first sign-in."
+          submitLabel="Add user"
+          onClose={close}
+          onSubmit={(form) => {
+            const email = String(form.get('email'))
+            return perform(
+              () =>
+                callAccounts({
+                  action: 'create-user',
+                  email,
+                  fullName: String(form.get('fullName')),
+                  departmentId: String(form.get('departmentId') ?? '') || null,
+                  roles: form.getAll('roles').map(String),
+                  temporaryPassword: String(form.get('temporaryPassword')),
+                }),
+              `Created ${email}. They must change the temporary password at first sign-in.`,
+            )
+          }}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="create-full-name">Full name</Label>
+            <Input id="create-full-name" name="fullName" autoComplete="off" required />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="create-email">Email</Label>
+            <Input id="create-email" name="email" type="email" autoComplete="off" required />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="create-temporary-password">Temporary password</Label>
+            <Input id="create-temporary-password" name="temporaryPassword" type="text" autoComplete="off" required />
+          </div>
           {choosesDepartment && (
-            <label>
-              Department
-              <select name="departmentId" defaultValue="">
-                <option value="">No department</option>
-                {data.departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.code} {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <DepartmentSelect id="create-department" name="departmentId" departments={departments} defaultValue="" />
           )}
-          <fieldset>
-            <legend>Roles</legend>
-            {data.assignable.map((role) => (
-              <label key={role}>
-                <input type="checkbox" name="roles" value={role} />
-                {ROLE_LABELS[role]}
-              </label>
-            ))}
-          </fieldset>
-          <button type="submit">Add user</button>
-        </form>
+          <RoleCheckboxes idPrefix="create-role" roles={assignable} />
+        </FormDialog>
       )}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Department</th>
-            <th>Roles</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.users.map((user) => {
-            const roles = user.user_roles.map((r) => r.role)
-            // The database refuses role changes on yourself and on root, so the page offers none.
-            const grantable = user.id !== me && !roles.includes('root')
-            return (
-              <tr key={user.id}>
-                <td>{user.full_name}</td>
-                <td>{user.email}</td>
-                <td>
-                  {user.manageable && choosesDepartment ? (
-                    <select
-                      aria-label={`Department of ${user.email}`}
-                      value={user.department_id ?? ''}
-                      onChange={(event) => void updateProfile(user, { department_id: event.target.value || null })}
-                    >
-                      <option value="">No department</option>
-                      {data.departments.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.code} {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    (user.department_id && departmentName.get(user.department_id)) ?? ''
-                  )}
-                </td>
-                <td>
-                  {GLOBAL_ROLES.filter((role) => roles.includes(role) && !(grantable && data.assignable.includes(role)))
-                    .map((role) => ROLE_LABELS[role])
-                    .join(', ')}
-                  {grantable &&
-                    data.assignable.map((role) => (
-                      <label key={role}>
-                        <input
-                          type="checkbox"
-                          aria-label={`${ROLE_LABELS[role]} role for ${user.email}`}
-                          checked={roles.includes(role)}
-                          onChange={(event) => void toggleRole(user, role, event.target.checked)}
-                        />
-                        {ROLE_LABELS[role]}
-                      </label>
-                    ))}
-                </td>
-                <td>{user.active ? 'Active' : 'Deactivated'}</td>
-                <td>
-                  {user.manageable && (
-                    <>
-                      <form onSubmit={(event) => void onResetPassword(event, user)}>
-                        <input
-                          name="temporaryPassword"
-                          type="text"
-                          autoComplete="off"
-                          aria-label={`Temporary password for ${user.email}`}
-                          placeholder="Temporary password"
-                          required
-                        />
-                        <button type="submit">Reset password</button>
-                      </form>
-                      <button type="button" onClick={() => void updateProfile(user, { active: !user.active })}>
-                        {user.active ? 'Deactivate' : 'Reactivate'}
-                      </button>
-                    </>
-                  )}
-                </td>
-              </tr>
+      {dialog?.kind === 'edit' && (
+        <EditUserDialog
+          user={dialog.user}
+          assignable={assignable}
+          departments={choosesDepartment && dialog.user.manageable ? departments : null}
+          onClose={close}
+          onSave={(changes) => perform(() => saveUser(dialog.user, changes), `Saved the changes to ${dialog.user.email}.`)}
+        />
+      )}
+
+      {dialog?.kind === 'reset-password' && (
+        <FormDialog
+          title={`Reset the password of ${dialog.user.full_name}`}
+          description={`Give ${dialog.user.email} a temporary password. They must change it at their next sign-in.`}
+          submitLabel="Reset password"
+          onClose={close}
+          onSubmit={(form) =>
+            perform(
+              () =>
+                callAccounts({
+                  action: 'reset-password',
+                  userId: dialog.user.id,
+                  temporaryPassword: String(form.get('temporaryPassword')),
+                }),
+              `Reset the password of ${dialog.user.email}. They must change it at their next sign-in.`,
             )
-          })}
-        </tbody>
-      </table>
+          }
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="reset-temporary-password">Temporary password</Label>
+            <Input id="reset-temporary-password" name="temporaryPassword" type="text" autoComplete="off" required />
+          </div>
+        </FormDialog>
+      )}
+
+      {dialog?.kind === 'set-active' && (
+        <ConfirmDialog
+          title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.full_name}?`}
+          description={
+            dialog.user.active
+              ? `${dialog.user.email} can no longer sign in. Their profile stays, and you can reactivate them later.`
+              : `${dialog.user.email} can sign in again with their current password.`
+          }
+          confirmLabel={dialog.user.active ? 'Deactivate' : 'Reactivate'}
+          destructive={dialog.user.active}
+          onClose={close}
+          onConfirm={() =>
+            perform(
+              () => updateProfile(dialog.user, { active: !dialog.user.active }),
+              `${dialog.user.active ? 'Deactivated' : 'Reactivated'} ${dialog.user.email}.`,
+            )
+          }
+        />
+      )}
     </div>
   )
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  return (
+    <Badge variant="outline" className={cn('gap-1.5', !active && 'text-muted-foreground')}>
+      <span aria-hidden="true" className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-destructive')} />
+      {active ? 'Active' : 'Deactivated'}
+    </Badge>
+  )
+}
+
+function DepartmentSelect({
+  departments,
+  ...props
+}: { id: string; departments: Department[] } & ComponentProps<typeof NativeSelect>) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={props.id}>Department</Label>
+      <NativeSelect {...props}>
+        <NativeSelectOption value="">No department</NativeSelectOption>
+        {departments.map((d) => (
+          <NativeSelectOption key={d.id} value={d.id}>
+            {d.code} {d.name}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </div>
+  )
+}
+
+/** A checkbox for each role. Without `checked` the boxes keep their own state and submit as `roles`. */
+function RoleCheckboxes({
+  idPrefix,
+  roles,
+  checked,
+  onCheckedChange,
+}: {
+  idPrefix: string
+  roles: GlobalRole[]
+  checked?: GlobalRole[]
+  onCheckedChange?: (role: GlobalRole, checked: boolean) => void
+}) {
+  return (
+    <fieldset className="grid gap-3">
+      <legend className="mb-2 text-sm font-medium">Roles</legend>
+      <div className="grid grid-cols-2 gap-2">
+        {roles.map((role) => (
+          <Label
+            key={role}
+            htmlFor={`${idPrefix}-${role}`}
+            className="hover:bg-accent/50 has-[[aria-checked=true]]:border-primary/40 has-[[aria-checked=true]]:bg-accent/60 rounded-md border px-3 py-2.5 font-normal"
+          >
+            <Checkbox
+              id={`${idPrefix}-${role}`}
+              name="roles"
+              value={role}
+              checked={checked?.includes(role)}
+              onCheckedChange={onCheckedChange && ((value) => onCheckedChange(role, value === true))}
+            />
+            {ROLE_LABELS[role]}
+          </Label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+function EditUserDialog({
+  user,
+  assignable,
+  departments,
+  onSave,
+  onClose,
+}: {
+  user: UserRow
+  assignable: GlobalRole[]
+  /** The departments to choose from, or null when the signed-in user may not change this user's department. */
+  departments: Department[] | null
+  onSave: Action<[UserChanges]>
+  onClose: () => void
+}) {
+  const held = user.user_roles.map((r) => r.role)
+  const [roles, setRoles] = useState(() => assignable.filter((role) => held.includes(role)))
+  const [departmentId, setDepartmentId] = useState(user.department_id ?? '')
+
+  const changes: UserChanges = {
+    grant: roles.filter((role) => !held.includes(role)),
+    revoke: assignable.filter((role) => held.includes(role) && !roles.includes(role)),
+    departmentId: departmentId === (user.department_id ?? '') ? undefined : departmentId || null,
+  }
+  const changed = changes.grant.length > 0 || changes.revoke.length > 0 || changes.departmentId !== undefined
+
+  return (
+    <FormDialog
+      title={`Edit ${user.full_name}`}
+      description={`${user.email}. Role changes take effect at their next sign-in, or within an hour.`}
+      submitLabel="Save"
+      submitDisabled={!changed}
+      onClose={onClose}
+      onSubmit={() => onSave(changes)}
+    >
+      {departments && (
+        <DepartmentSelect
+          id="edit-department"
+          departments={departments}
+          value={departmentId}
+          onChange={(event) => setDepartmentId(event.target.value)}
+        />
+      )}
+      <RoleCheckboxes
+        idPrefix="edit-role"
+        roles={assignable}
+        checked={roles}
+        onCheckedChange={(role, checked) =>
+          setRoles((current) => (checked ? [...current, role] : current.filter((r) => r !== role)))
+        }
+      />
+    </FormDialog>
+  )
+}
+
+/**
+ * Applies the edit dialog's changes with the same writes the database rules check. Revokes go
+ * first and grants last, so an HoD has a department whenever they hold the role.
+ */
+async function saveUser(user: UserRow, changes: UserChanges): Promise<string | null> {
+  for (const role of changes.revoke) {
+    const { error } = await supabase.from('user_roles').delete().match({ user_id: user.id, role })
+    if (error) return error.message
+  }
+  if (changes.departmentId !== undefined) {
+    const error = await updateProfile(user, { department_id: changes.departmentId })
+    if (error) return error
+  }
+  for (const role of changes.grant) {
+    const { error } = await supabase.from('user_roles').insert({ user_id: user.id, role })
+    if (error) return error.message
+  }
+  return null
+}
+
+async function updateProfile(user: UserRow, changes: { department_id?: string | null; active?: boolean }) {
+  const { error } = await supabase.from('profiles').update(changes).eq('id', user.id)
+  return error?.message ?? null
 }
 
 /** Calls the accounts Edge Function and returns its error message, or null when it succeeded. */
