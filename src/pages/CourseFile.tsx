@@ -21,6 +21,7 @@ type PageData = { offering: Offering | null; statuses: { section: number; status
 
 const STATUS_STYLES: Record<SectionStatus, string> = {
   missing: 'border-destructive/30 bg-destructive/10 text-destructive',
+  pending_review: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
   empty: 'text-muted-foreground',
   off: 'text-muted-foreground border-dashed',
 }
