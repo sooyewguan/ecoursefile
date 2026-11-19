@@ -12,11 +12,14 @@ export const SWITCHABLE_SECTIONS = SECTIONS.filter((section) => section.kind ===
  */
 export const FILE_SECTIONS: ReadonlySet<number> = new Set([2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
 
-/** The sections of shared files, which the admin uploads on the semester page and every course file of the semester links. */
-export const SHARED_FILE_SECTIONS = SECTIONS.filter((section) => section.sharedFile)
+/** The sections of a semester's shared files, which the admin uploads on the semester page and every course file of the semester links. */
+export const SEMESTER_FILE_SECTIONS = SECTIONS.filter((section) => section.sharedFile === 'semester')
 
-/** The sections that open a section page: those that staff upload to, and those that link a shared file. */
-export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([...FILE_SECTIONS, ...SHARED_FILE_SECTIONS.map((section) => section.number)])
+/** The sections that open a section page: those that staff upload to, and those that link shared files. */
+export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([
+  ...FILE_SECTIONS,
+  ...SECTIONS.filter((section) => section.sharedFile).map((section) => section.number),
+])
 
 /**
  * How many pages the browser puts on each page of a PDF before it uploads it to the slot: the

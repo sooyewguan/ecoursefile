@@ -16,7 +16,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { GlobalRole } from '../roles.ts'
-import { SHARED_FILE_SECTIONS, type Section } from '../sections.ts'
+import { SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { deleteSharedFile, uploadFile } from '../uploads.ts'
 
@@ -94,6 +94,7 @@ export function Semester() {
         .from('files')
         .select('id, section, name, uploaded_at, uploader_name, linked_offerings(id, course:courses(code, title))')
         .eq('semester_id', semesterId!)
+        .in('section', SEMESTER_FILE_SECTIONS.map((section) => section.number))
         .overrideTypes<SharedFile[], { merge: false }>(),
       supabase.from('courses').select('id, code, title').order('code'),
       supabase.from('profiles').select('id, full_name, email, active, user_roles(role)').order('full_name'),
@@ -221,9 +222,9 @@ export function Semester() {
             </TableHeader>
             <TableBody>
               {!data ? (
-                <TableSkeleton columns={SHARED_COLUMNS} rows={SHARED_FILE_SECTIONS.length} />
+                <TableSkeleton columns={SHARED_COLUMNS} rows={SEMESTER_FILE_SECTIONS.length} />
               ) : (
-                SHARED_FILE_SECTIONS.map((section) => {
+                SEMESTER_FILE_SECTIONS.map((section) => {
                   const file = data.sharedFiles.find((shared) => shared.section === section.number)
                   const uploaded = file && `${file.uploader_name}, ${new Date(file.uploaded_at).toLocaleString()}`
                   return (
