@@ -4,8 +4,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
+import { Courses } from './pages/Courses.tsx'
+import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
 import { Home } from './pages/Home.tsx'
+import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { SignIn } from './pages/SignIn.tsx'
 import { Users } from './pages/Users.tsx'
 
@@ -21,6 +24,9 @@ export function App() {
               <Route path="/" element={<Home />} />
               <Route path="/users" element={<Users />} />
               <Route path="/departments" element={<Departments />} />
+              <Route path="/course-types" element={<CourseTypes />} />
+              <Route path="/courses" element={<Courses />} />
+              <Route path="/program-codes" element={<ProgramCodes />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

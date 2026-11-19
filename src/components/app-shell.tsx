@@ -1,4 +1,15 @@
-import { Building2Icon, ChevronDownIcon, HouseIcon, LogOutIcon, MenuIcon, UsersIcon, type LucideIcon } from 'lucide-react'
+import {
+  BookOpenIcon,
+  Building2Icon,
+  ChevronDownIcon,
+  HouseIcon,
+  LayersIcon,
+  LogOutIcon,
+  MenuIcon,
+  TagsIcon,
+  UsersIcon,
+  type LucideIcon,
+} from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { Brand } from '@/components/brand'
 import { Initials, RoleBadges } from '@/components/identity'
@@ -24,6 +35,9 @@ type PageLink = { path: string; label: string; icon: LucideIcon }
 const PAGE_DETAILS: Record<(typeof ROLE_PAGES)[number]['path'], { icon: LucideIcon; description: string }> = {
   '/users': { icon: UsersIcon, description: 'Add accounts, assign roles and manage access.' },
   '/departments': { icon: Building2Icon, description: 'Add, rename and remove departments.' },
+  '/course-types': { icon: LayersIcon, description: 'Set which of sections 10 to 16 are on by default.' },
+  '/courses': { icon: BookOpenIcon, description: 'Add courses with their department and course type.' },
+  '/program-codes': { icon: TagsIcon, description: 'Keep the master list of program codes.' },
 }
 
 /** The role-gated pages that these roles may open, as the route rules in auth.ts decide. */
@@ -47,7 +61,7 @@ export function AppShell() {
           <Link to="/" className="mr-4 rounded-md">
             <Brand />
           </Link>
-          <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
+          <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
             {links.map((link) => (
               <NavLink
                 key={link.path}
@@ -80,7 +94,7 @@ function MobileNav({ links }: { links: PageLink[] }) {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="-ml-2 md:hidden" aria-label="Open navigation">
+        <Button variant="ghost" size="icon" className="-ml-2 lg:hidden" aria-label="Open navigation">
           <MenuIcon className="size-5" />
         </Button>
       </SheetTrigger>

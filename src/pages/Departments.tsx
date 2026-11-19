@@ -145,7 +145,7 @@ export function Departments() {
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
           title={`Delete ${dialog.department.code} ${dialog.department.name}?`}
-          description="This cannot be undone. A department that still has staff in it cannot be deleted."
+          description="This cannot be undone. A department that still has staff or courses in it cannot be deleted."
           confirmLabel="Delete"
           destructive
           onClose={close}
