@@ -15,6 +15,9 @@ export const FILE_SECTIONS: ReadonlySet<number> = new Set([2, 6, 7, 8, 9, 10, 11
 /** The sections of a semester's shared files, which the admin uploads on the semester page and every course file of the semester links. */
 export const SEMESTER_FILE_SECTIONS = SECTIONS.filter((section) => section.sharedFile === 'semester')
 
+/** Lecturer Timetable: each lecturer uploads their own for each semester, on its own section page. */
+export const LECTURER_FILE_SECTION = SECTIONS.find((section) => section.sharedFile === 'lecturer')!
+
 /** The sections that open a section page: those that staff upload to, and those that link shared files. */
 export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([
   ...FILE_SECTIONS,
