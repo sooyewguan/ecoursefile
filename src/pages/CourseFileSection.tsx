@@ -11,7 +11,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import { FILE_SECTIONS, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
+import { FILE_SECTIONS, MERGED_SECTIONS, SECTION_SLOTS, SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, uploadFile } from '../uploads.ts'
 
@@ -30,8 +30,11 @@ type SectionFile = {
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; status: SectionStatus | null; files: SectionFile[]; canUpload: boolean }
 
-/** The file being uploaded, the slot it goes to, its place in the batch, and how much of it has been sent. */
-type Progress = { slot: string | null; name: string; index: number; count: number; fraction: number }
+/**
+ * The file being uploaded, the slot it goes to, its place in the batch, and how much of it has
+ * been sent: null while the browser merges it.
+ */
+type Progress = { slot: string | null; name: string; index: number; count: number; fraction: number | null }
 
 /** Below md the uploader and time move into the file cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
@@ -49,6 +52,7 @@ export function CourseFileSection() {
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && FILE_SECTIONS.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
+  const perSheet = section && MERGED_SECTIONS[section.number]
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -137,7 +141,7 @@ export function CourseFileSection() {
     setNotice(null)
     const refused: string[] = []
     for (const [index, file] of picked.entries()) {
-      setProgress({ slot, name: file.name, index, count: picked.length, fraction: 0 })
+      setProgress({ slot, name: file.name, index, count: picked.length, fraction: null })
       try {
         await uploadFile(supabase, target, file, (fraction) => setProgress({ slot, name: file.name, index, count: picked.length, fraction }))
       } catch (error) {
@@ -176,11 +180,13 @@ export function CourseFileSection() {
       files={data && files.filter((file) => file.slot === slot)}
       canUpload={canUpload}
       emptyDescription={
-        !canUpload
-          ? 'The coordinator and lecturers upload files here.'
-          : section.kind === 'may-be-empty'
-            ? 'This section may stay empty. Upload PDF files if there are any.'
-            : 'Upload one or more PDF files.'
+        data?.status === 'off'
+          ? 'This section is off for this offering.'
+          : !canUpload
+            ? 'The coordinator and lecturers upload files here.'
+            : section.kind === 'may-be-empty'
+              ? 'This section may stay empty. Upload PDF files if there are any.'
+              : 'Upload one or more PDF files.'
       }
       onReorder={(reordered) => void reorder(reordered)}
       onDelete={setDeleting}
@@ -207,12 +213,21 @@ export function CourseFileSection() {
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         {data?.status && <SectionStatusBadge status={data.status} />}
-        {canUpload && <span>PDF files of up to 20 MB. Drag files to set their order in the compiled course file.</span>}
+        {canUpload && (
+          <span>
+            {perSheet
+              ? `PDF files, merged ${perSheet} pages to a page in your browser. A merged file can be at most 20 MB.`
+              : 'PDF files of up to 20 MB.'}{' '}
+            Drag files to set their order in the compiled course file.
+          </span>
+        )}
       </div>
 
       {progress && (
         <p role="status" className="text-sm">
-          Uploading {progress.name} ({progress.index + 1} of {progress.count}), {Math.round(progress.fraction * 100)}%
+          {progress.fraction === null && perSheet
+            ? `Merging ${progress.name} ${perSheet} pages to a page (${progress.index + 1} of ${progress.count})`
+            : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
       {notice && <NoticeAlert notice={notice} />}
