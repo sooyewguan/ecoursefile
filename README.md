@@ -95,7 +95,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
@@ -153,8 +153,8 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 
 | Status | Sections |
 | --- | --- |
-| `missing` | Every section that is on and has no files, except sections 7 to 9 |
-| `pending_review` | Every section that is on and has files |
+| `missing` | Every section that is on and has no files, except sections 7 to 9. Sections 1 and 3 are missing until the admin uploads the semester's file. |
+| `pending_review` | Every section that is on and has files. Sections 1 and 3 have one once the admin uploads the semester's file. See [Shared files](#shared-files). |
 | `empty` | Sections 7 to 9 while they have no files. They may stay empty and never count as missing. |
 | `off` | Sections 10 to 16 that the offering has off |
 
@@ -209,11 +209,11 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 
 | Table | What each entry holds |
 | --- | --- |
-| `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. |
+| `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete or switch: the offering, the section, the `action` (`upload`, `delete`, `switch_on` or `switch_off`), the actor, the file name of an upload or delete, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete or switch: the offering, or the `semester_id` for a shared file, the section, the `action` (`upload`, `delete`, `switch_on` or `switch_off`), the actor, the file name of an upload or delete, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
 
-Readers of an offering read all three tables. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items.
+Readers of an offering read all three tables, and the readers of a semester's shared files read their rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items.
 
 | RPC or column | What it does |
 | --- | --- |
@@ -223,12 +223,30 @@ Readers of an offering read all three tables. Clients write none of them. The `f
 | `uploader_name` | A column of `files`: the uploader's name. |
 | `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, item or slot, fails with Postgres error `42501`. |
 
+### Shared files
+
+A shared file is stored once and linked into many course files. The admin uploads one Academic Calendar (section 1) and one Appointment Letter (section 3) for each semester, under **Shared files** on the semester page. Every offering of the semester links both, including offerings added later. The migration is `supabase/migrations/20261119140000_shared_files.sql`.
+
+- A shared file is stored at `eCourseFile/<semester>/_shared/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/_shared/01 Academic Calendar/2026-11-19T10-30-00.123Z_calendar.pdf`.
+- A semester holds one file for each of the two sections. To replace a file, the admin deletes it and uploads the new one.
+- Sections 1 and 3 of a course file are `missing` until the semester has the file, and `pending_review` once it has. Their section pages list the linked file.
+- The admin reads, uploads and deletes the shared files of every semester. Auditors, HoDs, deans and deputy deans read them. A lecturer reads the shared files of each semester in which they teach an offering. Root reads none.
+- Before a delete, the semester page lists the offerings whose course files link the file, and the admin confirms. After the delete, the section is `missing` in each of those course files.
+- Each upload and delete adds a row with the `semester_id` to the activity log.
+
+| RPC or column | What it does |
+| --- | --- |
+| `can_upload_shared_file(semester_id, section)` | Whether the caller may upload the semester's file for the section. True for admins, for sections 1 and 3 of a semester that exists. |
+| `linked_files` | A computed relationship of `offerings`: the shared files that the offering's course file links. The app reads it with `select=linked_files(...)`. |
+| `linked_offerings` | A computed relationship of `files`: the offerings whose course files link the shared file. The semester page reads it to list them before a delete. |
+| `deletable` | For a shared file, true for admins. |
+
 ### Upload flow
 
 `src/uploads.ts` holds the browser side. `uploadFile` takes these steps:
 
 1. The browser checks that the file is a PDF of 20 MB or less. The rule is `uploadProblem` in `supabase/functions/_shared/uploads.ts`. Where `pagesPerSheet` in `src/sections.ts` gives a number, the browser first merges the PDF with the PDF engine and applies the rule to the merged PDF. The number is the slot's `perSheet` in `SECTION_SLOTS`, 4 for answer scripts, or else the section's `perSheet` in `SECTIONS`, 8 for Lecture Notes. A PDF that the engine cannot read, such as one with a password, is refused with the code `unreadable_pdf`.
-2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller. In sections 11 to 16 it also refuses an item that does not exist, and a slot that holds one file and has it. It returns a pre-authenticated `uploadUrl` and a `storedName`.
+2. The browser calls the `files` function with `create-upload-session`. The function refuses a file name that does not end in `.pdf`, in any case, because SharePoint takes the item's type from its name. It asks `can_upload` as the caller, or `can_upload_shared_file` for a shared file. In sections 11 to 16 it also refuses an item that does not exist, and a slot that holds one file and has it. It refuses a shared file that the semester already has. It returns a pre-authenticated `uploadUrl` and a `storedName`.
 3. The browser sends the file to `uploadUrl` in 5 MiB chunks with `PUT` and `Content-Range`, and without an Authorization header.
 4. The browser calls `finalize-upload` with the `storedName`. The function gets the item at the session's path, checks the same rule, and reads the item's first 5 bytes, which must be the PDF signature `%PDF-`. If the item fails a check, the function deletes it. Otherwise it records the file and logs the upload. If recording fails, such as when the item was deleted or the one-file slot filled after the session opened, the function deletes the stored item too. The section's status becomes `pending_review`.
 
@@ -242,20 +260,21 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
-| `create-upload-session` | `offeringId`, `section`, `item` (sections 11 to 16 only), `slot` (sections 11 to 16 and 19 only), `fileName` | Users for whom `can_upload` is true | `{ "uploadUrl", "expiresAt", "storedName" }` |
-| `finalize-upload` | `offeringId`, `section`, `item` (sections 11 to 16 only), `slot` (sections 11 to 16 and 19 only), `storedName` | Users for whom `can_upload` is true | `{ "file": <the files row> }` |
-| `delete-file` | `fileId` | Users who see the file with `deletable` true | `{ "fileId" }` |
+| `create-upload-session` | `offeringId`, `section`, `item` (sections 11 to 16 only), `slot` (sections 11 to 16 and 19 only), `fileName`. For a shared file, `semesterId`, `section` (1 or 3) and `fileName`. | Users for whom `can_upload` is true. For a shared file, users for whom `can_upload_shared_file` is true. | `{ "uploadUrl", "expiresAt", "storedName" }` |
+| `finalize-upload` | The same fields as `create-upload-session`, with `storedName` in place of `fileName` | The same users as `create-upload-session` | `{ "file": <the files row> }` |
+| `delete-file` | `fileId`, and `confirmed` set to `true` for a shared file | Users who see the file with `deletable` true | `{ "fileId" }` |
 | `delete-item` | `offeringId`, `section` (11 to 16), `item` | Users who see the item with `deletable` true | `{ "item" }` |
 
 `delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. |
+| 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. A body with `semesterId` needs section 1 or 3, and takes no `offeringId`, `item` or `slot`. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not upload to the section, or may not delete the file or item. |
 | 404 | `not_found` | The upload's item does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. |
-| 409 | `slot_full` | The slot holds one file and has it. At finalize, the function deleted the stored item. |
+| 409 | `slot_full` | The slot holds one file and has it, or the semester already has this shared file. At finalize, the function deleted the stored item. |
+| 409 | `confirmation_required` | `delete-file` of a shared file without `confirmed` set to `true`. Nothing was deleted. |
 | 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
 | 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |
 
@@ -310,7 +329,12 @@ The Edge Functions import only local files in `supabase/functions/_shared`. They
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
-Tests that create users give each user a new email address. You can run the tests again without a database reset. There are only 3,000 semester codes, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
+Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
+
+An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester. The semesters are therefore split by start year:
+
+- `pickSemester` and `createOffering` use the 2,700 codes with start years 2000 to 2899.
+- `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 ## Troubleshooting
 
