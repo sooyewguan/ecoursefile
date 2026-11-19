@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from 'react'
+import { AuthLayout } from '@/components/auth-layout'
+import { ErrorAlert } from '@/components/notice'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Spinner } from '@/components/ui/spinner'
+import { useAuth } from '../auth-provider.tsx'
 import { supabase } from '../supabase.ts'
 
 export function ChangePassword() {
+  const state = useAuth()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -22,26 +30,38 @@ export function ChangePassword() {
   }
 
   return (
-    <main>
-      <h1>Set a new password</h1>
-      <p>You need to set a new password before you can continue.</p>
-      <form onSubmit={onSubmit}>
-        <label>
-          New password
-          <input name="password" type="password" autoComplete="new-password" required />
-        </label>
-        <label>
-          Confirm new password
-          <input name="confirm" type="password" autoComplete="new-password" required />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>
+    <AuthLayout
+      title="Set a new password"
+      description="You need to set a new password before you can continue."
+      footer={
+        <>
+          {state.kind === 'must-change-password' && <>Signed in as {state.profile.email}. </>}
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto p-0 text-sm"
+            onClick={() => void supabase.auth.signOut()}
+          >
+            Sign out
+          </Button>
+        </>
+      }
+    >
+      <form onSubmit={onSubmit} className="grid gap-5">
+        <div className="grid gap-2">
+          <Label htmlFor="password">New password</Label>
+          <Input id="password" name="password" type="password" autoComplete="new-password" required />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="confirm">Confirm new password</Label>
+          <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+        </div>
+        {error && <ErrorAlert>{error}</ErrorAlert>}
+        <Button type="submit" disabled={busy} className="w-full">
+          {busy && <Spinner />}
           Set password
-        </button>
+        </Button>
       </form>
-      <button type="button" onClick={() => void supabase.auth.signOut()}>
-        Sign out
-      </button>
-    </main>
+    </AuthLayout>
   )
 }
