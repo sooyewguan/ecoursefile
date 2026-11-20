@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
+import { activityPage, describeActivity } from '../src/activity.ts'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
 import {
   compileManifest,
@@ -325,4 +326,24 @@ test('uploads and deletes of shared files are logged for the semester, and its r
   expect(await logOf(await signInAs('auditor'))).toEqual(expected)
   expect(await logOf(elsewhere.coordinator.client)).toEqual([])
   expect(await logOf(await signInAs('root'))).toEqual([])
+})
+
+test('the activity of every course file of the semester shows its calendar and letter entries, with the admin’s name', async () => {
+  const [semester, otherSemester] = await twoSemesters()
+  const [teaching, alsoTeaching, elsewhere] = [await offerIn(semester), await offerIn(semester), await offerIn(otherSemester)]
+  const calendar = await uploadFile(admin, { semesterId: semester.id, section: CALENDAR }, pdf('calendar.pdf'))
+  await uploadFile(admin, { semesterId: semester.id, section: LETTER }, pdf('letter.pdf'))
+  await deleteSharedFile(admin, calendar.id)
+
+  // Earlier tests and runs left older entries for the semester, so only the newest three are this test's.
+  const newest = async (offering: { id: string; coordinator: Staff }) => (await activityPage(offering.coordinator.client, offering.id, undefined, 3)).entries
+  const entries = await newest(teaching)
+  expect(entries.map((entry) => ({ actor: entry.actor_name, description: describeActivity(entry) }))).toEqual([
+    { actor: 'Seam1 admin', description: 'Deleted calendar.pdf from 1 Academic Calendar' },
+    { actor: 'Seam1 admin', description: 'Uploaded letter.pdf to 3 Appointment Letter' },
+    { actor: 'Seam1 admin', description: 'Uploaded calendar.pdf to 1 Academic Calendar' },
+  ])
+  expect(await newest(alsoTeaching)).toEqual(entries)
+  const elsewhereIds = (await activityPage(elsewhere.coordinator.client, elsewhere.id)).entries.map((entry) => entry.id)
+  expect(elsewhereIds.filter((id) => entries.some((entry) => entry.id === id))).toEqual([])
 })
