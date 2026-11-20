@@ -258,8 +258,16 @@ async function expectedOfferings() {
 }
 
 test('the offering list and heatmap give each offering its status, completeness, missing sections, section statuses and last upload', async () => {
-  const rows = await report(await signInAs('auditor'), 'report_offerings', seeded.semester)
+  const auditor = await signInAs('auditor')
+  const rows = await report(auditor, 'report_offerings', seeded.semester)
   expect(rows).toEqual(await expectedOfferings())
+
+  // The heatmap shows the statuses that the course file page shows.
+  for (const row of rows) {
+    const { data, error } = await auditor.rpc('section_statuses', { offering_id: row.offering_id })
+    if (error) throw error
+    expect(row.section_statuses).toEqual(data.map((section: { status: string }) => section.status))
+  }
 
   // The calendar and letter were uploaded after every course file's own files, and do not count.
   const { data: calendar, error } = await adminClient().from('files').select('uploaded_at').eq('semester_id', seeded.semester.id).eq('section', CALENDAR).single()
