@@ -14,6 +14,7 @@ export type AuthState =
  */
 export const ROLE_PAGES = [
   { path: '/course-files', label: 'Course files', roles: ['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] },
+  { path: '/reports', label: 'Reports', roles: ['admin', 'auditor', 'hod', 'dean', 'deputy_dean'] },
   { path: '/users', label: 'Users', roles: ['root', 'admin'] },
   { path: '/departments', label: 'Departments', roles: ['admin'] },
   { path: '/course-types', label: 'Course types', roles: ['admin'] },
