@@ -14,7 +14,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { cn, formatSize } from '@/lib/utils'
+import { cn, formatSize, plural } from '@/lib/utils'
 import {
   isReusable,
   itemName,
@@ -591,8 +591,4 @@ function FileTable({
       </Table>
     </Card>
   )
-}
-
-function plural(count: number, noun: string) {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
