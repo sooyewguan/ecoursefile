@@ -73,6 +73,11 @@ export async function rest<T = unknown>(
   throw new Error(`${method} ${path} failed with ${response.status}: ${text}`)
 }
 
+/** Calls PostgREST with GET as the service role, and returns the response unread, for a body that is not JSON. */
+export function serviceGet(path: string, headers: Record<string, string>) {
+  return fetch(`${SUPABASE_URL}/rest/v1${path}`, { headers: { apikey: SERVICE_KEY, Authorization: SERVICE, ...headers } })
+}
+
 /** Calls the Supabase Auth API, as the caller or with the service role. */
 export function authFetch(method: string, path: string, body: unknown, authorization: string) {
   return fetch(`${SUPABASE_URL}/auth/v1${path}`, {

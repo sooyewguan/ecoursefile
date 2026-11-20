@@ -20,6 +20,11 @@ export interface Storage {
    * id. It never replaces an item. The copy has its own bytes, so deleting either item leaves the other.
    */
   copyItem(id: string, path: string): Promise<StoredItem | null>
+  /**
+   * A pre-authenticated URL that gets the item's bytes with GET, without an Authorization header,
+   * for about an hour. The browser compiles course files from these URLs.
+   */
+  downloadUrl(id: string): Promise<string>
   /** Deletes the item for good. Deleting an item that is already gone succeeds. */
   deleteItem(id: string): Promise<void>
 }

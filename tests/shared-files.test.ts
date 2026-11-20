@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import {
+  compileManifest,
   createUploadSession,
   deleteFile,
   deleteSharedFile,
@@ -200,6 +201,20 @@ test('every offering of the semester links its calendar and letter, Pending revi
     ])
   }
   expect(await sharedStatuses(other.coordinator.client, other.id)).toEqual(missing)
+})
+
+test('the compile manifest lists the calendar and the letter that a course file links in sections 1 and 3', async () => {
+  const semester = await semesterWithoutSharedFiles()
+  const offering = await offerIn(semester)
+  const calendar = await uploadFile(admin, { semesterId: semester.id, section: CALENDAR }, pdf('calendar.pdf'))
+  const letter = await uploadFile(admin, { semesterId: semester.id, section: LETTER }, pdf('letter.pdf'))
+
+  const { sections } = await compileManifest(offering.coordinator.client, offering.id)
+  expect(sections.slice(0, 3).map(({ number, files }) => ({ number, files: files.map((file) => file.id) }))).toEqual([
+    { number: CALENDAR, files: [calendar.id] },
+    { number: 2, files: [] },
+    { number: LETTER, files: [letter.id] },
+  ])
 })
 
 test('the lecturers of a semester and users who read every course file read its shared files, and other lecturers and root do not', async () => {

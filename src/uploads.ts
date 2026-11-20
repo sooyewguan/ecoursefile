@@ -1,4 +1,5 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
+import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
 import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 import { pagesPerSheet } from './sections.ts'
@@ -168,6 +169,15 @@ export async function listReusableFiles(client: SupabaseClient, slot: Slot) {
 export async function reuseFile(client: SupabaseClient, slot: Slot, fileId: string) {
   const { file } = await callFiles<{ file: FileRecord }>(client, { action: 'reuse-file', ...slot, fileId })
   return file
+}
+
+/**
+ * The manifest that the course file's PDF compiles from: its cover, and its sections in order with
+ * their files and a short-lived download URL for each. The files function refuses a user who may
+ * not read the course file with forbidden.
+ */
+export function compileManifest(client: SupabaseClient, offeringId: string) {
+  return callFiles<CompileManifest>(client, { action: 'compile-manifest', offeringId })
 }
 
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {

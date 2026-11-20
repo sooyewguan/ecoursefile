@@ -1,13 +1,21 @@
-// The upload URL of the fake storage adapter. Like a Graph upload session URL, it takes PUT
-// requests without an Authorization header, each with one chunk and its Content-Range, and
-// answers 202 until the last chunk, then 201 with the new item. Chunks other than the last must
-// be multiples of 320 KiB, as Graph requires. It answers only while STORAGE_ADAPTER is fake.
-import { isUuid, rest, SERVICE } from '../_shared/http.ts'
+// The upload and download URLs of the fake storage adapter. It answers only while STORAGE_ADAPTER
+// is fake.
+//
+// An upload URL works like a Graph upload session URL. It takes PUT requests without an
+// Authorization header, each with one chunk and its Content-Range, and answers 202 until the last
+// chunk, then 201 with the new item. Chunks other than the last must be multiples of 320 KiB, as
+// Graph requires.
+//
+// A download URL works like a Graph download URL. It answers GET without an Authorization header
+// with the item's bytes, until the expiry it carries, if its signature matches.
+import { downloadSignature } from '../_shared/fake-storage.ts'
+import { isUuid, rest, SERVICE, serviceGet } from '../_shared/http.ts'
 
 const CHUNK_MULTIPLE = 320 * 1024
 
 Deno.serve(async (req) => {
   if (Deno.env.get('STORAGE_ADAPTER') !== 'fake') return graphError(404, 'itemNotFound')
+  if (req.method === 'GET') return download(new URL(req.url))
   if (req.method !== 'PUT') return graphError(405, 'invalidRequest')
   if (req.headers.has('Authorization')) return graphError(401, 'unauthenticated')
 
@@ -30,6 +38,22 @@ Deno.serve(async (req) => {
   })
   return Response.json(body, { status })
 })
+
+// The bytes stream from PostgREST to the browser as they come, so the worker neither holds nor
+// encodes them.
+async function download(url: URL) {
+  const itemId = url.pathname.split('/').pop()
+  const expires = url.searchParams.get('expires') ?? ''
+  if (!isUuid(itemId) || !(Number(expires) > Date.now()) || url.searchParams.get('signature') !== (await downloadSignature(itemId, expires))) {
+    return graphError(401, 'unauthenticated')
+  }
+  const item = await serviceGet(`/rpc/read_item?item_id=${itemId}`, { 'Accept-Profile': 'fake_storage', Accept: 'application/octet-stream' })
+  if (!item.ok) {
+    await item.body?.cancel()
+    return graphError(404, 'itemNotFound')
+  }
+  return new Response(item.body, { headers: { 'Content-Type': 'application/octet-stream' } })
+}
 
 function graphError(status: number, code: string) {
   return Response.json({ error: { code } }, { status })

@@ -1,10 +1,12 @@
 // Uploads and deletes the files of course file sections and shared files, deletes items with their
-// files, and reuses files from past offerings. The browser asks for an upload session, PUTs the
+// files, reuses files from past offerings, and gives the manifest that the browser compiles a course
+// file's PDF from. The browser asks for an upload session, PUTs the
 // file's chunks straight to the session's URL, and then asks to finalize. The SQL functions
 // can_upload, can_upload_shared_file and deletable decide who may do what, asked as the caller. The
 // add_file, remove_file and reuse_file RPCs write the file records and the activity log with the
 // service role, and reusable_files lists the files of past offerings.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
+import { buildManifest, MANIFEST_SELECT, type ManifestSource } from '../_shared/manifest.ts'
 import { isReusable, itemName, SECTION_SLOTS, SECTIONS, type SectionSlot, type SharedFile } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
 import {
@@ -52,6 +54,7 @@ type FilesRequest =
   | { action: 'delete-item'; item: ItemRef }
   | { action: 'list-reusable-files'; target: CourseFileTarget }
   | { action: 'reuse-file'; target: CourseFileTarget; fileId: string }
+  | { action: 'compile-manifest'; offeringId: string }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
 const STORED_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_([^/]+)$/
@@ -73,6 +76,8 @@ serveJson(async (body, caller) => {
       return listReusableFiles(request.target, caller)
     case 'reuse-file':
       return reuseFile(request.target, request.fileId, caller)
+    case 'compile-manifest':
+      return compileManifest(request.offeringId, caller)
   }
 })
 
@@ -121,8 +126,15 @@ async function parseRequest(body: unknown, caller: string): Promise<FilesRequest
       if (!target || !isUuid(fileId)) throw invalid(`reuse-file needs ${REUSE_TARGET_FIELDS}, and fileId.`)
       return { action: 'reuse-file', target, fileId }
     }
+    case 'compile-manifest': {
+      const { offeringId } = input
+      if (!isUuid(offeringId)) throw invalid('compile-manifest needs offeringId.')
+      return { action: 'compile-manifest', offeringId }
+    }
     default:
-      throw invalid('action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files or reuse-file.')
+      throw invalid(
+        'action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files, reuse-file or compile-manifest.',
+      )
   }
 }
 
@@ -385,6 +397,16 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
   }
   await rest('DELETE', `/items?${where}`, undefined, SERVICE)
   return { item }
+}
+
+// Everyone who reads the course file may compile it. The caller's right is asked once, and the
+// course file is then read with the service role, which skips the row checks on each file.
+async function compileManifest(offeringId: string, caller: string) {
+  const allowed = await rest<boolean>('POST', '/rpc/can_read_offering', { offering_id: offeringId }, caller)
+  if (!allowed) throw new Refusal(403, 'forbidden', 'Only those who may read this course file may compile it.')
+  const [offering] = await rest<ManifestSource[]>('GET', `/offerings?id=eq.${offeringId}&select=${MANIFEST_SELECT}`, undefined, SERVICE)
+  if (!offering) throw new Refusal(404, 'not_found', 'This course file does not exist.')
+  return buildManifest(offering, (id) => storage.downloadUrl(id))
 }
 
 /**

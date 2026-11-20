@@ -118,6 +118,17 @@ export function graphStorage(config: GraphConfig): Storage {
       return copy
     },
 
+    // The item's @microsoft.graph.downloadUrl is pre-authenticated for about an hour, and a browser
+    // gets it without a CORS preflight.
+    async downloadUrl(id) {
+      const response = await graph('GET', `${drive}/items/${encodeURIComponent(id)}?$select=id,@microsoft.graph.downloadUrl`)
+      if (!response.ok) throw await failure(response, 'get download URL')
+      const item: { '@microsoft.graph.downloadUrl'?: string } = await response.json()
+      const url = item['@microsoft.graph.downloadUrl']
+      if (!url) throw new Error(`Graph item ${id} has no download URL.`)
+      return url
+    },
+
     async deleteItem(id) {
       const response = await graph('POST', `${drive}/items/${encodeURIComponent(id)}/permanentDelete`)
       if (!response.ok && response.status !== 404) throw await failure(response, 'permanentDelete')

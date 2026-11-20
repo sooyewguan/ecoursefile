@@ -1,12 +1,17 @@
 // A stand-in for SharePoint on the local stack. It keeps items in the fake_storage schema, so seam 1
 // tests can read what was stored, copied and deleted.
-// Its upload URLs point at the fake-storage Edge Function, which takes chunks the way Graph does.
+// Its upload and download URLs point at the fake-storage Edge Function, which takes chunks and
+// serves items the way Graph does.
 import { rest, SERVICE } from './http.ts'
 import type { Storage } from './storage.ts'
 
 const SCHEMA = { 'Accept-Profile': 'fake_storage', 'Content-Profile': 'fake_storage' }
 
-export function fakeStorage(uploadUrl: string): Storage {
+/** How long a download URL works, about as long as a Graph download URL. */
+const DOWNLOAD_URL_LIFETIME_MS = 60 * 60 * 1000
+
+/** functionUrl is the fake-storage Edge Function's URL as the browser reaches it. */
+export function fakeStorage(functionUrl: string): Storage {
   return {
     async createUploadSession(path) {
       const [session] = await rest<{ id: string; expires_at: string }[]>(
@@ -16,7 +21,7 @@ export function fakeStorage(uploadUrl: string): Storage {
         SERVICE,
         { ...SCHEMA, Prefer: 'return=representation' },
       )
-      return { uploadUrl: `${uploadUrl}/${session.id}`, expiresAt: session.expires_at }
+      return { uploadUrl: `${functionUrl}/${session.id}`, expiresAt: session.expires_at }
     },
 
     async getItem(path) {
@@ -48,8 +53,25 @@ export function fakeStorage(uploadUrl: string): Storage {
       return item ? { id: item.id, size: item.size, mimeType: item.mime_type } : null
     },
 
+    // The URL carries its expiry and a signature of the item and expiry, so it needs no stored session.
+    async downloadUrl(id) {
+      const expires = String(Date.now() + DOWNLOAD_URL_LIFETIME_MS)
+      return `${functionUrl}/${id}?expires=${expires}&signature=${await downloadSignature(id, expires)}`
+    },
+
     async deleteItem(id) {
       await rest('DELETE', `/items?id=eq.${encodeURIComponent(id)}`, undefined, SERVICE, SCHEMA)
     },
   }
+}
+
+const signingKey = crypto.subtle.importKey('raw', new TextEncoder().encode(SERVICE), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+
+/**
+ * The signature of a download URL for the item until expires, in milliseconds since 1970: an HMAC of
+ * both, keyed with the service role key, in hex. The fake-storage function checks it.
+ */
+export async function downloadSignature(itemId: string, expires: string) {
+  const mac = await crypto.subtle.sign('HMAC', await signingKey, new TextEncoder().encode(`${itemId}/${expires}`))
+  return Array.from(new Uint8Array(mac), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
