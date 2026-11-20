@@ -3,6 +3,7 @@ import {
   Building2Icon,
   CalendarRangeIcon,
   ChevronDownIcon,
+  CloudUploadIcon,
   FolderOpenIcon,
   HouseIcon,
   LayersIcon,
@@ -42,6 +43,7 @@ const PAGE_DETAILS: Record<(typeof ROLE_PAGES)[number]['path'], { icon: LucideIc
   '/courses': { icon: BookOpenIcon, description: 'Add courses with their department and course type.' },
   '/program-codes': { icon: TagsIcon, description: 'Keep the master list of program codes.' },
   '/semesters': { icon: CalendarRangeIcon, description: 'Add semesters, offer courses and assign their lecturers.' },
+  '/onedrive-check': { icon: CloudUploadIcon, description: 'Check that a OneDrive can store course files.' },
 }
 
 /** The role-gated pages that these roles may open, as the route rules in auth.ts decide. */

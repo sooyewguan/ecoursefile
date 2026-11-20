@@ -56,7 +56,6 @@ npm run stack:start
 | `npm run preview` | Serves the built `dist/` locally. |
 | `npm test` | Runs all tests. The local Supabase stack must be running. |
 | `npm run seed` | Runs `scripts/seed-root.ts` with the variables in `.env`. |
-| `npm run onedrive:check` | Runs `scripts/onedrive-check.ts` with the variables in `.env`. See [Checking a OneDrive](#checking-a-onedrive). |
 | `npm run stack:start` | Starts the local Supabase stack without the services that the app does not use. |
 | `npm run db:reset` | Resets the local database to the migrations, then runs `npm run seed`. |
 
@@ -80,10 +79,12 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `GRAPH_TENANT_ID` | `files` function, with `graph` | The Entra tenant ID. |
-| `GRAPH_CLIENT_ID` | `files` function, with `graph` | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
-| `GRAPH_CLIENT_SECRET` | `files` function, with `graph` | The client secret of that app. |
+| `GRAPH_TENANT_ID` | `files` function, with `graph`, and `onedrive-check` | The Entra tenant ID. For `onedrive-check` with user sign-in, also a domain, or `consumers` for a personal Microsoft account. |
+| `GRAPH_CLIENT_ID` | `files` function, with `graph`, and `onedrive-check` | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. For `onedrive-check`, the app in [Checking a OneDrive](#checking-a-onedrive). |
+| `GRAPH_CLIENT_SECRET` | `files` function, with `graph`, and `onedrive-check` with app sign-in | The client secret of that app. |
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
+| `ONEDRIVE_SIGN_IN` | `onedrive-check` | `user` to sign in as a person with a code, or `app` to sign in as the Entra app. The function refuses to run without it. |
+| `ONEDRIVE_USER` | `onedrive-check`, with `app` | The user principal name whose OneDrive the check uses, such as `ecoursefile@example.edu`. |
 
 ## Seeding root again
 
@@ -96,7 +97,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. Run the OneDrive check. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
@@ -296,34 +297,39 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 `supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
-- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. No automated test covers it, but `npm run onedrive:check` runs it against a real OneDrive.
+- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. No automated test covers it, but the OneDrive check runs it against a real OneDrive.
 - `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
 
 ### Checking a OneDrive
 
-`npm run onedrive:check` checks whether a OneDrive can hold the app's files. It runs the `graph` adapter's code and the browser's `sendChunks` against the OneDrive, prints `ok` or `FAIL` for each step, and exits with code 1 at the first failure. The steps are:
+The OneDrive check tests, in the deployed app, whether a OneDrive can hold the course files. An admin opens **OneDrive check** in the navigation and selects **Run check**. The page and the `onedrive-check` Edge Function then take these steps, and the page shows each one as passed or failed:
 
-1. Read the drive's type, owner and free space.
-2. Open an upload session at `eCourseFile/_onedrive-check/BITP1113 Programming/02 Teaching Plan/<time>_check.pdf`, whose folders do not exist yet.
-3. Send a CORS preflight for a `PUT` from `APP_ORIGIN` to the upload URL, and check that it allows the origin. A real browser does not run this step, so a pass here is strong evidence but not proof that the browser upload works.
-4. Upload a 6 MiB file that starts with `%PDF-` in two chunks, as the browser does.
-5. Find the item at its path and check its size and the type `application/pdf`.
-6. Try a second upload to the same path and check that Graph refuses it with `409` and keeps the first item.
-7. Read the item's first 5 bytes.
-8. Delete the item for good, check that it is gone, and delete it again.
+1. The function reads the drive's type, owner and free space.
+2. The function opens an upload session at `eCourseFile/_onedrive-check/BITP1113 Programming/02 Teaching Plan/<time>_check.pdf`, whose folders do not exist yet.
+3. The browser sends a 6 MiB file that starts with `%PDF-` to the session URL in two chunks with `sendChunks`, as a real upload does. This step fails if OneDrive refuses uploads from the app's origin.
+4. The function finds the item at its path and checks its size and the type `application/pdf`.
+5. The function tries a second upload to the same path and checks that Graph refuses it with `409` and keeps the first item.
+6. The function reads the item's first 5 bytes.
+7. The function deletes the item for good, checks that it is gone, and deletes it again.
 
-At the end it deletes the `eCourseFile/_onedrive-check` folder for good, even after a failure. It leaves the `eCourseFile` folder.
+The function then deletes the `eCourseFile/_onedrive-check` folder for good, also after a failed step. It leaves the `eCourseFile` folder. It makes the Graph calls with `graphDriveStorage` from `_shared/graph-storage.ts`, the code that the `files` function runs, pointed at the OneDrive in place of the SharePoint site.
 
-`ONEDRIVE_SIGN_IN` picks how the check signs in. Each way needs an app registration in Microsoft Entra.
+`ONEDRIVE_SIGN_IN` picks how the function signs in to Microsoft. Each way needs an app registration in Microsoft Entra.
 
-| `ONEDRIVE_SIGN_IN` | Whose OneDrive | The app registration needs | Variables |
-| --- | --- | --- | --- |
-| `user` | The person who signs in. The check prints a code to enter at `https://microsoft.com/devicelogin`. | "Allow public client flows" set to Yes, and the delegated Graph permission `Files.ReadWrite`. For a personal Microsoft account, supported account types that include personal accounts. | `GRAPH_TENANT_ID` (the tenant ID or domain, or `consumers` for a personal account), `GRAPH_CLIENT_ID` |
-| `app` | `ONEDRIVE_USER`, a user principal name such as `ecoursefile@example.edu`. | A client secret, and the application permission `Files.ReadWrite.All` with admin consent. That permission lets the app read and write every OneDrive and SharePoint site in the tenant. | `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `ONEDRIVE_USER` |
+| `ONEDRIVE_SIGN_IN` | Whose OneDrive | The app registration needs |
+| --- | --- | --- |
+| `user` | The person who signs in. The page shows a code to enter at Microsoft's device sign-in page, and the function gets a Graph token when they have signed in. The page holds that token in memory and sends it with each later call. | "Allow public client flows" set to Yes, and the delegated Graph permission `Files.ReadWrite`. For a personal Microsoft account, supported account types that include personal accounts. |
+| `app` | `ONEDRIVE_USER` | A client secret, and the application permission `Files.ReadWrite.All` with admin consent. That permission lets the app read and write every OneDrive and SharePoint site in the tenant. |
 
-The check needs HTTPS access to `login.microsoftonline.com`, `graph.microsoft.com`, and the host of the upload and download URLs: `<tenant>-my.sharepoint.com` for a work or school OneDrive, or `api.onedrive.com` and `*.files.1drv.com` for a personal one.
+To run the check in the hosted project:
+
+1. Set the secrets, for example `npx supabase secrets set ONEDRIVE_SIGN_IN=user GRAPH_TENANT_ID=<tenant> GRAPH_CLIENT_ID=<client id>`. The `files` function reads the `GRAPH_*` secrets too when `STORAGE_ADAPTER` is `graph`.
+2. Deploy the function with `npx supabase functions deploy onedrive-check`.
+3. Build and deploy the web app to Firebase Hosting, sign in as an admin, and run the check from **OneDrive check**.
+
+The function answers `403` to callers who are not admins, and `503` with the code `not_configured` and the missing secrets' names when a secret is missing. The local stack has no Microsoft secrets, so there the check stops with `not_configured`.
 
 ## PDF engine
 

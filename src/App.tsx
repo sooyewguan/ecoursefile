@@ -12,6 +12,7 @@ import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
+import { OneDriveCheck } from './pages/OneDriveCheck.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { Semester } from './pages/Semester.tsx'
 import { Semesters } from './pages/Semesters.tsx'
@@ -37,6 +38,7 @@ export function App() {
               <Route path="/program-codes" element={<ProgramCodes />} />
               <Route path="/semesters" element={<Semesters />} />
               <Route path="/semesters/:semesterId" element={<Semester />} />
+              <Route path="/onedrive-check" element={<OneDriveCheck />} />
               <Route path="/course-files" element={<CourseFiles />} />
               <Route path="/course-files/:offeringId" element={<CourseFile />} />
               <Route path={`/course-files/:offeringId/sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />

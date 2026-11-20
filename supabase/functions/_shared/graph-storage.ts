@@ -1,7 +1,7 @@
 // Storage in a drive through Microsoft Graph. In production the drive is the default document
 // library of one SharePoint site, and the Entra app has the Sites.Selected application permission
 // and the write role on that site. scripts/onedrive-check.ts points the same code at a OneDrive.
-import type { Storage } from './storage-types.ts'
+import type { Storage } from './storage.ts'
 
 export type GraphConfig = { tenantId: string; clientId: string; clientSecret: string; siteId: string }
 
@@ -30,7 +30,7 @@ export function clientCredentialsToken(config: { tenantId: string; clientId: str
       }),
     })
     if (!response.ok) throw await graphFailure(response, 'token request')
-    const body = (await response.json()) as { access_token: string; expires_in: number }
+    const body: { access_token: string; expires_in: number } = await response.json()
     token = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 }
     return token.value
   }
@@ -54,7 +54,7 @@ export function graphDriveStorage(drive: string, accessToken: () => Promise<stri
         item: { '@microsoft.graph.conflictBehavior': 'fail' },
       })
       if (!response.ok) throw await graphFailure(response, 'createUploadSession')
-      const session = (await response.json()) as { uploadUrl: string; expirationDateTime: string }
+      const session: { uploadUrl: string; expirationDateTime: string } = await response.json()
       return { uploadUrl: session.uploadUrl, expiresAt: session.expirationDateTime }
     },
 
@@ -62,7 +62,7 @@ export function graphDriveStorage(drive: string, accessToken: () => Promise<stri
       const response = await graph('GET', `${itemAt(path)}?$select=id,size,file`)
       if (response.status === 404) return null
       if (!response.ok) throw await graphFailure(response, 'get item')
-      const item = (await response.json()) as { id: string; size: number; file?: { mimeType: string } }
+      const item: { id: string; size: number; file?: { mimeType: string } } = await response.json()
       return { id: item.id, size: item.size, mimeType: item.file?.mimeType ?? '' }
     },
 

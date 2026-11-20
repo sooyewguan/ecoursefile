@@ -20,6 +20,7 @@ export const ROLE_PAGES = [
   { path: '/courses', label: 'Courses', roles: ['admin'] },
   { path: '/program-codes', label: 'Program codes', roles: ['admin'] },
   { path: '/semesters', label: 'Semesters', roles: ['admin'] },
+  { path: '/onedrive-check', label: 'OneDrive check', roles: ['admin'] },
 ] as const satisfies readonly { path: string; label: string; roles: readonly GlobalRole[] }[]
 
 export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
