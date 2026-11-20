@@ -156,12 +156,12 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 | Status | Sections |
 | --- | --- |
 | `missing` | Every section that is on and has no files, except sections 7 to 9. Sections 1 and 3 are missing until the admin uploads the semester's file. Section 4 is missing while any lecturer of the offering, the coordinator included, has no timetable for the semester. Section 5 is missing while no program code is ticked, and while any ticked code has no timetable for the semester. |
-| `pending_review` | Every section that is on and has files, with no verdict or with files changed since its latest verdict. Sections 1 and 3 have one once the admin uploads the semester's file, section 4 once every lecturer of the offering has a timetable, and section 5 once codes are ticked and each has a timetable. See [Shared files](#shared-files). |
+| `pending_review` | Every section that is on and has files, with no verdict or with files changed since its latest verdict. Sections 1 and 3 have one once the admin uploads the semester's file, section 4 once every lecturer of the offering has a timetable, and section 5 once codes are ticked and each has a timetable. See [Shared files](#shared-files). Also a switched-off section that changed since its latest verdict, when that verdict is Needs fix. |
 | `verified`, `needs_fix` | The section's latest verdict, while the section has the files it had when the auditor gave it, and is on or off as it was then. See [Auditor verdicts](#auditor-verdicts). |
 | `empty` | Sections 7 to 9 while they have no files, with no verdict or with a change since. They may stay empty and never count as missing. |
-| `off` | Sections 10 to 16 that the offering has off, with no verdict or with a change since |
+| `off` | Sections 10 to 16 that the offering has off, with no verdict or with a change since a Verified verdict |
 
-A verdict never hides `missing`. Each row also has `counts_toward_completeness`, which is false for a switched-off section and true for every other section. A switched-off section whose status is `needs_fix` counts too.
+A verdict never hides `missing`. Each row also has `counts_toward_completeness`, which is false for a switched-off section and true for every other section. A switched-off section whose latest verdict is Needs fix counts too.
 
 ### Switching sections
 
@@ -330,11 +330,11 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 ## Auditor verdicts
 
-Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migration is `supabase/migrations/20261120010100_auditor_verdicts.sql`.
+Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migrations are `supabase/migrations/20261120010100_auditor_verdicts.sql` and `supabase/migrations/20261120020000_open_needs_fix_counts.sql`.
 
-- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. Staff see the card once the section has a verdict.
-- A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
-- A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its status is `needs_fix`: from a Needs fix verdict until a new verdict replaces it, or a file is deleted from it.
+- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. Staff see the card once the section has a verdict. When the section changed after it, so that its status is neither that verdict nor `missing`, the card says the verdict was given before the latest change.
+- A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section whose latest verdict is Verified, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
+- A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its latest verdict is Needs fix, until a new verdict replaces it. A Needs fix on a switched-off section challenges the switch, and a later change, such as a deleted file or switching a flagged section off, leaves the switch just as wrong. So the section keeps counting, and its status is `pending_review` until the auditor checks it again.
 - Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
 
 | RPC, table or column | What it does |

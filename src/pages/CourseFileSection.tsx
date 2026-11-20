@@ -391,7 +391,7 @@ export function CourseFileSection() {
           </span>
         )}
       </div>
-      <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} onRecorded={reload} />
+      <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} status={data?.status ?? null} onRecorded={reload} />
 
       {progress && (
         <p role="status" className="text-sm">

@@ -9,25 +9,29 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '../auth-provider.tsx'
-import type { Verdict } from '../sections.ts'
+import type { SectionStatus, Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type LatestVerdict = { verdict: Verdict; comment: string | null; auditor_name: string; created_at: string }
 
 /**
  * The latest verdict on a section of a course file, with its auditor, time and comment, and for
- * auditors the buttons that record a new one. Staff see it only once there is one. onRecorded runs
- * after a verdict is recorded, so the page can read the section's new status.
+ * auditors the buttons that record a new one. Staff see it only once there is one. status is the
+ * section's status. When it is neither the verdict nor Missing, the section changed after the
+ * verdict, and the card says so. A verdict never hides Missing, so Missing says nothing about a
+ * change. onRecorded runs after a verdict is recorded, so the page can read the section's new status.
  */
 export function SectionVerdict({
   offeringId,
   section,
   sectionTitle,
+  status,
   onRecorded,
 }: {
   offeringId: string
   section: number
   sectionTitle: string
+  status: SectionStatus | null
   onRecorded: () => Promise<void>
 }) {
   const auth = useAuth()
@@ -78,6 +82,7 @@ export function SectionVerdict({
                 <span>
                   {latest.auditor_name}, {new Date(latest.created_at).toLocaleString()}
                 </span>
+                {status && status !== latest.verdict && status !== 'missing' && <span>Given before the latest change to this section</span>}
               </div>
               {latest.comment && <p className="text-sm whitespace-pre-wrap wrap-anywhere">{latest.comment}</p>}
             </>
