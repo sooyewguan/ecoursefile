@@ -4,6 +4,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { redirectFor, RESET_PASSWORD_PAGE } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
+import { Completeness } from './pages/Completeness.tsx'
 import { CourseFile } from './pages/CourseFile.tsx'
 import { CourseFiles } from './pages/CourseFiles.tsx'
 import { CourseFileSection } from './pages/CourseFileSection.tsx'
@@ -14,6 +15,7 @@ import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
+import { Reports } from './pages/Reports.tsx'
 import { ResetPassword } from './pages/ResetPassword.tsx'
 import { Semester } from './pages/Semester.tsx'
 import { Semesters } from './pages/Semesters.tsx'
@@ -46,6 +48,8 @@ export function App() {
               <Route path={`/course-files/:offeringId/sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
               <Route path={`/course-files/:offeringId/sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
               <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
+              <Route path="/completeness" element={<Completeness />} />
+              <Route path="/reports" element={<Reports />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

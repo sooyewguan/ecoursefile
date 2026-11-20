@@ -391,6 +391,7 @@ Auditors read every course file in every semester, and give any section of it a 
 | `section_verdicts` | Every verdict ever given: the offering, the section, the verdict, the comment, the auditor, the section's `file_ids` and `section_on` when it was given, and the time. Readers of the offering read them. Clients write them only through `record_verdict`, and nobody changes or removes them, not even the service role. |
 | `auditor_name` | A column of `section_verdicts`: the auditor's name, for everyone who reads the verdict. |
 | `section_contents(offering)` | For each of the 19 sections, whether it is on and the sorted ids of its files: the course file's own files and the shared files it links. |
+| `section_contents_of(offering_ids)`, `section_statuses_of(offering_ids)` | `section_contents` and the statuses of `section_statuses` for many offerings at once, one row for each section of each offering, with its `offering_id`. `section_contents` and `section_statuses` read from them, so one query holds each rule. Clients cannot call `section_statuses_of`. `section_statuses` and the report RPCs call it as its owner, after they check which offerings the caller reads. See [Reports](#reports). |
 
 ## Audit requests
 
@@ -478,6 +479,61 @@ The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy dea
 `course_file_activity` asks `can_read_offering` once as the caller, then reads the log as its owner, from the indexes on `(offering_id, created_at, id)` and on `(semester_id, created_at, id)`. On an offering with 5,000 entries in a semester with 2,000 shared-file entries, a page took 3.6 ms through the API, the same at the top and 4,000 entries down. Reading the log as the caller runs the RLS policy's check on each entry it reads.
 
 Nobody changes or removes an entry. Clients have no update, delete or truncate grant on `activity_log`, and neither has the service role, so the API refuses them with `42501`. Clients cannot add entries either. Grants do not bind the table's owner. The RPCs that log changes, such as `record_verdict`, run as the owner, and so do migrations and the SQL editor. A trigger therefore refuses every update, delete and truncate of the table, by any role, with `42501`.
+
+## Reports
+
+Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows. The migration is `supabase/migrations/20261120070100_reports.sql`.
+
+| RPC | View | One row for each |
+| --- | --- | --- |
+| `report_faculty_summary(semester_id)` | Faculty summary | The semester, so always one row |
+| `report_departments(semester_id)` | Department breakdown | Department with offerings in the semester, by department code |
+| `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
+| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by name |
+
+The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
+
+The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
+
+- **Summary**: the faculty summary as four figures, and the department breakdown below it.
+- **Offerings**: the offering list, which you can filter by department and by `status`.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. At a phone's 390 px, the table scrolls sideways inside its card, with the course column pinned.
+- **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
+
+The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
+
+The **My completeness** page shows lecturers the offering list for the offerings they teach or coordinate, in one semester. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
+
+### What the numbers mean
+
+A section **counts** when `counts_toward_completeness` is true and its status is not `empty`. A switched-off section therefore counts only while its latest verdict is Needs fix, and sections 7 to 9 count once they hold a file or a verdict. A section that counts is `missing`, `pending_review`, `verified` or `needs_fix`.
+
+| Column | What it counts |
+| --- | --- |
+| `counted_sections` | The sections that count |
+| `uploaded_sections` | The sections that count and are not `missing`. A section marked Needs fix has its files, so it is uploaded. |
+| `verified_sections`, `needs_fix_sections` | The sections that count whose status is `verified` or `needs_fix`. A verdict counts only while the section is as the auditor judged it. |
+| `percent_complete` | Of one offering, `uploaded_sections` as a percentage of `counted_sections` |
+| `percent_uploaded`, `percent_verified`, `percent_needs_fix` | Of a department or the faculty, the sum of `uploaded_sections`, `verified_sections` or `needs_fix_sections` over its offerings, as a percentage of the sum of their `counted_sections`. Every section weighs the same, so an offering with more sections weighs more. It is not the average of the offerings' percentages. |
+
+Percentages have one decimal place, and are null when no section counts, as for a semester without offerings.
+
+An offering is **complete** when no section that counts is missing, which is `percent_complete` 100. So every section that is on has at least one file, except sections 7 to 9, which never count as missing. Section 4 needs the timetable of every lecturer of the offering, the coordinator included. Section 5 needs at least one ticked program code, and a timetable for each ticked code, since a code whose timetable was deleted leaves the section missing. For example, an offering with Lecture Notes on and nothing uploaded counts 10 sections, 1 to 6, 10 and 17 to 19, and is 0% complete. Uploading every one of them makes it 100%. A file in section 7 then makes 11 that count, all uploaded.
+
+`report_offerings` also gives each offering's `status`, which the offering list filters on:
+
+| `status` | When |
+| --- | --- |
+| `incomplete` | A section that counts is missing |
+| `needs_fix` | None is missing, and one is Needs fix |
+| `pending_review` | None is missing or Needs fix, and one is Pending review |
+| `verified` | Every section that counts is Verified |
+
+Each `report_offerings` row also has the course, its department, the coordinator's `coordinator_name`, `missing_sections` in section order, `section_statuses`, the 19 statuses in section order for the heatmap, and `last_upload_at`. That is the latest upload or reuse into the offering's own sections, or null. The shared files it links, such as the calendar and the timetables, are left out, because each is uploaded once for many course files.
+
+Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
+
+The API returns at most 1,000 rows, so the lecturer view has one row for each lecturer rather than one for each lecturer and offering.
 
 ## Compiled PDF
 
@@ -573,10 +629,11 @@ On the local stack, Supabase Auth reaches the function at `http://host.docker.in
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
-An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester. The semesters are therefore split by start year:
+An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
-- `pickSemester` and `createOffering` use the 2,700 codes with start years 2000 to 2899.
-- `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
+- `pickSemester` and `createOffering` use the 2,400 codes with start years 2000 to 2799.
+- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills two semesters, and offerings are never deleted, so after about 150 runs the helper finds none left and asks for a database reset.
+- `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Of the other tests, only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
 

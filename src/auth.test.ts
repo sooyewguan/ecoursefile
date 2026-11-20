@@ -19,7 +19,7 @@ const states: Record<string, AuthState> = {
   'ready hod and admin': ready('hod', 'admin'),
 }
 
-const otherPage = '/reports'
+const otherPage = '/help'
 const semesterPage = '/semesters/semester-1'
 const courseFilePage = '/course-files/offering-1'
 
@@ -35,6 +35,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': null,
     [semesterPage]: null,
     [courseFilePage]: null,
+    '/reports': null,
+    '/completeness': null,
   },
   'signed-out': {
     '/': '/sign-in',
@@ -47,6 +49,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': '/sign-in',
     [semesterPage]: '/sign-in',
     [courseFilePage]: '/sign-in',
+    '/reports': '/sign-in',
+    '/completeness': '/sign-in',
   },
   'must-change-password': {
     '/': '/change-password',
@@ -59,6 +63,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': '/change-password',
     [semesterPage]: '/change-password',
     [courseFilePage]: '/change-password',
+    '/reports': '/change-password',
+    '/completeness': '/change-password',
   },
   'ready lecturer': {
     '/': null,
@@ -71,6 +77,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': '/',
     [semesterPage]: '/',
     [courseFilePage]: null,
+    '/reports': '/',
+    '/completeness': null,
   },
   'ready no roles': {
     '/': null,
@@ -83,6 +91,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': '/',
     [semesterPage]: '/',
     [courseFilePage]: '/',
+    '/reports': '/',
+    '/completeness': '/',
   },
   'ready root': {
     '/': null,
@@ -95,6 +105,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': '/',
     [semesterPage]: '/',
     [courseFilePage]: '/',
+    '/reports': '/',
+    '/completeness': '/',
   },
   'ready admin': {
     '/': null,
@@ -107,6 +119,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': null,
     [semesterPage]: null,
     [courseFilePage]: null,
+    '/reports': null,
+    '/completeness': '/',
   },
   'ready hod and admin': {
     '/': null,
@@ -119,6 +133,8 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/departments': null,
     [semesterPage]: null,
     [courseFilePage]: null,
+    '/reports': null,
+    '/completeness': '/',
   },
 }
 
