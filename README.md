@@ -535,6 +535,29 @@ Each `report_lecturers` row has the lecturer's id, name and profile department, 
 
 The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until it holds as many as the API counts. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
+### Export
+
+Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel (.xlsx)** and **CSV (.csv)**. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
+
+`src/report-tables.ts` describes each view as a table: its name and, for each column, the header, the kind of value and how to read it from a report row. The pages take their headers and values from these descriptions, and `exportReport` in `src/report-export.ts` writes their columns, so a file holds what the screen shows. A screen cell that shows two values is two columns in the file, so that a spreadsheet can sort and filter each one.
+
+| View | Columns |
+| --- | --- |
+| Faculty summary, one row | Offerings, Sections (that count), then Uploaded, Verified and Needs fix, each as a count of sections and as `(%)` |
+| Departments | Department (its code), Department name, and the columns of the faculty summary |
+| Offerings, My completeness | Course (its code), Course title, Department, Department name, Coordinator, Status, Complete (%), Missing sections, Last upload |
+| Heatmap | Course, Course title, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
+| Lecturers | Lecturer, Department, Department name, Timetable (`Missing` or `Uploaded`), Course, Course title, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+
+- Statuses are the text the screen shows, such as `Needs fix`. Missing sections are their numbers, such as `4, 5, 10`.
+- Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.
+- Last upload is the day the screen shows, in the user's time zone. An .xlsx holds it as a date in the format `yyyy-mm-dd`, and a .csv as text such as `2026-11-20`.
+- Where the screen shows a placeholder for no value, such as a dash, Never, None or Nothing missing, the cell is empty.
+
+A .csv follows RFC 4180: commas between fields, a field in double quotes when it holds a comma, a quote or a line break, a quote inside one doubled, and CRLF after each row. It starts with a UTF-8 byte order mark, so that Excel reads names outside ASCII correctly. Names, titles and department names are typed by users, so a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return starts with `'` in a .csv, and a spreadsheet shows it as text rather than run it as a formula.
+
+An .xlsx has one sheet, named after the view, with the header row bold and frozen. The [write-excel-file](https://www.npmjs.com/package/write-excel-file) library writes it. Every text cell is a string in Excel's Text format, so Excel never reads one as a formula, not even after a user edits it, and the text keeps no `'`. The export code and the library load only on the first export, so the main bundle does not carry them: 1.9 kB and 70.3 kB (1.0 kB and 19.5 kB gzipped).
+
 ## Compiled PDF
 
 Everyone who opens a course file page sees **Download compiled PDF**. The browser asks the `files` function for the course file's manifest with the `compile-manifest` action, compiles the PDF from it with the PDF engine, and saves it as `<course code> <semester>.pdf`, such as `BITP1113 2026-2027-1.pdf`. A status line counts the files downloaded so far. If a file cannot be downloaded or read as a PDF, the page names the file and its section, and saves nothing.
@@ -624,7 +647,7 @@ On the local stack, Supabase Auth reaches the function at `http://host.docker.in
 
 `npm test` runs two Vitest projects.
 
-- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
+- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset and audit request tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
@@ -632,7 +655,7 @@ Tests that create users give each user a new email address. You can run the test
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
 - `pickSemester` and `createOffering` use the 2,400 codes with start years 2000 to 2799.
-- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. Offerings are never deleted, so after about 100 runs the helper finds none left and asks for a database reset.
+- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. Offerings are never deleted, so after about 100 runs the helper finds none left and asks for a database reset.
 - `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Of the other tests, only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
