@@ -2,7 +2,7 @@
 // download URLs in it. The timetables here belong to lecturers and program codes the tests create,
 // so they change no other test's offering. Their semesters come from pickSemester, which never has
 // a calendar or a letter, so sections 1 and 3 have no files. tests/shared-files.test.ts covers those.
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expect, test } from 'vitest'
 import { compile } from '../src/pdf/compile.ts'
@@ -170,7 +170,9 @@ test('everyone who reads the course file gets its manifest, and other lecturers 
 test('a download URL gets the stored bytes of its file without signing in, and a changed URL or a deleted file gets none', async () => {
   const { offeringId, coordinator } = await createCourse()
   const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-  const large = sizedPdf(19 * 1024 * 1024)
+  // Random filler, so that no two chunks of the upload hold the same bytes and a mix-up of chunks changes the hash.
+  const noise = randomBytes(19 * 1024 * 1024)
+  const large = sizedPdf(noise.length, (index) => noise[index])
   const largeFile = await uploadFile(coordinator.client, { offeringId, section: TEACHING_PLAN }, new File([large], 'large.pdf', { type: 'application/pdf' }))
   const small = await upload(coordinator.client, { offeringId, section: TEACHING_PLAN }, 'small.pdf')
 
