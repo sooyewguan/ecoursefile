@@ -126,6 +126,12 @@ async function requestActivity(client: SupabaseClient, offeringId: string) {
   return data
 }
 
+/** Deactivates or reactivates the user's profile with the service role, as an admin would. Their session goes on until its token expires. */
+async function setActive(userId: string, active: boolean) {
+  const { error } = await adminClient().from('profiles').update({ active }).eq('id', userId)
+  if (error) throw error
+}
+
 /** Makes the fake mailbox refuse, or take again, email to this address. */
 async function setUndeliverable(address: string, undeliverable: boolean) {
   const table = adminClient().schema('fake_mail').from('undeliverable')
@@ -179,11 +185,53 @@ test('clients write requests and items only through the RPCs', async () => {
   expect((await requestIn(auditor, course.offeringId, 'draft')).items).toHaveLength(1)
 })
 
+test('clients cannot send or reply through the RPCs, so every step goes through the function and its email', async () => {
+  const course = await createCourse()
+  const { offeringId, coordinator, lecturer } = course
+  const auditor = await createPerson('auditor')
+  await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  // Whichever arguments a client passes, the step is refused and the request stays as it was.
+  for (const args of [{ request_id: id }, { request_id: id, actor_id: auditor.id }]) {
+    expect((await auditor.client.rpc('send_audit_request', args)).error).not.toBeNull()
+  }
+  expect((await requestIn(auditor, offeringId, 'draft')).id).toBe(id)
+  expect(await fakeOutbox(coordinator.email)).toEqual([])
+
+  await sendAuditRequest(auditor.client, id)
+  expect((await comment(lecturer.client, id, TEACHING_PLAN, 'The plan is in section 1.')).error).toBeNull()
+  for (const args of [{ request_id: id }, { request_id: id, actor_id: coordinator.id }]) {
+    expect((await coordinator.client.rpc('reply_to_audit_request', args)).error).not.toBeNull()
+  }
+  expect(await requestsOf(auditor.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
+  expect(await fakeOutbox(auditor.email)).toEqual([])
+  expect((await requestActivity(adminClient(), offeringId)).map((row) => row.action)).toEqual(['send', 'comment'])
+})
+
+test('a user deactivated while signed in can neither send nor reply', async () => {
+  const course = await createCourse()
+  const { offeringId, coordinator, lecturer } = course
+  const auditor = await createPerson('auditor')
+  await mark(auditor, offeringId, ATTENDANCE, 'needs_fix', 'Upload the attendance.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  await setActive(auditor.id, false)
+  expect(await refusal(sendAuditRequest(auditor.client, id))).toEqual({ code: 'forbidden', status: 403 })
+  await setActive(auditor.id, true)
+  await sendAuditRequest(auditor.client, id)
+
+  await upload(lecturer.client, { offeringId, section: ATTENDANCE }, 'attendance.pdf')
+  await setActive(lecturer.id, false)
+  expect(await refusal(replyToAuditRequest(lecturer.client, id))).toEqual({ code: 'forbidden', status: 403 })
+  expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
+  expect(await fakeOutbox(auditor.email)).toEqual([])
+})
+
 test('Send emails the coordinator and every lecturer once with every flagged section, and a second Send changes nothing', async () => {
   const leaver = await createPerson('lecturer')
   const course = await createCourse({ lecturers: [leaver] })
-  const { error } = await adminClient().from('profiles').update({ active: false }).eq('id', leaver.id)
-  if (error) throw error
+  await setActive(leaver.id, false)
   const auditor = await createPerson('auditor')
   const otherAuditor = await createPerson('auditor')
   await mark(auditor, course.offeringId, TEACHING_PLAN, 'needs_fix', 'The plan is for <script>alert("x")</script> & another course.\nUpload the right one.')
@@ -280,6 +328,10 @@ test('Reply is refused while any item is neither ticked nor commented, and only 
   expect(await refusal(replyToAuditRequest(coordinator.client, id))).toEqual({ code: 'not_found', status: 404 })
   await sendAuditRequest(auditor.client, id)
   expect(await refusal(replyToAuditRequest(coordinator.client, id, 'Done.'))).toEqual({ code: 'checklist_incomplete', status: 409 })
+  // Who may reply is decided before the checklist, so a reader who may not reply is told so while items are open.
+  for (const client of [auditor.client, await signInAs('admin')]) {
+    expect(await refusal(replyToAuditRequest(client, id))).toEqual({ code: 'forbidden', status: 403 })
+  }
 
   for (const client of [outsider.client, auditor.client, (await signInAs('admin')), (await signInAs('root'))]) {
     expect((await comment(client, id, LAB_EXERCISES, 'Labs ran online.')).error?.code).toBe(PERMISSION_DENIED)
