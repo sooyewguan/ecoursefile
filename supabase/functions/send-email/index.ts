@@ -5,6 +5,7 @@
 //
 // Supabase Auth signs each call by the Standard Webhooks scheme with SEND_EMAIL_HOOK_SECRET, and
 // the function answers only calls with a good signature.
+import { escapeHtml } from '../_shared/html.ts'
 import { isRecord, isUuid, requiredEnv, rest, SERVICE } from '../_shared/http.ts'
 import { mailerFromEnv, type Mail } from '../_shared/mail.ts'
 
@@ -93,12 +94,6 @@ function resetEmail(email: HookEmail, fullName: string): Mail {
       '<p>If you did not ask for this, ignore this email, and your password stays as it is.</p>',
     ].join('\n'),
   }
-}
-
-const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
-
-function escapeHtml(text: string) {
-  return text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character])
 }
 
 /** The HMAC key of a Standard Webhooks secret, which Supabase writes as v1,whsec_<the key in base64>. */

@@ -81,13 +81,13 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `MAIL_ADAPTER` | `send-email` function | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The function does not start without it. |
+| `MAIL_ADAPTER` | `send-email` and `audit-requests` functions | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The functions do not start without it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
-| `GRAPH_TENANT_ID` | `files` function with `STORAGE_ADAPTER` `graph`, and `send-email` with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
+| `GRAPH_TENANT_ID` | `files` function with `STORAGE_ADAPTER` `graph`, and `send-email` and `audit-requests` with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
 | `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site, and may send as the shared mailbox. |
 | `GRAPH_CLIENT_SECRET` | The same | The client secret of that app. |
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
-| `GRAPH_MAILBOX` | `send-email` function, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
+| `GRAPH_MAILBOX` | `send-email` and `audit-requests` functions, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
 
 ## Seeding root again
 
@@ -147,10 +147,12 @@ A second import of the same file adds nobody. Every row whose user was added is 
 A user who forgot their password asks for a reset link, and sets a new password with it. Supabase Auth sends no email through SMTP. Its Send Email Hook hands each email to the `send-email` Edge Function, which sends it through the mail adapter. See [Email](#email).
 
 1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
-2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers `{}` with HTTP 200 for an active user, a deactivated user and an email with no account alike, so the answer tells nobody which it was.
+2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers a first request with `{}` and HTTP 200 for an active user, a deactivated user and an email with no account alike.
 3. The email greets the user by their profile's name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
 4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
 5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
+
+Two things in Supabase Auth's answer still differ. A repeat request for an email with an account, within `max_frequency` in `[auth.email]` of the last one, gets HTTP 429 and "you can only request this after N seconds", while an email with no account gets HTTP 200 again. And a request for an email with an account takes longer, because Supabase Auth calls the hook. The page shows its usual text for a 429 too, so the page tells nobody which it was, but someone who calls the Supabase Auth API directly can tell from the status or the time.
 
 A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
 
@@ -258,7 +260,7 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. A lecturer timetable also has the `lecturer_id` whose timetable it is, and a student timetable the `program_code_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete, reuse, switch, tick or verdict: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section, the `program_code_id` of every row of section 5 except a verdict's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified` or `needs_fix`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, and the `comment` of a verdict. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete, reuse, switch, tick, verdict, or send of, comment on or reply to an audit request: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section (none for a send or a reply), the `program_code_id` of every row of section 5 except a verdict's or a comment's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified`, `needs_fix`, `send`, `comment` or `reply`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, the `comment` of a verdict, of a staff comment or of a reply's message, and the `audit_request_id` of a send, comment or reply. Rows are never changed or removed, not even by the service role. |
 
 Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items. Staff can also copy a file in from a past offering. See [Reuse from past offerings](#reuse-from-past-offerings).
 
@@ -381,6 +383,7 @@ Auditors read every course file in every semester, and give any section of it a 
 - A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section whose latest verdict is Verified, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
 - A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its latest verdict is Needs fix, until a new verdict replaces it. A Needs fix on a switched-off section challenges the switch, and a later change, such as a deleted file or switching a flagged section off, leaves the switch just as wrong. So the section keeps counting, and its status is `pending_review` until the auditor checks it again.
 - Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
+- A Needs fix also goes into the auditor's draft audit request, and a Verified takes the section out of it. See [Audit requests](#audit-requests).
 
 | RPC, table or column | What it does |
 | --- | --- |
@@ -388,6 +391,59 @@ Auditors read every course file in every semester, and give any section of it a 
 | `section_verdicts` | Every verdict ever given: the offering, the section, the verdict, the comment, the auditor, the section's `file_ids` and `section_on` when it was given, and the time. Readers of the offering read them. Clients write them only through `record_verdict`, and nobody changes or removes them, not even the service role. |
 | `auditor_name` | A column of `section_verdicts`: the auditor's name, for everyone who reads the verdict. |
 | `section_contents(offering)` | For each of the 19 sections, whether it is on and the sorted ids of its files: the course file's own files and the shared files it links. |
+
+## Audit requests
+
+An audit request is one batch of Needs fix sections from one auditor on one course file. Its `state` goes from `draft` to `sent` to `replied`, one step at a time, and never back. The migrations are `supabase/migrations/20261120050000_audit_request_values.sql` and `supabase/migrations/20261120050100_audit_requests.sql`.
+
+1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets an email.
+2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one email, listing every flagged section with its comment. Each item keeps its section's file ids at the send, as `section_contents` returns them.
+3. **Checklist.** Everyone who reads the course file reads the sent request, and its sections are the staff's checklist. An item is ticked while its section holds a file that it did not hold at the send: an upload, a reuse, or a shared file uploaded or linked into the course file, such as a lecturer's timetable or the timetable of a program code ticked in section 5. A file uploaded before the send ticks nothing, and neither does deleting or reordering files. An item unticks when its new file is deleted. A switched-off section takes no uploads, so staff answer it with a comment, or switch it on and upload. The coordinator and lecturers comment on any item, and a new comment replaces the earlier one.
+4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets an email with the message and each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
+5. **New round.** The auditor checks the sections again. Any new Needs fix goes into a new draft, also while a sent request waits for its reply.
+
+Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
+
+The course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**. The page has no sideways scroll at a phone's 390 px.
+
+The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
+
+Each step commits first, and its email goes after it. `audit_request_emails` records each email's delivery: the function claims it before it sends it, and marks it delivered after.
+
+- A retry or a second click makes no second step, since a step already made changes nothing. It sends no second email, since the email is delivered or another call holds the claim.
+- When the email cannot be sent, the step stays made, the claim goes, and the function answers HTTP 502 `mail_failed`. The request shows that its email is not delivered (`email_pending`), and Send or Reply again sends it once.
+- If the function stops after the mail adapter sent the email and before it marked it delivered, the claim lapses after five minutes, and a retry then sends the email again. This is the only way an email goes twice.
+- The step comes first so that no email is sent for a step that did not happen, and staff read a sent request in the app even when its email failed. With the email first, marks that the auditor made while the email went out would change the draft it listed.
+
+| RPC, table or column | What it does |
+| --- | --- |
+| `audit_requests` | One request: the offering, the auditor, the `state`, the times of its send and reply, who replied, and the reply's message. A trigger allows only the two steps, each made by one update. Only the RPCs below write it. |
+| `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
+| `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
+| `checklist_complete`, `email_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the email of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
+| `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
+| `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
+| `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
+
+Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its email. The app makes the two steps through the `audit-requests` function, which calls them and sends the emails.
+
+### The audit-requests Edge Function
+
+The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's email if it is still owed. The JSON body has an `action` field.
+
+| `action` | Other fields | Who may call it | What it returns |
+| --- | --- | --- | --- |
+| `send` | `requestId` | The request's auditor | `{ "request": { "id", "state" } }` |
+| `reply` | `requestId`, and `message`, text or `null` | The coordinator and lecturers of the request's offering | `{ "request": { "id", "state" } }` |
+
+| HTTP status | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_request` | The body is not one of the actions above. |
+| 401 | `unauthorized` | The request has no valid signed-in user. |
+| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
+| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
+| 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
+| 502 | `mail_failed` | The step is made, but its email could not be sent. The same call again sends it. |
 
 ## Compiled PDF
 
@@ -460,7 +516,7 @@ On the local stack, Supabase Auth reaches the function at `http://host.docker.in
 
 ### Mail adapters
 
-`supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. `MAIL_ADAPTER` picks the implementation.
+`supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. The `send-email` and `audit-requests` functions send through it, and escape what users wrote with `escapeHtml` in `_shared/html.ts`. `MAIL_ADAPTER` picks the implementation.
 
 - `graph` (`_shared/graph-mail.ts`) sends from the shared mailbox in `GRAPH_MAILBOX` with Graph `sendMail`, as the Entra app in the `GRAPH_*` secrets, with an app-only token. The storage adapter signs in the same way, through `_shared/graph.ts`. Graph keeps a copy in the mailbox's Sent Items. Exchange limits the app to that mailbox through RBAC for Applications. No automated test covers it.
 - `fake` (`_shared/fake-mail.ts`) records each email in `fake_mail.outbox`, with its recipients, subject, HTML and time. Only the service role can use the `fake_mail` schema. Seam 1 tests read it with the secret key. To read the latest email on the local stack, such as a reset link:
@@ -470,14 +526,16 @@ On the local stack, Supabase Auth reaches the function at `http://host.docker.in
     -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_mail'
   ```
 
-`supabase/config.toml` exposes the `fake_mail` schema to the API, so the schema comes from a migration, `supabase/migrations/20261120040000_fake_mail.sql`, and exists in every database.
+  The fake refuses an email when any recipient is listed in `fake_mail.undeliverable`, as a failed send, and records nothing. Seam 1 tests list an address there to test what a mail failure does.
+
+`supabase/config.toml` exposes the `fake_mail` schema to the API, so the schema comes from a migration, `supabase/migrations/20261120040000_fake_mail.sql`, and exists in every database. `supabase/migrations/20261120050200_fake_mail_undeliverable.sql` adds `fake_mail.undeliverable`.
 
 ## Tests
 
 `npm test` runs two Vitest projects.
 
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset and audit request tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
@@ -491,6 +549,8 @@ A timetable changes section 4 only of the offerings its lecturer teaches in the 
 A student timetable changes section 5 only of the offerings that tick its program code. The tests in `tests/student-timetables.test.ts` upload timetables only for program codes they create, so they also take semesters from `pickSemester`. They read the pick list only for their own codes, because other tests and runs leave student timetables in the same semesters.
 
 The tests in `tests/verdicts.test.ts` and `tests/compile-manifest.test.ts` also upload timetables only for lecturers and program codes they create, in semesters from `pickSemester`. A manifest test therefore finds no calendar or letter in sections 1 and 3, and `tests/shared-files.test.ts` tests those.
+
+The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, so each address's fake outbox holds only the test's emails. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
 
 The tests in `tests/reuse.test.ts` offer a course they create in four different semesters from `pickSemester`, and order them by start year and number. The picker finds past offerings by course, so other tests' offerings in the same semesters never show in it.
 
