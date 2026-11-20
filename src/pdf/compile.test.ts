@@ -1,5 +1,6 @@
 // Seam 3: compile, driven with a manifest of generated fixture PDFs, and read back the way a viewer
 // shows the result.
+import { PDFDocument, PDFName } from 'pdf-lib'
 import { expect, test } from 'vitest'
 import { compile, CompileError, type CompileManifest } from './compile.ts'
 import { numberedPdf, readPdf, type ShownPage } from './fixtures.ts'
@@ -141,14 +142,26 @@ test('the cover shows the course code and title, semester, department, coordinat
   )
 })
 
-test('a file that cannot be fetched or read stops the compile with a CompileError naming it', async () => {
-  const { manifest, fetchBytes } = await fixture(SECTIONS)
-  const broken = (url: string) => (url.endsWith('plan-a') ? Promise.resolve(new TextEncoder().encode('not a pdf')) : fetchBytes(url))
-  const offline = (url: string) => (url.endsWith('lab-sheet') ? Promise.reject(new TypeError('Failed to fetch')) : fetchBytes(url))
+const encode = (text: string) => new TextEncoder().encode(text)
 
-  for (const [fetchBytes, name, section] of [[broken, 'plan-a', 2], [offline, 'lab-sheet', 11]] as const) {
-    const error = await compile(manifest, fetchBytes).catch((error: unknown) => error)
-    expect(error).toBeInstanceOf(CompileError)
-    expect(error).toMatchObject({ file: { name }, section: { number: section } })
-  }
+/** A PDF whose page has neither a media box nor a crop box, so it has no size. */
+async function sizelessPdf() {
+  const pdf = await PDFDocument.load(await numberedPdf(1))
+  for (const box of ['MediaBox', 'CropBox']) pdf.getPage(0).node.delete(PDFName.of(box))
+  return pdf.save()
+}
+
+test.each([
+  { problem: 'cannot be fetched', get: () => Promise.reject(new TypeError('Failed to fetch')) },
+  { problem: 'is not a PDF', get: async () => encode('not a pdf') },
+  { problem: 'is only a PDF header', get: async () => encode('%PDF-1.4\n%%EOF\n') },
+  { problem: 'is a PDF header then garbage', get: async () => encode('%PDF-1.7 not really') },
+  { problem: 'has a page without a size', get: sizelessPdf },
+])('a file that $problem stops the compile with a CompileError naming it and its section', async ({ get }) => {
+  const { manifest, fetchBytes } = await fixture(SECTIONS)
+
+  const error = await compile(manifest, (url) => (url.endsWith('/11/lab-sheet') ? get() : fetchBytes(url))).catch((error: unknown) => error)
+
+  expect(error).toBeInstanceOf(CompileError)
+  expect(error).toMatchObject({ file: { name: 'lab-sheet' }, section: { number: 11 }, message: expect.stringContaining('lab-sheet') })
 })
