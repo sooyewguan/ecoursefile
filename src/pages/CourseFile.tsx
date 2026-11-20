@@ -2,6 +2,7 @@ import { ArrowLeftIcon, FileDownIcon, FolderOpenIcon, PowerIcon, PowerOffIcon } 
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
+import { AuditRequests } from '@/components/audit-requests'
 import { ErrorAlert, NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
@@ -44,9 +45,9 @@ type Compiling = { files: { done: number; total: number } | null }
 const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section) => section.number))
 
 /**
- * One offering's course file: its 19 sections in the fixed order, each with its status. The
- * coordinator and lecturers switch sections 10 to 16 on or off, with a reason when the setting
- * differs from the course type. Everyone who reads it downloads it as one compiled PDF.
+ * One offering's course file: its 19 sections in the fixed order, each with its status, and its
+ * audit requests. The coordinator and lecturers switch sections 10 to 16 on or off, with a reason
+ * when the setting differs from the course type. Everyone who reads it downloads it as one compiled PDF.
  */
 export function CourseFile() {
   const { offeringId } = useParams()
@@ -195,6 +196,14 @@ export function CourseFile() {
             ? `Compiling the PDF: ${compiling.files.done} of ${compiling.files.total} files downloaded. Keep this page open.`
             : 'Getting the list of files…'}
         </p>
+      )}
+      {data && (
+        <AuditRequests
+          offeringId={offeringId!}
+          userId={userId}
+          isStaff={canSwitch}
+          statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
+        />
       )}
 
       <Card className="gap-0 overflow-hidden py-0">

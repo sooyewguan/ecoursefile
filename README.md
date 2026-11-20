@@ -404,6 +404,8 @@ An audit request is one batch of Needs fix sections from one auditor on one cour
 
 Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
 
+The course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**. The page has no sideways scroll at a phone's 390 px.
+
 The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
 
 Each step commits first, and its email goes after it. `audit_request_emails` records each email's delivery: the function claims it before it sends it, and marks it delivered after.

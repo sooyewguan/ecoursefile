@@ -137,7 +137,7 @@ function requestEmail({ auditor, offering, items }: EmailSource): Mail {
       '<p>Hello,</p>',
       `<p>${escapeHtml(auditor.full_name)} audited the course file of ${escapeHtml(courseOf(offering))} and asks you to fix ${flagged.length === 1 ? 'this section' : `these ${flagged.length} sections`}:</p>`,
       `<ul>${flagged.map((item) => `<li><strong>${sectionName(item.section)}</strong>: ${paragraph(item.verdict.comment)}</li>`).join('')}</ul>`,
-      '<p>Open the course file in eCourseFile, where these sections are your checklist. A section ticks itself when it gets a new file. Comment on any section you cannot fix. Once every section is ticked or commented, any of you can reply to the auditor.</p>',
+      '<p>Open the course file in eCourseFile to work through the checklist. A section ticks itself when it gets a new file. Comment on any section you cannot fix. Once every section is ticked or commented, any of you can reply to the auditor.</p>',
     ].join('\n'),
   }
 }

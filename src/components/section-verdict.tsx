@@ -111,7 +111,7 @@ export function SectionVerdict({
           description={
             recording === 'verified'
               ? 'The section shows as Verified until its files change. Staff see your comment on this page.'
-              : 'Say what the coordinator and lecturers must fix. They see your comment on this page. The section shows as Needs fix until its files change.'
+              : 'Say what the coordinator and lecturers must fix. They see your comment on this page. The section goes into your draft audit request, which emails them once you send it from the course file page.'
           }
           submitLabel={recording === 'verified' ? 'Mark verified' : 'Mark needs fix'}
           onClose={() => setRecording(null)}
