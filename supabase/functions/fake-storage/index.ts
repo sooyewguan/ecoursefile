@@ -6,7 +6,7 @@ import { isUuid, rest, SERVICE } from '../_shared/http.ts'
 
 const CHUNK_MULTIPLE = 320 * 1024
 
-const HEX = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, '0'))
+const HEX_DIGITS = new TextEncoder().encode('0123456789abcdef')
 
 Deno.serve(async (req) => {
   if (Deno.env.get('STORAGE_ADAPTER') !== 'fake') return graphError(404, 'itemNotFound')
@@ -37,8 +37,13 @@ function graphError(status: number, code: string) {
   return Response.json({ error: { code } }, { status })
 }
 
+// Appending two digits to a string per byte builds millions of strings for one chunk, enough to take
+// the worker past its memory limit, so the digits go into bytes that are decoded once.
 function hex(bytes: Uint8Array) {
-  let text = ''
-  for (const byte of bytes) text += HEX[byte]
-  return text
+  const digits = new Uint8Array(bytes.length * 2)
+  for (let i = 0; i < bytes.length; i++) {
+    digits[2 * i] = HEX_DIGITS[bytes[i] >> 4]
+    digits[2 * i + 1] = HEX_DIGITS[bytes[i] & 15]
+  }
+  return new TextDecoder().decode(digits)
 }
