@@ -169,7 +169,7 @@ export function LecturerTimetables() {
           section is Missing until every lecturer of this offering has one.
         </span>
       </div>
-      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} onRecorded={reload} />
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
       {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">

@@ -1,5 +1,6 @@
 // The PDF engine's N-up merge, a pure function over bytes that runs in the browser and in Node.
 import { degrees, PDFDocument, rgb, type PDFEmbeddedPage, type PDFPage } from 'pdf-lib'
+import { loadPdf } from './load.ts'
 
 /** How many source pages go on each merged page: 8 for lecture notes, 4 for answer scripts. */
 export type PagesPerSheet = 4 | 8
@@ -24,7 +25,7 @@ const FRAME = rgb(0.75, 0.75, 0.75)
  * are copied once.
  */
 export async function nUp(source: Uint8Array, perSheet: PagesPerSheet): Promise<Uint8Array<ArrayBuffer>> {
-  const input = await PDFDocument.load(source)
+  const input = await loadPdf(source)
   const output = await PDFDocument.create()
   const pages = input.getPages()
   const embedded = await output.embedPages(pages, pages.map(cropBox))

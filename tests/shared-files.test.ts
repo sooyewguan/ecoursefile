@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
+import { sizedPdf } from '../src/pdf/fixtures.ts'
 import {
+  compileManifest,
   createUploadSession,
   deleteFile,
   deleteSharedFile,
@@ -9,7 +11,7 @@ import {
   uploadFile,
   type SharedSlot,
 } from '../src/uploads.ts'
-import { adminClient, createOffering, createUser, fakeStoreItems, semesterWithoutSharedFiles, signIn, signInAs, userIdOf } from './harness.ts'
+import { adminClient, createOffering, createUser, fakeStoreItems, protectedPdf, semesterWithoutSharedFiles, signIn, signInAs, userIdOf } from './harness.ts'
 
 const CALENDAR = 1
 const LETTER = 3
@@ -49,9 +51,7 @@ async function twoSemesters() {
 }
 
 function pdf(name: string, size = 1024) {
-  const bytes = new Uint8Array(size).fill(37)
-  bytes.set(new TextEncoder().encode('%PDF-'))
-  return new File([bytes], name, { type: 'application/pdf' })
+  return new File([sizedPdf(size)], name, { type: 'application/pdf' })
 }
 
 /** The semester's folder of shared files in the storage library. */
@@ -98,6 +98,21 @@ test('the admin uploads the calendar and the letter of a semester, stored once i
     { id: calendar.id, section: CALENDAR, name: 'calendar.pdf', deletable: true },
     { id: letter.id, section: LETTER, name: 'letter.pdf', deletable: true },
   ])
+})
+
+test('the browser refuses a protected calendar or letter, naming it, before it uploads anything', async () => {
+  const semester = await semesterWithoutSharedFiles()
+
+  for (const [section, name] of [[CALENDAR, 'calendar.pdf'], [LETTER, 'letter.pdf']] as const) {
+    await expect(uploadFile(admin, { semesterId: semester.id, section }, protectedPdf(name))).rejects.toMatchObject({
+      code: 'unreadable_pdf',
+      status: null,
+      message: expect.stringMatching(new RegExp(`^${name} .*protected`)),
+    })
+  }
+
+  expect(await fakeStoreItems(sharedFolder(semester))).toEqual([])
+  expect(await sharedFilesOf(admin, semester)).toEqual([])
 })
 
 test.each(['lecturer', 'auditor', 'hod', 'dean', 'deputy_dean', 'root'] as const)(
@@ -200,6 +215,20 @@ test('every offering of the semester links its calendar and letter, Pending revi
     ])
   }
   expect(await sharedStatuses(other.coordinator.client, other.id)).toEqual(missing)
+})
+
+test('the compile manifest lists the calendar and the letter that a course file links in sections 1 and 3', async () => {
+  const semester = await semesterWithoutSharedFiles()
+  const offering = await offerIn(semester)
+  const calendar = await uploadFile(admin, { semesterId: semester.id, section: CALENDAR }, pdf('calendar.pdf'))
+  const letter = await uploadFile(admin, { semesterId: semester.id, section: LETTER }, pdf('letter.pdf'))
+
+  const { sections } = await compileManifest(offering.coordinator.client, offering.id)
+  expect(sections.slice(0, 3).map(({ number, files }) => ({ number, files: files.map((file) => file.id) }))).toEqual([
+    { number: CALENDAR, files: [calendar.id] },
+    { number: 2, files: [] },
+    { number: LETTER, files: [letter.id] },
+  ])
 })
 
 test('the lecturers of a semester and users who read every course file read its shared files, and other lecturers and root do not', async () => {

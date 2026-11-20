@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
-import { numberedPdf } from '../src/pdf/fixtures.ts'
+import { sizedPdf } from '../src/pdf/fixtures.ts'
 import { deleteFile, deleteSharedFile, listReusableFiles, reuseFile, uploadFile, type Slot } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
@@ -52,15 +52,12 @@ async function createCourse(semester?: Semester): Promise<Course> {
 }
 
 function pdf(name: string) {
-  const bytes = new Uint8Array(1024).fill(37)
-  bytes.set(new TextEncoder().encode('%PDF-'))
-  return new File([bytes], name, { type: 'application/pdf' })
+  return new File([sizedPdf(1024)], name, { type: 'application/pdf' })
 }
 
-/** Uploads a PDF to the place in the course file as this client. A merged place, such as Lecture Notes, gets a real one-page PDF. */
-async function upload(client: SupabaseClient, slot: Slot, name: string) {
-  const file = slot.section === LECTURE_NOTES ? new File([await numberedPdf(1)], name, { type: 'application/pdf' }) : pdf(name)
-  return uploadFile(client, slot, file)
+/** Uploads a PDF to the place in the course file as this client. */
+function upload(client: SupabaseClient, slot: Slot, name: string) {
+  return uploadFile(client, slot, pdf(name))
 }
 
 /** Records the verdict as this client, the way the section page does, and returns the RPC's result. */
@@ -376,6 +373,29 @@ test('a switched-off section can be marked, and counts toward completeness while
   expect(await statusOf(course.coordinator.client, course.offeringId, QUIZ)).toEqual({ section: QUIZ, status: 'needs_fix', counts_toward_completeness: true })
   expect((await switchSection(course.coordinator.client, course.offeringId, QUIZ, true, 'Two quizzes this semester')).error).toBeNull()
   expect(await statusOf(course.coordinator.client, course.offeringId, QUIZ)).toEqual({ section: QUIZ, status: 'missing', counts_toward_completeness: true })
+})
+
+test('a switched-off section counts while its latest verdict is Needs fix, and is Pending review once it changes', async () => {
+  const course = await createCourse()
+  const notes = async () => statusOf(course.coordinator.client, course.offeringId, LECTURE_NOTES)
+  const place = { offeringId: course.offeringId, section: LECTURE_NOTES }
+  const first = await upload(course.lecturer.client, place, 'part-1.pdf')
+  await upload(course.lecturer.client, place, 'part-2.pdf')
+  expect((await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')).error).toBeNull()
+  await mark(course.offeringId, LECTURE_NOTES, 'needs_fix', 'The textbook does not cover weeks 8 to 14. Switch this back on.')
+
+  await deleteFile(course.lecturer.client, first.id)
+  expect(await notes()).toEqual({ section: LECTURE_NOTES, status: 'pending_review', counts_toward_completeness: true })
+
+  await mark(course.offeringId, LECTURE_NOTES, 'verified', 'The textbook covers every week.')
+  expect(await notes()).toEqual({ section: LECTURE_NOTES, status: 'verified', counts_toward_completeness: false })
+
+  expect((await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, true)).error).toBeNull()
+  await mark(course.offeringId, LECTURE_NOTES, 'needs_fix', 'Part 1 is missing.')
+  expect((await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')).error).toBeNull()
+  for (const client of [course.coordinator.client, course.lecturer.client, auditor]) {
+    expect(await statusOf(client, course.offeringId, LECTURE_NOTES)).toEqual({ section: LECTURE_NOTES, status: 'pending_review', counts_toward_completeness: true })
+  }
 })
 
 test('each verdict is logged with its comment, and section 5 verdicts name no program code', async () => {
