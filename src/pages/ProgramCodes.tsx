@@ -84,7 +84,7 @@ export function ProgramCodes() {
             ) : (
               programCodes.map((programCode) => (
                 <TableRow key={programCode.id}>
-                  <TableCell className="px-4 py-3 font-medium whitespace-normal wrap-anywhere">{programCode.code}</TableCell>
+                  <TableCell className="px-4 py-3 font-medium whitespace-normal">{programCode.code}</TableCell>
                   <TableCell className="px-4 py-2 text-right">
                     <RowActions label={`Actions for ${programCode.code}`}>
                       <DropdownMenuItem onSelect={() => setDialog({ kind: 'edit', programCode })}>

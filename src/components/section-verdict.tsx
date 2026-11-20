@@ -84,7 +84,7 @@ export function SectionVerdict({
                 </span>
                 {status && status !== latest.verdict && status !== 'missing' && <span>Given before the latest change to this section</span>}
               </div>
-              {latest.comment && <p className="text-sm whitespace-pre-wrap wrap-anywhere">{latest.comment}</p>}
+              {latest.comment && <p className="text-sm whitespace-pre-wrap">{latest.comment}</p>}
             </>
           ) : (
             !error && <p className="text-muted-foreground text-sm">No verdict yet.</p>

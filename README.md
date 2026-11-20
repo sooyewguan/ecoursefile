@@ -405,7 +405,7 @@ An audit request is one batch of Needs fix sections from one auditor on one cour
 
 Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
 
-The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**. The page has no sideways scroll at a phone's 390 px.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**.
 
 The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
 
@@ -448,7 +448,7 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 
 ## Activity
 
-The **Activity** tab of a course file page, at `/course-files/<offering id>?tab=activity`, lists the course file's activity log, newest first. Each entry says what happened in plain language, such as "Uploaded plan.pdf to 2 Teaching Plan". Below it come the text the entry carries, such as a verdict's comment, then the name of the user who did it and the time. The tab shows the newest 50 entries, and **Load more** adds the next 50 older ones. It has no sideways scroll at a phone's 390 px.
+The **Activity** tab of a course file page, at `/course-files/<offering id>?tab=activity`, lists the course file's activity log, newest first. Each entry says what happened in plain language, such as "Uploaded plan.pdf to 2 Teaching Plan". Below it come the text the entry carries, such as a verdict's comment, then the name of the user who did it and the time. The tab shows the newest 50 entries, and **Load more** adds the next 50 older ones.
 
 `ACTIVITY_ACTIONS` in `src/activity.ts` holds each action's icon and description, one entry for each value of the `activity_action` enum. A test compares the two, so an action added to the log fails the tests until it has a description.
 
@@ -495,9 +495,9 @@ The reports cover the offerings of the semester that `can_read_offering` lets th
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. On a phone, the department breakdown scrolls sideways inside its card, with the department column pinned.
 - **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. At a phone's 390 px, the table scrolls sideways inside its card, with the course column pinned.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. On a phone, the table scrolls sideways inside its card, with the course column pinned. A course code wraps at 112 px, so the pinned column leaves room for the sections.
 - **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
 
 The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
@@ -557,6 +557,15 @@ Each of the five views of the **Reports** page, and the **My completeness** page
 A .csv follows RFC 4180: commas between fields, a field in double quotes when it holds a comma, a quote or a line break, a quote inside one doubled, and CRLF after each row. It starts with a UTF-8 byte order mark, so that Excel reads names outside ASCII correctly. Names, titles and department names are typed by users, so a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return starts with `'` in a .csv, and a spreadsheet shows it as text rather than run it as a formula.
 
 An .xlsx has one sheet, named after the view, with the header row bold and frozen. The [write-excel-file](https://www.npmjs.com/package/write-excel-file) library writes it. Every text cell is a string in Excel's Text format, so Excel never reads one as a formula, not even after a user edits it, and the text keeps no `'`. The export code and the library load only on the first export, so the main bundle does not carry them: 1.9 kB and 70.3 kB (1.0 kB and 19.5 kB gzipped).
+
+## Phones
+
+The app is desktop first. These pages also work on a phone 360 px wide, with no sideways scroll: the course file page with its sections, audit requests and activity, each section page with its status and the auditor's verdict, the **Reports** page with its Export menus, and **My completeness**. An auditor records verdicts and sends an audit request from a phone, and the coordinator and lecturers comment on its checklist and reply.
+
+- A long word, such as a course code with a UUID or a name with no space, breaks anywhere rather than widen the page. `overflow-wrap: anywhere` on `body` in `src/index.css` does this for the whole app, so no element needs its own rule.
+- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, and the offering list's status and completeness. The department breakdown and the heatmap are too wide for that, so they scroll sideways inside their card, with the first column pinned.
+- On a touch screen, `pointer: coarse`, the app's controls are at least 44 by 44 px, as WCAG 2.2 success criterion 2.5.5 asks. Buttons, tabs, menu items, selects, inputs and the navigation links grow to 44 px. The checkbox and the close buttons of dialogs and of the navigation keep their size and take taps on a 44 px area around them. With a mouse, the controls keep their desktop size.
+- Uploading and the compiled PDF stay desktop first. They work on a phone without breaking the layout, but are not tuned for it.
 
 ## Compiled PDF
 

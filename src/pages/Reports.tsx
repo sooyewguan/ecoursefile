@@ -188,7 +188,8 @@ const SMALL = 'hidden sm:block'
 
 /**
  * The department breakdown. Its headers and values are DEPARTMENTS_TABLE's, with the department's
- * code and name in one cell, and each percentage over its count and the sections that count.
+ * code and name in one cell, and each percentage over its count and the sections that count. On a
+ * phone the table scrolls sideways inside its card, with the department pinned.
  */
 function DepartmentsView({ semester }: { semester: ReportSemester }) {
   const report = useReport<DepartmentRow>('report_departments', semester.id)
@@ -203,7 +204,7 @@ function DepartmentsView({ semester }: { semester: ReportSemester }) {
         <Table aria-labelledby="departments-heading">
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="px-4">{column.departmentCode.header}</TableHead>
+              <TableHead className="max-sm:bg-muted px-4 max-sm:sticky max-sm:left-0 max-sm:z-10">{column.departmentCode.header}</TableHead>
               <TableHead className="px-4 text-right">{column.offerings.header}</TableHead>
               {SHARES.map(([count]) => (
                 <TableHead key={count.header} className="px-4 text-right">
@@ -218,8 +219,10 @@ function DepartmentsView({ semester }: { semester: ReportSemester }) {
             ) : (
               report.rows!.map((row) => (
                 <TableRow key={row.department_id}>
-                  <TableCell className="px-4 py-3 whitespace-normal">
-                    <span className="font-medium">{column.departmentCode.value(row)}</span> {column.departmentName.value(row)}
+                  <TableCell className="max-sm:bg-card px-4 py-3 whitespace-normal max-sm:sticky max-sm:left-0 max-sm:z-10">
+                    <div className="min-w-32">
+                      <span className="font-medium">{column.departmentCode.value(row)}</span> {column.departmentName.value(row)}
+                    </div>
                   </TableCell>
                   <TableCell className="px-4 py-3 text-right tabular-nums">{column.offerings.value(row)}</TableCell>
                   {SHARES.map(([count, percent]) => (
@@ -322,7 +325,11 @@ function HeatmapView({ semester }: { semester: ReportSemester }) {
               report.rows!.map((row) => (
                 <TableRow key={row.offering_id}>
                   <TableHead scope="row" className="bg-card sticky left-0 z-10 px-4 font-normal">
-                    <Link to={`/course-files/${row.offering_id}`} title={column.courseTitle.value(row) ?? undefined} className="font-medium hover:underline">
+                    <Link
+                      to={`/course-files/${row.offering_id}`}
+                      title={column.courseTitle.value(row) ?? undefined}
+                      className="block w-max max-w-28 font-medium whitespace-normal hover:underline"
+                    >
                       {column.courseCode.value(row)}
                     </Link>
                   </TableHead>
@@ -394,7 +401,7 @@ function LecturersView({ semester }: { semester: ReportSemester }) {
                               <Link
                                 to={`/course-files/${row.offering.offering_id}`}
                                 title={column.courseTitle.value(row) ?? undefined}
-                                className="font-medium wrap-anywhere hover:underline"
+                                className="font-medium hover:underline"
                               >
                                 {column.courseCode.value(row)}
                               </Link>

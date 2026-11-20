@@ -171,7 +171,7 @@ export function Users() {
                           {user.full_name}
                           {user.id === me && <Badge variant="outline">You</Badge>}
                         </span>
-                        <span className="text-muted-foreground wrap-anywhere">{user.email}</span>
+                        <span className="text-muted-foreground">{user.email}</span>
                         <div className="mt-2 grid gap-2 md:hidden">
                           {department && <span className="text-muted-foreground text-xs">{department}</span>}
                           <div className="flex flex-wrap items-center gap-1">

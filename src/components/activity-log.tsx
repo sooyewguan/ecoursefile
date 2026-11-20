@@ -97,9 +97,9 @@ function ActivityItem({ entry }: { entry: ActivityEntry }) {
     <li className="grid grid-cols-[1.25rem_1fr] gap-x-3 px-4 py-3 md:px-6">
       <Icon aria-hidden="true" className="text-muted-foreground mt-0.5 size-5" />
       <div className="grid min-w-0 gap-1">
-        <p className="text-sm font-medium wrap-anywhere">{describeActivity(entry)}</p>
-        {note && <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap wrap-anywhere">{note}</p>}
-        <p className="text-muted-foreground text-xs wrap-anywhere">
+        <p className="text-sm font-medium">{describeActivity(entry)}</p>
+        {note && <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap">{note}</p>}
+        <p className="text-muted-foreground text-xs">
           {entry.actor_name} · <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
         </p>
       </div>

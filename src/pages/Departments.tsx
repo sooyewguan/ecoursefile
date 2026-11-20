@@ -87,7 +87,7 @@ export function Departments() {
             ) : (
               departments.map((department) => (
                 <TableRow key={department.id}>
-                  <TableCell className="px-4 py-3 font-medium whitespace-normal wrap-anywhere">{department.code}</TableCell>
+                  <TableCell className="px-4 py-3 font-medium whitespace-normal">{department.code}</TableCell>
                   <TableCell className="px-4 py-3 whitespace-normal">{department.name}</TableCell>
                   <TableCell className="px-4 py-2 text-right">
                     <RowActions label={`Actions for ${department.code}`}>

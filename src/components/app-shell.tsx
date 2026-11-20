@@ -66,7 +66,7 @@ export function AppShell() {
       <header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 border-b backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4 sm:px-6">
           <MobileNav links={links} />
-          <Link to="/" className="mr-4 rounded-md">
+          <Link to="/" className="mr-4 shrink-0 rounded-md">
             <Brand />
           </Link>
           <nav aria-label="Main" className="hidden items-center gap-1 xl:flex">
@@ -121,7 +121,7 @@ function MobileNav({ links }: { links: PageLink[] }) {
                 end={link.path === '/'}
                 className={({ isActive }) =>
                   cn(
-                    'text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    'text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors pointer-coarse:py-3',
                     isActive && 'bg-accent text-foreground',
                   )
                 }

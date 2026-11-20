@@ -549,7 +549,7 @@ function FileTable({
                   </TableCell>
                   <TableCell className="px-4 py-3 whitespace-normal">
                     <div className="grid gap-0.5">
-                      <span className="font-medium wrap-anywhere">{file.name}</span>
+                      <span className="font-medium">{file.name}</span>
                       <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
                       <span className="text-muted-foreground text-xs md:hidden">
                         {file.uploader_name}, {uploadedAt}
