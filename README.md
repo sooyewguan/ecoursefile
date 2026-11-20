@@ -491,7 +491,18 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
 | `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by name |
 
-The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. The function checks this once, and then reads as its owner, so names show for every reader, and the RLS policy of `files` does not run on each file.
+The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
+
+The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
+
+- **Summary**: the faculty summary as four figures, and the department breakdown below it.
+- **Offerings**: the offering list, which you can filter by department and by `status`.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. At a phone's 390 px, the table scrolls sideways inside its card, with the course column pinned.
+- **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
+
+The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
+
+The **My completeness** page shows lecturers the offering list for the offerings they teach or coordinate, in one semester. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
 
 ### What the numbers mean
 
