@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { ErrorAlert } from '@/components/notice'
 import { PageHeader } from '@/components/page'
-import { OfferingsTable, SemesterSelect, useReport } from '@/components/reports'
+import { ExportMenu, OfferingsTable, SemesterSelect, useReport } from '@/components/reports'
 import { useAuth } from '../auth-provider.tsx'
+import { MY_COMPLETENESS_TABLE } from '../report-tables.ts'
 import type { OfferingRow } from '../reports.ts'
 import { supabase } from '../supabase.ts'
 
@@ -60,14 +61,25 @@ export function Completeness() {
       {own?.semesters.length === 0 && (
         <OfferingsTable rows={[]} emptyDescription="Your course files appear here once the admin assigns you to an offering." />
       )}
-      {own && semesterId && <OwnOfferings semesterId={semesterId} offeringIds={own.offeringIds} />}
+      {own && semesterId && (
+        <OwnOfferings
+          semesterId={semesterId}
+          semesterCode={own.semesters.find((semester) => semester.id === semesterId)?.code ?? null}
+          offeringIds={own.offeringIds}
+        />
+      )}
     </div>
   )
 }
 
-function OwnOfferings({ semesterId, offeringIds }: { semesterId: string; offeringIds: ReadonlySet<string> }) {
+function OwnOfferings({ semesterId, semesterCode, offeringIds }: { semesterId: string; semesterCode: string | null; offeringIds: ReadonlySet<string> }) {
   const report = useReport<OfferingRow>('report_offerings', semesterId)
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
   const rows = report?.rows?.filter((row) => offeringIds.has(row.offering_id)) ?? null
-  return <OfferingsTable rows={rows} emptyDescription="You teach no offering in this semester." />
+  return (
+    <div className="grid gap-4">
+      <ExportMenu table={MY_COMPLETENESS_TABLE} rows={rows} semesterCode={semesterCode} />
+      <OfferingsTable rows={rows} emptyDescription="You teach no offering in this semester." />
+    </div>
+  )
 }
