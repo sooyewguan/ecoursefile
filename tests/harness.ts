@@ -39,9 +39,9 @@ export function uniqueEmail(label: string) {
 
 /**
  * Creates a user with the service role, as a test arrangement, and returns their id and
- * credentials. The email is a new one unless the test gives its own.
+ * credentials. The email is a new one, and the name Seam1 User, unless the test gives its own.
  */
-export async function createUser(options: { roles?: GlobalRole[]; departmentId?: string; email?: string } = {}) {
+export async function createUser(options: { roles?: GlobalRole[]; departmentId?: string; email?: string; fullName?: string } = {}) {
   const admin = adminClient()
   const email = options.email ?? uniqueEmail('user')
   const password = 'temporary-password'
@@ -49,7 +49,7 @@ export async function createUser(options: { roles?: GlobalRole[]; departmentId?:
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: 'Seam1 User' },
+    user_metadata: { full_name: options.fullName ?? 'Seam1 User' },
   })
   if (error) throw error
   const id = data.user.id
@@ -107,6 +107,12 @@ export async function callAccounts(client: SupabaseClient, body: Record<string, 
 }
 
 /**
+ * The first start year of the semesters that pickSemester leaves to the report tests. A report sums
+ * every offering of its semester, so no other test's offering may share a semester with them.
+ */
+const REPORT_START_YEAR = 2800
+
+/**
  * The first start year of the semesters that pickSemester leaves to the tests of shared files. An
  * upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the
  * semester, so no other test's offering may share a semester with those tests.
@@ -119,13 +125,31 @@ function randomBelow(limit: number) {
 }
 
 /**
- * A semester with a random start year from 2000 to 2899, and the given number if there is one,
+ * A semester with a random start year from 2000 to 2799, and the given number if there is one,
  * else a random number: new, inserted by the client (by default the service role), or the existing
- * one when an earlier test or run took the code. There are only 2,700 such codes, and semesters
+ * one when an earlier test or run took the code. There are only 2,400 such codes, and semesters
  * with offerings are never deleted, so a test cannot count on a semester of its own.
  */
 export function pickSemester(client: SupabaseClient = adminClient(), number?: number) {
-  return semesterWithCode({ start_year: 2000 + randomBelow(SHARED_FILE_START_YEAR - 2000), number: number ?? 1 + randomBelow(3) }, client)
+  return semesterWithCode({ start_year: 2000 + randomBelow(REPORT_START_YEAR - 2000), number: number ?? 1 + randomBelow(3) }, client)
+}
+
+/**
+ * A semester for report tests that has no offerings yet: a random one of the 300 codes with start
+ * years 2800 to 2899, which no other helper returns. Offerings are never deleted, so each semester
+ * that a test fills is used up, and a database that has used them all needs a reset.
+ */
+export async function emptyReportSemester() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const semester = await semesterWithCode({
+      start_year: REPORT_START_YEAR + randomBelow(SHARED_FILE_START_YEAR - REPORT_START_YEAR),
+      number: 1 + randomBelow(3),
+    })
+    const { count, error } = await adminClient().from('offerings').select('id', { count: 'exact', head: true }).eq('semester_id', semester.id)
+    if (error) throw error
+    if (count === 0) return semester
+  }
+  throw new Error('No report test semester is left without offerings. Reset the database with `npx supabase db reset`.')
 }
 
 /**
@@ -155,13 +179,15 @@ async function semesterWithCode(code: { start_year: number; number: number }, cl
 
 /**
  * Offers a new course in the semester, by default one from pickSemester, with the service role, as
- * a test arrangement. The course type has sectionsOn on, by default sections 10 and 12.
+ * a test arrangement. The course type has sectionsOn on, by default sections 10 and 12. The course
+ * belongs to departmentId, by default a new department.
  */
 export async function createOffering(options: {
   coordinatorId: string
   lecturerIds?: string[]
   sectionsOn?: number[]
   semester?: { id: string; code: string }
+  departmentId?: string
 }) {
   const service = adminClient()
   const semester = options.semester ?? (await pickSemester())
@@ -173,7 +199,7 @@ export async function createOffering(options: {
   if (courseType.error) throw courseType.error
   const course = await service
     .from('courses')
-    .insert({ code: `BITP-${randomUUID()}`, title: 'Seam1 Course', department_id: await createDepartment(), course_type_id: courseType.data.id })
+    .insert({ code: `BITP-${randomUUID()}`, title: 'Seam1 Course', department_id: options.departmentId ?? (await createDepartment()), course_type_id: courseType.data.id })
     .select('id, code, title')
     .single()
   if (course.error) throw course.error
