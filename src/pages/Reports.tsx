@@ -204,7 +204,7 @@ function DepartmentsView({ semester }: { semester: ReportSemester }) {
         <Table aria-labelledby="departments-heading">
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="bg-muted sticky left-0 z-10 px-4">{column.departmentCode.header}</TableHead>
+              <TableHead className="max-sm:bg-muted px-4 max-sm:sticky max-sm:left-0 max-sm:z-10">{column.departmentCode.header}</TableHead>
               <TableHead className="px-4 text-right">{column.offerings.header}</TableHead>
               {SHARES.map(([count]) => (
                 <TableHead key={count.header} className="px-4 text-right">
@@ -219,7 +219,7 @@ function DepartmentsView({ semester }: { semester: ReportSemester }) {
             ) : (
               report.rows!.map((row) => (
                 <TableRow key={row.department_id}>
-                  <TableCell className="bg-card sticky left-0 z-10 px-4 py-3 whitespace-normal">
+                  <TableCell className="max-sm:bg-card px-4 py-3 whitespace-normal max-sm:sticky max-sm:left-0 max-sm:z-10">
                     <div className="min-w-32">
                       <span className="font-medium">{column.departmentCode.value(row)}</span> {column.departmentName.value(row)}
                     </div>
