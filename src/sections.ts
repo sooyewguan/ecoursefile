@@ -30,6 +30,11 @@ export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([
   ...SECTIONS.filter((section) => section.sharedFile).map((section) => section.number),
 ])
 
+/** A section's number and title, such as 2 Teaching Plan. */
+export function sectionName(section: number) {
+  return `${section} ${SECTIONS.find((s) => s.number === section)!.title}`
+}
+
 /**
  * How many pages the browser puts on each page of a PDF before it uploads it to the slot: the
  * slot's perSheet, such as 4 for answer scripts, else the section's, such as 8 for Lecture Notes.

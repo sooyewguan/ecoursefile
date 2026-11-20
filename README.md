@@ -197,7 +197,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 
 Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page with the 19 sections in their fixed order. The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -260,7 +260,7 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. A lecturer timetable also has the `lecturer_id` whose timetable it is, and a student timetable the `program_code_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete, reuse, switch, tick, verdict, or send of, comment on or reply to an audit request: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section (none for a send or a reply), the `program_code_id` of every row of section 5 except a verdict's or a comment's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified`, `needs_fix`, `send`, `comment` or `reply`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, the `comment` of a verdict, of a staff comment or of a reply's message, and the `audit_request_id` of a send, comment or reply. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete, reuse, switch, tick, verdict, or send of, comment on or reply to an audit request: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section (none for a send or a reply), the `program_code_id` of every row of section 5 except a verdict's or a comment's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified`, `needs_fix`, `send`, `comment` or `reply`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, the `comment` of a verdict, of a staff comment or of a reply's message, and the `audit_request_id` of a send, comment or reply. Rows are never changed or removed, by anyone. See [Activity](#activity). |
 
 Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items. Staff can also copy a file in from a past offering. See [Reuse from past offerings](#reuse-from-past-offerings).
 
@@ -319,7 +319,7 @@ A shared file is stored once and linked into many course files. Its key is the s
 | RPC or column | What it does |
 | --- | --- |
 | `can_upload_shared_file(semester_id, section)` | Whether the caller may upload their file of the section for the semester. For sections 1, 3 and 5, true for admins, for a semester that exists. For section 4, true for a lecturer who teaches an offering in the semester. The timetable is always the caller's own. |
-| `linked_files` | A computed relationship of `offerings`: the shared files that the offering's course file links, which are the semester's calendar and letter, the timetable of each of its lecturers, and the student timetable of each program code it ticks. The app reads it with `select=linked_files(...)`. |
+| `linked_files` | A computed relationship of `offerings`: the shared files that the offering's course file links, which are the semester's calendar and letter, the timetable of each of its lecturers, and the student timetable of each program code it ticks. The app reads it with `select=linked_files(...)`. They are the files of the semester whose key is one of `linked_shared_keys(offering)`, the rule that the course file's activity follows too. |
 | `linked_offerings` | A computed relationship of `files`: the offerings whose course files link the shared file. The semester page and the section 4 page read it to list them before a delete. |
 | `deletable` | For a lecturer timetable, true for its lecturer. For another shared file, true for admins. |
 | `offering_program_codes` | A table: one row for each program code ticked in section 5 of an offering. The offering's readers read it. Clients write it only through `tick_program_code`. |
@@ -404,7 +404,7 @@ An audit request is one batch of Needs fix sections from one auditor on one cour
 
 Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
 
-The course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**. The page has no sideways scroll at a phone's 390 px.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**. The page has no sideways scroll at a phone's 390 px.
 
 The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
 
@@ -444,6 +444,40 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
 | 502 | `mail_failed` | The step is made, but its email could not be sent. The same call again sends it. |
+
+## Activity
+
+The **Activity** tab of a course file page, at `/course-files/<offering id>?tab=activity`, lists the course file's activity log, newest first. Each entry says what happened in plain language, such as "Uploaded plan.pdf to 2 Teaching Plan". Below it come the text the entry carries, such as a verdict's comment, then the name of the user who did it and the time. The tab shows the newest 50 entries, and **Load more** adds the next 50 older ones. It has no sideways scroll at a phone's 390 px.
+
+`ACTIVITY_ACTIONS` in `src/activity.ts` holds each action's icon and description, one entry for each value of the `activity_action` enum. A test compares the two, so an action added to the log fails the tests until it has a description.
+
+| Action | Description |
+| --- | --- |
+| `upload`, `delete` | Uploaded or deleted the file in the section, and for a student timetable, the program code it is for |
+| `reuse` | Copied the file into the section, from the course code and semester code of the past offering |
+| `switch_on`, `switch_off` | Switched the section on or off, with the reason for a switch away from the course type's setting |
+| `tick`, `untick` | Ticked or unticked the program code in section 5 |
+| `verified`, `needs_fix` | Marked the section Verified or Needs fix, with the comment |
+| `send`, `comment`, `reply` | Sent an audit request, commented on a section of one, or replied to one, with the comment or the reply's message |
+
+The activity of a course file holds the entries of its offering, and those of the shared files it links: the calendar and letter of its semester, the timetables of its lecturers, and the student timetables of the codes it ticks. It follows the lecturers and ticks that the offering has now, as `linked_files` does, and both read `linked_shared_keys`.
+
+- The activity holds a lecturer's timetable entries while the lecturer teaches the offering, and drops them when the admin unassigns the lecturer. The database does not record when a lecturer was assigned, so it cannot tell which entries came from that time. A lecturer of the offering also cannot read the timetable of someone who no longer teaches with them.
+- The activity holds a program code's timetable entries while the code is ticked. The tick and untick entries belong to the offering, so they stay.
+- A timetable deleted while its lecturer or code is still linked keeps its entries.
+
+The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy deans and the admin read it, as `can_read_offering` says. An HoD reads every course file, whatever its department. Other lecturers and root cannot. The migrations are `supabase/migrations/20261120060000_append_only_activity_log.sql` and `supabase/migrations/20261120060100_course_file_activity.sql`.
+
+| RPC | What it does |
+| --- | --- |
+| `course_file_activity(offering_id, before_created_at, before_id, page_size)` | Up to `page_size` entries (50 by default) of the course file's activity, newest first by time and then id, older than the entry with `before_created_at` and `before_id`, or the newest entries when both are null. Each has its `id`, `created_at`, `action`, `section` (null for a send or a reply), `actor_name`, `file_name`, `program_code`, `source_course_code` and `source_semester_code` of a reuse, `reason` and `comment`. A deactivated actor keeps their name. It names the past offering of a reuse only by its codes, so a lecturer still reads nothing else of it. A caller who may not read the offering, or an offering that does not exist, fails with Postgres error `42501`. |
+| `linked_shared_keys(offering)` | The keys of the shared files that the offering's course file links, in its semester: no lecturer and no program code for the calendar and letter, each of its lecturers, and each code it ticks. |
+
+`activityPage(client, offeringId, after?)` in `src/activity.ts` reads one page for the app and the tests. It asks for one entry more than it shows, to know whether there is another page. A page starts after the last entry shown, by time and id, so entries added meanwhile neither repeat an entry nor skip one.
+
+`course_file_activity` asks `can_read_offering` once as the caller, then reads the log as its owner, from the indexes on `(offering_id, created_at, id)` and on `(semester_id, created_at, id)`. On an offering with 5,000 entries in a semester with 2,000 shared-file entries, a page took 3.6 ms through the API, the same at the top and 4,000 entries down. Reading the log as the caller runs the RLS policy's check on each entry it reads.
+
+Nobody changes or removes an entry. Clients have no update, delete or truncate grant on `activity_log`, and neither has the service role, so the API refuses them with `42501`. Clients cannot add entries either. Grants do not bind the table's owner. The RPCs that log changes, such as `record_verdict`, run as the owner, and so do migrations and the SQL editor. A trigger therefore refuses every update, delete and truncate of the table, by any role, with `42501`.
 
 ## Compiled PDF
 
@@ -551,6 +585,8 @@ A student timetable changes section 5 only of the offerings that tick its progra
 The tests in `tests/verdicts.test.ts` and `tests/compile-manifest.test.ts` also upload timetables only for lecturers and program codes they create, in semesters from `pickSemester`. A manifest test therefore finds no calendar or letter in sections 1 and 3, and `tests/shared-files.test.ts` tests those.
 
 The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, so each address's fake outbox holds only the test's emails. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
+
+The tests in `tests/activity.test.ts` create their own lecturers, auditors and program codes, and take semesters from `pickSemester`. Calendars and letters are left to `tests/shared-files.test.ts`, which also checks that they show in the activity of each course file of their semester.
 
 The tests in `tests/reuse.test.ts` offer a course they create in four different semesters from `pickSemester`, and order them by start year and number. The picker finds past offerings by course, so other tests' offerings in the same semesters never show in it.
 

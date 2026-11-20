@@ -192,17 +192,18 @@ test('clients cannot send or reply through the RPCs, so every step goes through 
   await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
   const { id } = await requestIn(auditor, offeringId, 'draft')
 
-  // Whichever arguments a client passes, the step is refused and the request stays as it was.
-  for (const args of [{ request_id: id }, { request_id: id, actor_id: auditor.id }]) {
-    expect((await auditor.client.rpc('send_audit_request', args)).error).not.toBeNull()
-  }
+  // Whichever arguments a client passes, the step is refused and the request stays as it was. A
+  // call with the RPC's own arguments finds it, so the grant refuses it.
+  expect((await auditor.client.rpc('send_audit_request', { request_id: id })).error).not.toBeNull()
+  expect((await auditor.client.rpc('send_audit_request', { request_id: id, actor_id: auditor.id })).error?.code).toBe(PERMISSION_DENIED)
   expect((await requestIn(auditor, offeringId, 'draft')).id).toBe(id)
   expect(await fakeOutbox(coordinator.email)).toEqual([])
 
   await sendAuditRequest(auditor.client, id)
   expect((await comment(lecturer.client, id, TEACHING_PLAN, 'The plan is in section 1.')).error).toBeNull()
-  for (const args of [{ request_id: id }, { request_id: id, actor_id: coordinator.id }]) {
-    expect((await coordinator.client.rpc('reply_to_audit_request', args)).error).not.toBeNull()
+  expect((await coordinator.client.rpc('reply_to_audit_request', { request_id: id })).error).not.toBeNull()
+  for (const args of [{ request_id: id, actor_id: coordinator.id }, { request_id: id, actor_id: coordinator.id, message: 'Done.' }]) {
+    expect((await coordinator.client.rpc('reply_to_audit_request', args)).error?.code).toBe(PERMISSION_DENIED)
   }
   expect(await requestsOf(auditor.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
   expect(await fakeOutbox(auditor.email)).toEqual([])

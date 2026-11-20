@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { cn, plural } from '@/lib/utils'
 import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState } from '../audit-requests.ts'
-import { SECTIONS, SECTIONS_WITH_PAGES, type SectionStatus } from '../sections.ts'
+import { sectionName, SECTIONS_WITH_PAGES, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 /** One flagged section: the auditor's comment from the Needs fix verdict, whether it is ticked, and a staff comment. */
@@ -288,8 +288,4 @@ function ChecklistItem({
       </div>
     </li>
   )
-}
-
-function sectionName(section: number) {
-  return `${section} ${SECTIONS.find((s) => s.number === section)!.title}`
 }
