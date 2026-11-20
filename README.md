@@ -89,6 +89,44 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
 | `GRAPH_MAILBOX` | `send-email` and `audit-requests` functions, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
 
+## Deploy to Firebase Hosting
+
+The static app goes to the Firebase project `e-coursefile`, which serves it at https://e-coursefile.web.app. `.firebaserc` names the project, and `firebase.json` serves `dist/` and sends every path to `index.html`.
+
+The workflow `.github/workflows/deploy.yml` builds the app and deploys it to the live channel. It runs only when you start it by hand: open the **Actions** tab, pick **Deploy to Firebase Hosting**, and click **Run workflow**. Run it only after the hosted Supabase project from sooyewguan/ecoursefile#24 exists, because the build bakes that project's URL into the page.
+
+The deploy job runs in the GitHub environment `production`. Set it up once:
+
+1. Open **Settings > Environments** and click **production**. The first run of the workflow creates it if it is not there, or click **New environment** and name it `production`.
+2. Under **Deployment protection rules**, tick **Required reviewers**, add yourself, and click **Save protection rules**. Each run then waits on the run's page until a reviewer clicks **Review deployments** and approves it.
+3. Under **Deployment branches and tags**, pick **Selected branches and tags** and add the branch you deploy from, so that runs from other branches cannot use the secrets.
+4. Under **Environment secrets**, add the three secrets below. Only jobs in the `production` environment can read them. Never commit their values. The repository is public.
+
+| Secret | Value |
+| --- | --- |
+| `VITE_SUPABASE_URL` | The hosted project's API URL, such as `https://<project-ref>.supabase.co`. |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | The hosted project's publishable key. Never put the secret key here: the build copies this value into the page that every visitor downloads. |
+| `FIREBASE_SERVICE_ACCOUNT_E_COURSEFILE` | The whole JSON key of a Google Cloud service account that may deploy to Firebase Hosting. |
+
+To make the service account key:
+
+1. In the Google Cloud console for project `e-coursefile`, open **IAM & Admin > Service Accounts** and create an account, such as `github-deploy`.
+2. Give it the roles **Firebase Hosting Admin** and **API Keys Viewer**.
+3. On the account's **Keys** tab, add a JSON key. The browser downloads the file.
+4. Paste the file's whole content into the `FIREBASE_SERVICE_ACCOUNT_E_COURSEFILE` secret, then delete the downloaded file.
+
+The workflow stops before the build and names each missing secret. It also stops if `VITE_SUPABASE_URL` does not start with `https://`.
+
+In the hosted Supabase project, open **Authentication > URL Configuration**. Set **Site URL** to `https://e-coursefile.web.app` and add it to **Redirect URLs**, so that auth emails link back to the hosted app.
+
+To deploy from your own machine instead, put the hosted values in `.env.production.local`, which git ignores, then run:
+
+```sh
+npm run build
+npx firebase-tools login
+npx firebase-tools deploy --only hosting
+```
+
 ## Seeding root again
 
 You can run `npm run seed` more than once. The seed script sets root's password and the must-change-password flag only while root has never signed in. After root signs in, a new run only adds the `root` role back if it is missing. A new run never overwrites a password that root chose.
