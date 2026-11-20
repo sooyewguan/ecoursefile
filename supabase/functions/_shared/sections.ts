@@ -9,6 +9,16 @@ type SectionKind = 'always' | 'may-be-empty' | 'switchable'
 /** How many pages the browser puts on each page of a PDF before it uploads it. */
 type PagesPerSheet = 4 | 8
 
+/**
+ * What a section's shared files are shared by. A semester's file: the admin uploads one for each
+ * semester, and every course file of the semester links it. A lecturer's file: each lecturer
+ * uploads their own for each semester, and every course file they teach in the semester links it.
+ * A program code's file: the admin uploads one for each program code for each semester, and every
+ * course file of the semester that ticks the code links it. The files table's check constraints
+ * list the same sections.
+ */
+export type SharedFile = 'semester' | 'lecturer' | 'program_code'
+
 /** One of the 19 sections of every course file. */
 export type Section = {
   number: number
@@ -18,14 +28,8 @@ export type Section = {
   itemTitle?: string
   /** Set when the browser merges every PDF of the section before upload. */
   perSheet?: PagesPerSheet
-  /**
-   * Set when the section's files are shared files, stored once and linked into many course files,
-   * and what each one is shared by. A semester's file: the admin uploads one for each semester, and
-   * every course file of the semester links it. A lecturer's file: each lecturer uploads their own
-   * for each semester, and every course file they teach in the semester links it. The files table's
-   * check constraints list the same sections.
-   */
-  sharedFile?: 'semester' | 'lecturer'
+  /** Set when the section's files are shared files, stored once and linked into many course files, and what each one is shared by. */
+  sharedFile?: SharedFile
 }
 
 /** The 19 sections of every course file, in the fixed order. */
@@ -34,7 +38,7 @@ export const SECTIONS: readonly Section[] = [
   { number: 2, title: 'Teaching Plan', kind: 'always' },
   { number: 3, title: 'Appointment Letter', kind: 'always', sharedFile: 'semester' },
   { number: 4, title: 'Lecturer Timetable', kind: 'always', sharedFile: 'lecturer' },
-  { number: 5, title: 'Student Timetable', kind: 'always' },
+  { number: 5, title: 'Student Timetable', kind: 'always', sharedFile: 'program_code' },
   { number: 6, title: 'Attendance Record', kind: 'always' },
   { number: 7, title: 'Replacement Notices', kind: 'may-be-empty' },
   { number: 8, title: 'Proof of Absence', kind: 'may-be-empty' },

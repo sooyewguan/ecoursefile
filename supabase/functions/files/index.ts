@@ -4,7 +4,7 @@
 // deletable decide who may do what, asked as the caller. The add_file and remove_file RPCs write the
 // file records and the activity log with the service role.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-import { itemName, SECTION_SLOTS, SECTIONS, type SectionSlot } from '../_shared/sections.ts'
+import { itemName, SECTION_SLOTS, SECTIONS, type SectionSlot, type SharedFile } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
 import {
   hasPdfName,
@@ -19,12 +19,22 @@ import {
  * Where a file goes. A course file target is one section of one offering's course file, the number
  * of one of its items when the section has items, and one of its slots when it has slots. A shared
  * target is the key of one shared file: a shared-file section of one semester and, for a section
- * shared by lecturer, the lecturer. Lecturers upload only their own timetable, so that lecturer is
- * always the caller.
+ * shared by lecturer or by program code, the lecturer or the program code.
  */
 type Target =
   | { kind: 'course-file'; offeringId: string; section: number; item: number | null; slot: SectionSlot | null }
-  | { kind: 'shared'; semesterId: string; section: number; lecturer: User | null }
+  | { kind: 'shared'; semesterId: string; section: number; key: SharedKey | null }
+
+/**
+ * The part of a shared file's key after its semester and section, in a section shared by lecturer
+ * or by program code. by is the section's sharedFile. For a lecturer, id is the lecturer's and name
+ * their email. Lecturers upload only their own timetable, so that lecturer is always the caller.
+ * For a program code, id is the code's and name the code itself.
+ */
+type SharedKey = { by: 'lecturer' | 'program_code'; id: string; name: string }
+
+/** The column of the files table that holds each kind of SharedKey. */
+const KEY_COLUMNS = { lecturer: 'lecturer_id', program_code: 'program_code_id' } as const
 
 /** A signed-in user. */
 type User = { id: string; email: string }
@@ -58,7 +68,7 @@ serveJson(async (body, caller) => {
 })
 
 const TARGET_FIELDS =
-  'offeringId, section, an item for a section with items and a slot for a section with slots, or semesterId and a shared-file section'
+  'offeringId, section, an item for a section with items and a slot for a section with slots, or semesterId and a shared-file section, with the programCodeId of a program code for a student timetable'
 
 async function parseRequest(body: unknown, caller: string): Promise<FilesRequest> {
   const input = isRecord(body) ? body : {}
@@ -95,24 +105,52 @@ async function parseRequest(body: unknown, caller: string): Promise<FilesRequest
 
 /**
  * The target. With semesterId, section is a shared-file section, and there is no offeringId, item or
- * slot. A section shared by lecturer takes the caller as the lecturer. Otherwise section is one of
- * the 19, item is an item number exactly when the section has items, and slot names one of the
- * section's slots exactly when it has slots.
+ * slot. A section shared by lecturer takes the caller as the lecturer, and a section shared by
+ * program code takes programCodeId, which only it takes. Otherwise section is one of the 19, item is
+ * an item number exactly when the section has items, and slot names one of the section's slots
+ * exactly when it has slots.
  */
-async function parseTarget({ offeringId, semesterId, section, item, slot }: Record<string, unknown>, caller: string): Promise<Target | null> {
+async function parseTarget(
+  { offeringId, semesterId, section, item, slot, programCodeId }: Record<string, unknown>,
+  caller: string,
+): Promise<Target | null> {
   const definition = SECTIONS.find((s) => s.number === section)
   if (!definition) return null
   if (semesterId !== undefined) {
     if (!isUuid(semesterId) || !definition.sharedFile || offeringId != null || item != null || slot != null) return null
-    const lecturer = definition.sharedFile === 'lecturer' ? await callerUser(caller) : null
-    return { kind: 'shared', semesterId, section: definition.number, lecturer }
+    const key = await sharedKey(definition.sharedFile, programCodeId, caller)
+    return key === undefined ? null : { kind: 'shared', semesterId, section: definition.number, key }
   }
-  if (!isUuid(offeringId)) return null
+  if (!isUuid(offeringId) || programCodeId != null) return null
   if (definition.itemTitle ? !isItemNumber(item) : item != null) return null
   const slots = SECTION_SLOTS[definition.number]
   const named = slots?.find((s) => s.name === slot) ?? null
   if (slots ? !named : slot != null) return null
   return { kind: 'course-file', offeringId, section: definition.number, item: isItemNumber(item) ? item : null, slot: named }
+}
+
+/**
+ * The SharedKey of a section shared by sharedFile: null for a semester's file, the caller for a
+ * lecturer's, and the program code with this id for a program code's. Undefined when the request
+ * names no program code that exists for a program code's file, or names one for another file. The
+ * function looks the code up with the service role, so that a caller who may not read program codes,
+ * such as root, is refused for the upload and not for the code.
+ */
+async function sharedKey(sharedFile: SharedFile, programCodeId: unknown, caller: string): Promise<SharedKey | null | undefined> {
+  if (sharedFile !== 'program_code' && programCodeId != null) return undefined
+  switch (sharedFile) {
+    case 'semester':
+      return null
+    case 'lecturer': {
+      const { id, email } = await callerUser(caller)
+      return { by: 'lecturer', id, name: email }
+    }
+    case 'program_code': {
+      if (!isUuid(programCodeId)) return undefined
+      const [programCode] = await rest<{ code: string }[]>('GET', `/program_codes?id=eq.${programCodeId}&select=code`, undefined, SERVICE)
+      return programCode && { by: 'program_code', id: programCodeId, name: programCode.code }
+    }
+  }
 }
 
 /** Whether the value can number an item: a whole number from 1 to the largest smallint. */
@@ -158,12 +196,23 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
 
 /**
  * The add_file arguments that name the target's slot: a course file's section, item and slot, or a
- * shared file's semester, section and lecturer.
+ * shared file's semester, section, and lecturer or program code.
  */
 function slotKey(target: Target) {
-  return target.kind === 'shared'
-    ? { offering_id: null, semester_id: target.semesterId, section: target.section, item: null, slot: null, lecturer_id: target.lecturer?.id ?? null }
-    : { offering_id: target.offeringId, section: target.section, item: target.item, slot: target.slot?.name ?? null }
+  if (target.kind === 'course-file') {
+    return { offering_id: target.offeringId, section: target.section, item: target.item, slot: target.slot?.name ?? null }
+  }
+  const { semesterId, section, key } = target
+  return {
+    offering_id: null,
+    semester_id: semesterId,
+    section,
+    item: null,
+    slot: null,
+    lecturer_id: null,
+    program_code_id: null,
+    ...(key && { [KEY_COLUMNS[key.by]]: key.id }),
+  }
 }
 
 /**
@@ -172,17 +221,16 @@ function slotKey(target: Target) {
  */
 async function checkRoom(target: Target, caller: string) {
   if (target.kind === 'shared') {
-    const { semesterId, section, lecturer } = target
-    const where = `semester_id=eq.${semesterId}&section=eq.${section}${lecturer ? `&lecturer_id=eq.${lecturer.id}` : ''}`
+    const { semesterId, section, key } = target
+    const where = `semester_id=eq.${semesterId}&section=eq.${section}${key ? `&${KEY_COLUMNS[key.by]}=eq.${key.id}` : ''}`
     const files = await rest<unknown[]>('GET', `/files?${where}&select=id`, undefined, caller)
     if (files.length === 0) return
-    throw new Refusal(
-      409,
-      'slot_full',
-      lecturer
-        ? 'You have a timetable for this semester. Delete it to upload another.'
-        : `This semester has its ${sectionOf(section).title}. Delete it to upload another.`,
-    )
+    const holder = !key
+      ? `This semester has its ${sectionOf(section).title}.`
+      : key.by === 'lecturer'
+        ? 'You have a timetable for this semester.'
+        : `${key.name} has a student timetable for this semester.`
+    throw new Refusal(409, 'slot_full', `${holder} Delete it to upload another.`)
   }
   if (target.item === null) return
   const where = `offering_id=eq.${target.offeringId}&section=eq.${target.section}`
@@ -260,21 +308,24 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
  * The target's folder in the storage library, once the caller is found to be allowed to upload to
  * it: eCourseFile/<semester>/<course code> <course title>/<NN section>, then /<item name> for an
  * item and /<slot> for a slot. A shared file's folder is eCourseFile/<semester>/_shared/<NN section>,
- * then /<email> for a lecturer's file, so each lecturer finalizes only their own uploads.
+ * then /<id> <name> of its key for a lecturer's or a program code's file, such as the lecturer's id
+ * and email. Finalize finds an upload by its folder, so each lecturer finalizes only their own
+ * uploads, and an upload for one program code is never recorded for another. The id keeps two keys
+ * apart whose names make the same folder name, such as a/b@x and a-b@x.
  */
 async function uploadFolder(target: Target, caller: string) {
   if (target.kind === 'shared') {
-    const { semesterId, section, lecturer } = target
+    const { semesterId, section, key } = target
     const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
     if (!allowed) {
       throw new Refusal(
         403,
         'forbidden',
-        lecturer ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
+        key?.by === 'lecturer' ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
       )
     }
     const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
-    return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(lecturer ? [safeName(lecturer.email)] : [])].join('/')
+    return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(key ? [safeName(`${key.id} ${key.name}`)] : [])].join('/')
   }
   const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
   if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')

@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { createUploadSession, deleteFile, deleteSharedFile, finalizeUpload, sendChunks, uploadFile, type SharedSlot } from '../src/uploads.ts'
+import { TEST_DOMAIN } from './global-setup.ts'
 import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, signIn, signInAs } from './harness.ts'
 
 // Every test gives its timetables to new lecturers. A timetable links only into the offerings its
@@ -22,8 +24,9 @@ beforeAll(async () => {
   auditor = await signInAs('auditor')
 })
 
-async function createStaff(): Promise<Staff> {
-  const user = await createUser({ roles: ['lecturer'] })
+/** A new lecturer, with a new email unless the test gives one. */
+async function createStaff(email?: string): Promise<Staff> {
+  const user = await createUser({ roles: ['lecturer'], email })
   return { id: user.id, email: user.email, client: await signIn(user.email, user.password) }
 }
 
@@ -62,9 +65,12 @@ async function uploadWithoutFinalize(client: SupabaseClient, slot: SharedSlot, f
   return session.storedName
 }
 
-/** The lecturer's folder of timetables for the semester in the storage library. */
+/**
+ * The lecturer's folder of timetables for the semester in the storage library: their id, then their
+ * email with the / that SharePoint forbids in a name made a -.
+ */
 function timetableFolder(semester: Semester, lecturer: Staff) {
-  return `eCourseFile/${semester.code.replace('/', '-')}/_shared/04 Lecturer Timetable/${lecturer.email}`
+  return `eCourseFile/${semester.code.replace('/', '-')}/_shared/04 Lecturer Timetable/${lecturer.id} ${lecturer.email.replaceAll('/', '-')}`
 }
 
 /** The status of section 4 of the offering's course file, as the auditor reads it. */
@@ -308,6 +314,25 @@ test('a lecturer cannot upload a timetable for a semester they do not teach in, 
   const timetable = await finalizeUpload(coordinator.client, slot, pending)
   expect(timetable).toMatchObject({ lecturer_id: coordinator.id, uploaded_by: coordinator.id })
   expect(await linkedTimetables(lecturer.client, offeringId)).toEqual([coordinator.id])
+})
+
+test('two lecturers whose emails make the same folder name each finalize only their own upload', async () => {
+  const semester = await pickSemester()
+  const id = randomUUID()
+  const [slashed, dashed] = [await createStaff(`a/${id}@${TEST_DOMAIN}`), await createStaff(`a-${id}@${TEST_DOMAIN}`)]
+  await offer(semester, slashed, [dashed])
+  const slot = timetableSlot(semester)
+
+  const pending = await uploadWithoutFinalize(slashed.client, slot, pdf('slashed.pdf'))
+  await expect(finalizeUpload(dashed.client, slot, pending)).rejects.toMatchObject({ status: 404, code: 'not_found' })
+  expect(await timetablesOf(auditor, semester, [slashed, dashed])).toEqual([])
+
+  const own = await uploadTimetable(dashed, semester, 'dashed.pdf')
+  const theirs = await finalizeUpload(slashed.client, slot, pending)
+  expect(own).toMatchObject({ lecturer_id: dashed.id, name: 'dashed.pdf' })
+  expect(theirs).toMatchObject({ lecturer_id: slashed.id, name: 'slashed.pdf' })
+  expect((await fakeStoreItems(timetableFolder(semester, slashed))).map((item) => item.id)).toEqual([theirs.storage_item_id])
+  expect((await fakeStoreItems(timetableFolder(semester, dashed))).map((item) => item.id)).toEqual([own.storage_item_id])
 })
 
 test('lecturers read the timetables of the lecturers they teach with, and users who read every course file read all of them', async () => {

@@ -52,7 +52,7 @@ async function createProgramCode() {
   return data
 }
 
-test('admin creates, edits and lists course types with defaults for sections 10 to 16', async () => {
+test('admin creates, edits and reads course types with defaults for sections 10 to 16', async () => {
   const name = unique('Theory')
 
   const created = await admin.from('course_types').insert({ name, sections_on: [10, 12, 13, 14, 15, 16] }).select('id').single()
@@ -62,8 +62,8 @@ test('admin creates, edits and lists course types with defaults for sections 10 
   const edited = await admin.from('course_types').update({ name: `${name} with labs`, sections_on: [10, 11, 16] }).eq('id', id)
   expect(edited.error).toBeNull()
 
-  const { data } = await admin.from('course_types').select('id, name, sections_on')
-  expect(data).toContainEqual({ id, name: `${name} with labs`, sections_on: [10, 11, 16] })
+  const { data } = await admin.from('course_types').select('id, name, sections_on').eq('id', id)
+  expect(data).toEqual([{ id, name: `${name} with labs`, sections_on: [10, 11, 16] }])
 })
 
 test('a course type can switch every section from 10 to 16 off', async () => {
@@ -92,7 +92,7 @@ test('course type names are unique', async () => {
   expect(error?.code).toBe(UNIQUE_VIOLATION)
 })
 
-test('admin creates, edits and lists courses', async () => {
+test('admin creates, edits and reads courses', async () => {
   const [type, otherType] = [await createCourseType(), await createCourseType()]
   const otherDepartmentId = await createDepartment()
   const code = unique('BITP')
@@ -111,14 +111,16 @@ test('admin creates, edits and lists courses', async () => {
     .eq('id', id)
   expect(edited.error).toBeNull()
 
-  const { data } = await admin.from('courses').select('id, code, title, department_id, course_type_id')
-  expect(data).toContainEqual({
-    id,
-    code: `${code}-2`,
-    title: 'Software Quality',
-    department_id: otherDepartmentId,
-    course_type_id: otherType.id,
-  })
+  const { data } = await admin.from('courses').select('id, code, title, department_id, course_type_id').eq('id', id)
+  expect(data).toEqual([
+    {
+      id,
+      code: `${code}-2`,
+      title: 'Software Quality',
+      department_id: otherDepartmentId,
+      course_type_id: otherType.id,
+    },
+  ])
 })
 
 test('course codes are unique when a course is created or edited', async () => {
@@ -145,7 +147,7 @@ test('a department that has courses cannot be deleted', async () => {
   ])
 })
 
-test('admin creates, edits and lists program codes', async () => {
+test('admin creates, edits and reads program codes', async () => {
   const code = unique('1 BITS S1G1')
 
   const created = await admin.from('program_codes').insert({ code }).select('id').single()
@@ -154,8 +156,8 @@ test('admin creates, edits and lists program codes', async () => {
 
   expect((await admin.from('program_codes').update({ code: `${code}-2` }).eq('id', id)).error).toBeNull()
 
-  const { data } = await admin.from('program_codes').select('id, code')
-  expect(data).toContainEqual({ id, code: `${code}-2` })
+  const { data } = await admin.from('program_codes').select('id, code').eq('id', id)
+  expect(data).toEqual([{ id, code: `${code}-2` }])
 })
 
 test('program codes are unique when a code is created or edited', async () => {

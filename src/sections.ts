@@ -18,6 +18,12 @@ export const SEMESTER_FILE_SECTIONS = SECTIONS.filter((section) => section.share
 /** Lecturer Timetable: each lecturer uploads their own for each semester, on its own section page. */
 export const LECTURER_FILE_SECTION = SECTIONS.find((section) => section.sharedFile === 'lecturer')!
 
+/**
+ * Student Timetable: the admin uploads one for each program code for each semester on the semester
+ * page, and staff tick the codes of each offering on its own section page.
+ */
+export const PROGRAM_CODE_FILE_SECTION = SECTIONS.find((section) => section.sharedFile === 'program_code')!
+
 /** The sections that open a section page: those that staff upload to, and those that link shared files. */
 export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([
   ...FILE_SECTIONS,
