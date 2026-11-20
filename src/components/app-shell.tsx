@@ -121,7 +121,7 @@ function MobileNav({ links }: { links: PageLink[] }) {
                 end={link.path === '/'}
                 className={({ isActive }) =>
                   cn(
-                    'text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    'text-muted-foreground hover:text-foreground hover:bg-accent flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors pointer-coarse:py-3',
                     isActive && 'bg-accent text-foreground',
                   )
                 }
