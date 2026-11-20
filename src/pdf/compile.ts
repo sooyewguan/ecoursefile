@@ -52,8 +52,7 @@ export async function compile(manifest: CompileManifest, fetchBytes: FetchBytes)
     dividerPages.push(output.getPageCount() + 1)
     drawDivider(addSheet(), section, fonts)
     for (const file of section.files) {
-      const source = await load(file, section, fetchBytes)
-      for (const page of await output.copyPages(source, source.getPageIndices())) output.addPage(page)
+      for (const page of await copyPages(output, file, section, fetchBytes)) output.addPage(page)
     }
   }
   drawContents(contentsPages, manifest.sections, dividerPages, fonts)
@@ -62,13 +61,30 @@ export async function compile(manifest: CompileManifest, fetchBytes: FetchBytes)
   return (await output.save()) as Uint8Array<ArrayBuffer>
 }
 
-async function load(file: ManifestFile, section: ManifestSection, fetchBytes: FetchBytes) {
+/** The file's pages, copied into the output. Any failure to fetch the file or to read or copy its pages is a CompileError naming it. */
+async function copyPages(output: PDFDocument, file: ManifestFile, section: ManifestSection, fetchBytes: FetchBytes) {
   const bytes = await fetchBytes(file.url).catch((error: unknown) => {
     throw new CompileError(file, section, new FetchFailed(String(error), { cause: error }))
   })
-  return PDFDocument.load(bytes).catch((error: unknown) => {
+  try {
+    const source = await loadPdf(bytes)
+    return await output.copyPages(source, source.getPageIndices())
+  } catch (error) {
     throw new CompileError(file, section, error)
-  })
+  }
+}
+
+/**
+ * The PDF as pdf-lib loads it, once the crop box and rotation of each page, which the compile reads
+ * to stamp the page's number, have been read. Rejects a PDF that pdf-lib cannot read.
+ */
+async function loadPdf(bytes: Uint8Array) {
+  const pdf = await PDFDocument.load(bytes)
+  for (const page of pdf.getPages()) {
+    page.getCropBox()
+    page.getRotation()
+  }
+  return pdf
 }
 
 function drawCover(page: PDFPage, cover: ManifestCover, fonts: Fonts) {
