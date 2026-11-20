@@ -12,7 +12,7 @@ import {
   type FileRecord,
   type Slot,
 } from '../src/uploads.ts'
-import { adminClient, createOffering, createUser, fakeStoreItems, signIn, signInAs } from './harness.ts'
+import { adminClient, createOffering, createUser, fakeStoreItems, protectedPdf, signIn, signInAs } from './harness.ts'
 
 const PERMISSION_DENIED = '42501'
 const TEACHING_PLAN = 2
@@ -254,6 +254,29 @@ test('the browser refuses a non-PDF and a file over 20 MB before it uploads anyt
   })
 
   expect(await fakeStoreItems(course.folder)).toEqual([])
+})
+
+test('the browser refuses a protected or unreadable PDF, naming it, before it uploads anything', async () => {
+  const course = await createCourse()
+  const notes = { ...course.slot, section: LECTURE_NOTES }
+  const broken = (name: string, text: string) => new File([new TextEncoder().encode(text)], name, { type: 'application/pdf' })
+  const refused = [
+    { file: protectedPdf('letter.pdf'), says: 'protected' },
+    { file: broken('header only.pdf', '%PDF-1.4\n%%EOF\n'), says: 'could not be read' },
+    { file: broken('garbage.pdf', '%PDF-1.7 not really'), says: 'could not be read' },
+  ]
+
+  for (const slot of [course.slot, notes]) {
+    for (const { file, says } of refused) {
+      await expect(uploadFile(course.lecturer.client, slot, file), `${file.name} in section ${slot.section}`).rejects.toMatchObject({
+        code: 'unreadable_pdf',
+        status: null,
+        message: expect.stringMatching(new RegExp(`^${file.name} .*${says}`)),
+      })
+    }
+  }
+
+  expect(await fakeStoreItems(course.root)).toEqual([])
 })
 
 test('an upload session is refused for a file name that does not end in .pdf', async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { createClient, FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { inject } from 'vitest'
 import type { GlobalRole } from '../src/roles.ts'
@@ -196,4 +197,13 @@ export async function fakeStoreItems(folder: string) {
     .order('path')
   if (error) throw error
   return data as { id: string; path: string; size: number; mime_type: string }[]
+}
+
+/**
+ * An appointment letter as a PDF with only a permissions password: viewers open it without asking
+ * for one, but printing, copying and editing need the owner password. pdf-lib refuses to load it.
+ * Made with pypdf 6.17, PdfWriter.encrypt(user_password='', owner_password='owner', algorithm='AES-256').
+ */
+export function protectedPdf(name: string) {
+  return new File([readFileSync(new URL('fixtures/permissions-password.pdf', import.meta.url))], name, { type: 'application/pdf' })
 }

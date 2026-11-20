@@ -11,7 +11,7 @@ import {
   uploadFile,
   type SharedSlot,
 } from '../src/uploads.ts'
-import { adminClient, createOffering, createUser, fakeStoreItems, semesterWithoutSharedFiles, signIn, signInAs, userIdOf } from './harness.ts'
+import { adminClient, createOffering, createUser, fakeStoreItems, protectedPdf, semesterWithoutSharedFiles, signIn, signInAs, userIdOf } from './harness.ts'
 
 const CALENDAR = 1
 const LETTER = 3
@@ -98,6 +98,21 @@ test('the admin uploads the calendar and the letter of a semester, stored once i
     { id: calendar.id, section: CALENDAR, name: 'calendar.pdf', deletable: true },
     { id: letter.id, section: LETTER, name: 'letter.pdf', deletable: true },
   ])
+})
+
+test('the browser refuses a protected calendar or letter, naming it, before it uploads anything', async () => {
+  const semester = await semesterWithoutSharedFiles()
+
+  for (const [section, name] of [[CALENDAR, 'calendar.pdf'], [LETTER, 'letter.pdf']] as const) {
+    await expect(uploadFile(admin, { semesterId: semester.id, section }, protectedPdf(name))).rejects.toMatchObject({
+      code: 'unreadable_pdf',
+      status: null,
+      message: expect.stringMatching(new RegExp(`^${name} .*protected`)),
+    })
+  }
+
+  expect(await fakeStoreItems(sharedFolder(semester))).toEqual([])
+  expect(await sharedFilesOf(admin, semester)).toEqual([])
 })
 
 test.each(['lecturer', 'auditor', 'hod', 'dean', 'deputy_dean', 'root'] as const)(
