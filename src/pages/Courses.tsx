@@ -114,7 +114,7 @@ export function Courses() {
                   <TableRow key={course.id}>
                     <TableCell className="px-4 py-3 whitespace-normal">
                       <div className="grid gap-0.5">
-                        <span className="font-medium wrap-anywhere">{course.code}</span>
+                        <span className="font-medium">{course.code}</span>
                         <span>{course.title}</span>
                         <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs md:hidden">
                           <span>{department}</span>

@@ -17,9 +17,9 @@ export function Home() {
           <Initials name={state.profile.fullName} className="size-12 text-base sm:size-14 sm:text-lg" />
           <div className="grid min-w-0 gap-1.5">
             <CardTitle className="text-xl sm:text-2xl">
-              <h1 className="wrap-break-word">Welcome, {state.profile.fullName}</h1>
+              <h1>Welcome, {state.profile.fullName}</h1>
             </CardTitle>
-            <CardDescription className="wrap-break-word">Signed in as {state.profile.email}</CardDescription>
+            <CardDescription>Signed in as {state.profile.email}</CardDescription>
             <RoleBadges roles={state.roles} className="mt-1" />
           </div>
         </CardHeader>

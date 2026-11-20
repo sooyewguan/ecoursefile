@@ -161,7 +161,7 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
               <TableRow key={row.offering_id}>
                 <TableCell className="px-4 py-3 align-top whitespace-normal">
                   <div className="grid gap-0.5">
-                    <Link to={`/course-files/${row.offering_id}`} className="font-medium wrap-anywhere hover:underline">
+                    <Link to={`/course-files/${row.offering_id}`} className="font-medium hover:underline">
                       {column.courseCode.value(row)}
                     </Link>
                     <span>{column.courseTitle.value(row)}</span>

@@ -92,7 +92,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
           {[...rejected, ...created].map((row) => (
             <TableRow key={row.row}>
               <TableCell className="px-4 py-3 align-top tabular-nums">{row.row}</TableCell>
-              <TableCell className="px-4 py-3 align-top whitespace-normal wrap-anywhere">
+              <TableCell className="px-4 py-3 align-top whitespace-normal">
                 {row.email || <span className="text-muted-foreground">No email</span>}
               </TableCell>
               <TableCell className="px-4 py-3 whitespace-normal">

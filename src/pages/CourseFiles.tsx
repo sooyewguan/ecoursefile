@@ -121,7 +121,7 @@ function OfferingsTable({ title, offerings, userId }: { title: string; offerings
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
                             to={`/course-files/${offering.id}`}
-                            className="font-medium wrap-anywhere after:absolute after:inset-0 hover:underline"
+                            className="font-medium after:absolute after:inset-0 hover:underline"
                           >
                             {offering.course.code}
                           </Link>

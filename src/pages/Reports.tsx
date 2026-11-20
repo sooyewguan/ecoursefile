@@ -394,7 +394,7 @@ function LecturersView({ semester }: { semester: ReportSemester }) {
                               <Link
                                 to={`/course-files/${row.offering.offering_id}`}
                                 title={column.courseTitle.value(row) ?? undefined}
-                                className="font-medium wrap-anywhere hover:underline"
+                                className="font-medium hover:underline"
                               >
                                 {column.courseCode.value(row)}
                               </Link>

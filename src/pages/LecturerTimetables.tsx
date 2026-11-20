@@ -204,7 +204,7 @@ export function LecturerTimetables() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       {timetable ? (
                         <div className="grid gap-0.5">
-                          <span className="wrap-anywhere">{timetable.name}</span>
+                          <span>{timetable.name}</span>
                           <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
                           <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
                         </div>

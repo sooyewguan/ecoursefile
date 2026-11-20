@@ -98,7 +98,7 @@ export function ReuseDialog({
                     <TableCell className={`px-4 py-3 align-top ${WIDE}`}>{file.semester_code}</TableCell>
                     <TableCell className="px-4 py-3 whitespace-normal">
                       <div className="grid gap-0.5">
-                        <span className="font-medium wrap-anywhere">{file.name}</span>
+                        <span className="font-medium">{file.name}</span>
                         <span className="text-muted-foreground text-xs">
                           <span className="sm:hidden">{file.semester_code}, </span>
                           {file.item !== null && `${itemName(section, file.item)}, `}

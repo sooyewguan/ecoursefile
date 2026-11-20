@@ -254,7 +254,7 @@ export function CourseFile() {
                             <span className="font-medium">{title}</span>
                           )}
                           {reason && (
-                            <p className="text-muted-foreground mt-0.5 text-sm wrap-anywhere">
+                            <p className="text-muted-foreground mt-0.5 text-sm">
                               Switched {isOn ? 'on' : 'off'}: {reason}
                             </p>
                           )}

@@ -178,7 +178,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
                 <span className="text-muted-foreground">
                   Reply from {request.replier_name}, {new Date(request.replied_at!).toLocaleString()}
                 </span>
-                <p className="whitespace-pre-wrap wrap-anywhere">{request.reply_message ?? 'No message.'}</p>
+                <p className="whitespace-pre-wrap">{request.reply_message ?? 'No message.'}</p>
               </div>
             )}
           </Card>
@@ -271,9 +271,9 @@ function ChecklistItem({
           )}
           {draftStatus ? <SectionStatusBadge status={draftStatus} /> : <span className="text-muted-foreground text-xs">{label}</span>}
         </div>
-        <p className="text-sm whitespace-pre-wrap wrap-anywhere">{item.verdict.comment}</p>
+        <p className="text-sm whitespace-pre-wrap">{item.verdict.comment}</p>
         {item.comment && (
-          <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap wrap-anywhere">
+          <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap">
             {item.commenter_name}: {item.comment}
           </p>
         )}

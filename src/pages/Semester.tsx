@@ -258,7 +258,7 @@ export function Semester() {
                             {section.number} {section.title}
                           </span>
                           {file ? (
-                            <span className="wrap-anywhere">{file.name}</span>
+                            <span>{file.name}</span>
                           ) : (
                             <span className="text-muted-foreground">Not uploaded. Section {section.number} is missing in every course file.</span>
                           )}
@@ -346,9 +346,9 @@ export function Semester() {
                       <TableRow key={programCode.id}>
                         <TableCell className="px-4 py-3 whitespace-normal">
                           <div className="grid gap-0.5">
-                            <span className="font-medium wrap-anywhere">{programCode.code}</span>
+                            <span className="font-medium">{programCode.code}</span>
                             {file ? (
-                              <span className="wrap-anywhere">{file.name}</span>
+                              <span>{file.name}</span>
                             ) : (
                               <span className="text-muted-foreground">Not uploaded. Staff cannot tick this code yet.</span>
                             )}
@@ -428,7 +428,7 @@ export function Semester() {
                   <TableRow key={offering.id}>
                     <TableCell className="px-4 py-3 whitespace-normal">
                       <div className="grid gap-0.5">
-                        <span className="font-medium wrap-anywhere">{offering.course.code}</span>
+                        <span className="font-medium">{offering.course.code}</span>
                         <span>{offering.course.title}</span>
                         <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs md:hidden">
                           <span>Coordinator: {coordinator}</span>
