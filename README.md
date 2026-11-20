@@ -40,6 +40,8 @@ A web platform where course coordinators and lecturers submit course files for t
 8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password before it shows any other page.
 9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments, staff and the catalog.
 
+The local stack sends no email. It records each email in the fake outbox instead, so a password reset link is read from there. See [Email](#email).
+
 After you change `supabase/config.toml` or add an Edge Function, restart the stack. The edge runtime serves only the functions that existed when it started.
 
 ```sh
@@ -79,10 +81,13 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `GRAPH_TENANT_ID` | `files` function, with `graph` | The Entra tenant ID. |
-| `GRAPH_CLIENT_ID` | `files` function, with `graph` | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
-| `GRAPH_CLIENT_SECRET` | `files` function, with `graph` | The client secret of that app. |
+| `MAIL_ADAPTER` | `send-email` function | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The function does not start without it. |
+| `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
+| `GRAPH_TENANT_ID` | `files` function with `STORAGE_ADAPTER` `graph`, and `send-email` with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
+| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site, and may send as the shared mailbox. |
+| `GRAPH_CLIENT_SECRET` | The same | The client secret of that app. |
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
+| `GRAPH_MAILBOX` | `send-email` function, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
 
 ## Seeding root again
 
@@ -120,8 +125,9 @@ The `accounts` function reads the file, not the browser. It checks every row aga
 - `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
+- A file holds at most 300 users, `MAX_IMPORT_ROWS` in `user-import.ts`. A longer file is refused as a whole with HTTP 400, and the admin splits it. Each row costs the function about 3 ms of CPU and 91 ms in all, and a hosted Edge Function stops after 2 s of CPU or 150 s. A file of 300 rows takes about 0.9 s of CPU and 27 s, so it stays well inside both limits, where a file of about 700 rows would stop part way with no report.
 
-The function reads all rows before it creates anyone. It creates the users of the valid rows one at a time, in file order, through the same code as `create-user`. A rejected row stops no other row. Each rejected row gets one `code` and a `reason`.
+The function reads all rows before it creates anyone. It creates the users of the valid rows one at a time, in file order, through the same code as `create-user`. A rejected row stops no other row, and neither does a server error on a row. Each rejected row gets one `code` and a `reason`.
 
 | `code` | Reason |
 | --- | --- |
@@ -132,8 +138,21 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
 | `email_exists` | A user with the email already exists. |
 | `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+| `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
+
+### Password reset
+
+A user who forgot their password asks for a reset link, and sets a new password with it. Supabase Auth sends no email through SMTP. Its Send Email Hook hands each email to the `send-email` Edge Function, which sends it through the mail adapter. See [Email](#email).
+
+1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
+2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers `{}` with HTTP 200 for an active user, a deactivated user and an email with no account alike, so the answer tells nobody which it was.
+3. The email greets the user by their profile's name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
+4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
+5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
+
+A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
 
 ## Catalog
 
@@ -417,7 +436,7 @@ The JSON body has an `action` field.
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
-On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column, gets HTTP 400 and creates nobody. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
+On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
@@ -428,12 +447,37 @@ On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": 
 
 The Edge Functions import only local files in `supabase/functions/_shared`. They call the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without remote imports does not depend on that.
 
+## Email
+
+The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and sends nothing through SMTP itself.
+
+- Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401 and sends nothing. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
+- It sends password reset (`recovery`) emails. See [Password reset](#password-reset).
+- It refuses every other type, such as `signup`, `invite`, `magiclink`, `email_change` and `reauthentication`, and sends nothing. The admin creates each account with a temporary password, nobody signs up, and the app has no sign-in by link and no change of one's own email. Supabase Auth then fails the request with HTTP 403 and the message "eCourseFile sends only password reset emails.", so `signInWithOtp` makes no link, and `updateUser({ email })` changes nothing.
+- If the email cannot be sent, the request fails with HTTP 500, so the user knows to try again.
+
+On the local stack, Supabase Auth reaches the function at `http://host.docker.internal:54321/functions/v1/send-email`, and `[functions.send-email]` turns off the JWT check, since the hook sends no JWT. The hook's secret in `supabase/config.toml` serves the local stack and CI only. For a hosted project, set the hook to `https://<project-ref>.supabase.co/functions/v1/send-email` with a new secret under Authentication, Hooks, and set the same secret with `npx supabase secrets set SEND_EMAIL_HOOK_SECRET=...`.
+
+### Mail adapters
+
+`supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. `MAIL_ADAPTER` picks the implementation.
+
+- `graph` (`_shared/graph-mail.ts`) sends from the shared mailbox in `GRAPH_MAILBOX` with Graph `sendMail`, as the Entra app in the `GRAPH_*` secrets, with an app-only token. The storage adapter signs in the same way, through `_shared/graph.ts`. Graph keeps a copy in the mailbox's Sent Items. Exchange limits the app to that mailbox through RBAC for Applications. No automated test covers it.
+- `fake` (`_shared/fake-mail.ts`) records each email in `fake_mail.outbox`, with its recipients, subject, HTML and time. Only the service role can use the `fake_mail` schema. Seam 1 tests read it with the secret key. To read the latest email on the local stack, such as a reset link:
+
+  ```sh
+  curl -s 'http://127.0.0.1:54321/rest/v1/outbox?select=recipients,subject,html&order=sent_at.desc&limit=1' \
+    -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_mail'
+  ```
+
+`supabase/config.toml` exposes the `fake_mail` schema to the API, so the schema comes from a migration, `supabase/migrations/20261120040000_fake_mail.sql`, and exists in every database.
+
 ## Tests
 
 `npm test` runs two Vitest projects.
 
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
@@ -461,7 +505,7 @@ Tests read back the rows they create by id, never a whole table. The API returns
   ```
 
 - If calls to an Edge Function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
-- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than the `fake_storage` migration, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
+- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than the `fake_storage` or `fake_mail` migration, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
 
   ```sh
   npx supabase stop --no-backup

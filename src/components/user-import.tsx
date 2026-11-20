@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { plural } from '@/lib/utils'
-import { ROLE_SEPARATOR, USER_IMPORT_TEMPLATE, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
+import { MAX_IMPORT_ROWS, ROLE_SEPARATOR, USER_IMPORT_TEMPLATE, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import type { GlobalRole } from '../roles.ts'
 
 /**
@@ -46,7 +46,9 @@ export function ImportUsersDialog({
             <code>lecturer{ROLE_SEPARATOR}hod</code>.
           </li>
         </ul>
-        <p className="text-muted-foreground">In a spreadsheet, save the file as CSV UTF-8.</p>
+        <p className="text-muted-foreground">
+          A file holds at most {MAX_IMPORT_ROWS} users. Split a longer list into several files. In a spreadsheet, save the file as CSV UTF-8.
+        </p>
       </div>
       <Button type="button" variant="outline" className="justify-self-start" onClick={downloadTemplate}>
         <DownloadIcon />

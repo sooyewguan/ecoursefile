@@ -1,47 +1,21 @@
 // SharePoint storage through Microsoft Graph. The Entra app has the Sites.Selected application
 // permission and the write role on one site, and the items live in that site's default document
 // library.
+import { firstBytes, GRAPH_URL, graphClient, graphFailure, type GraphCredentials } from './graph.ts'
 import type { Storage } from './storage.ts'
 
-export type GraphConfig = { tenantId: string; clientId: string; clientSecret: string; siteId: string }
+export type GraphStorageConfig = GraphCredentials & { siteId: string }
 
-const GRAPH_URL = 'https://graph.microsoft.com/v1.0'
-
-export function graphStorage(config: GraphConfig): Storage {
+export function graphStorage(config: GraphStorageConfig): Storage {
   const drive = `${GRAPH_URL}/sites/${config.siteId}/drive`
-  let token: { value: string; expiresAt: number } | null = null
-
-  async function accessToken() {
-    if (token && token.expiresAt > Date.now() + 60_000) return token.value
-    const response = await fetch(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
-      method: 'POST',
-      body: new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        scope: 'https://graph.microsoft.com/.default',
-        grant_type: 'client_credentials',
-      }),
-    })
-    if (!response.ok) throw await failure(response, 'token request')
-    const body: { access_token: string; expires_in: number } = await response.json()
-    token = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 }
-    return token.value
-  }
-
-  async function graph(method: string, url: string, body?: unknown) {
-    return fetch(url, {
-      method,
-      headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-  }
+  const { accessToken, graph } = graphClient(config)
 
   const itemAt = (path: string) => `${drive}/root:/${path.split('/').map(encodeURIComponent).join('/')}`
 
   async function getItem(path: string) {
     const response = await graph('GET', `${itemAt(path)}?$select=id,size,file`)
     if (response.status === 404) return null
-    if (!response.ok) throw await failure(response, 'get item')
+    if (!response.ok) throw await graphFailure(response, 'get item')
     const item: { id: string; size: number; file?: { mimeType: string } } = await response.json()
     return { id: item.id, size: item.size, mimeType: item.file?.mimeType ?? '' }
   }
@@ -53,7 +27,7 @@ export function graphStorage(config: GraphConfig): Storage {
   async function folderAt(path: string): Promise<{ driveId: string; id: string }> {
     const found = await graph('GET', `${itemAt(path)}?$select=id,parentReference`)
     if (found.ok) return reference(await found.json())
-    if (found.status !== 404) throw await failure(found, 'get folder')
+    if (found.status !== 404) throw await graphFailure(found, 'get folder')
     await found.body?.cancel()
     const slash = path.lastIndexOf('/')
     const parent = slash === -1 ? `${drive}/root` : `${drive}/items/${(await folderAt(path.slice(0, slash))).id}`
@@ -67,7 +41,7 @@ export function graphStorage(config: GraphConfig): Storage {
       await made.body?.cancel()
       return folderAt(path)
     }
-    if (!made.ok) throw await failure(made, 'create folder')
+    if (!made.ok) throw await graphFailure(made, 'create folder')
     return reference(await made.json())
   }
 
@@ -76,7 +50,7 @@ export function graphStorage(config: GraphConfig): Storage {
       const response = await graph('POST', `${itemAt(path)}:/createUploadSession`, {
         item: { '@microsoft.graph.conflictBehavior': 'fail' },
       })
-      if (!response.ok) throw await failure(response, 'createUploadSession')
+      if (!response.ok) throw await graphFailure(response, 'createUploadSession')
       const session: { uploadUrl: string; expirationDateTime: string } = await response.json()
       return { uploadUrl: session.uploadUrl, expiresAt: session.expirationDateTime }
     },
@@ -93,10 +67,10 @@ export function graphStorage(config: GraphConfig): Storage {
       })
       const downloadUrl = content.headers.get('Location')
       if (content.ok && !downloadUrl) return firstBytes(content, length)
-      if (!downloadUrl) throw await failure(content, 'get content')
+      if (!downloadUrl) throw await graphFailure(content, 'get content')
       await content.body?.cancel()
       const response = await fetch(downloadUrl, { headers: { Range: `bytes=0-${length - 1}` } })
-      if (!response.ok) throw await failure(response, 'download')
+      if (!response.ok) throw await graphFailure(response, 'download')
       return firstBytes(response, length)
     },
 
@@ -110,7 +84,7 @@ export function graphStorage(config: GraphConfig): Storage {
       })
       if (response.status === 404) return null
       const monitorUrl = response.headers.get('Location')
-      if (response.status !== 202 || !monitorUrl) throw await failure(response, 'copy')
+      if (response.status !== 202 || !monitorUrl) throw await graphFailure(response, 'copy')
       await response.body?.cancel()
       await copyFinished(monitorUrl)
       const copy = await getItem(path)
@@ -122,7 +96,7 @@ export function graphStorage(config: GraphConfig): Storage {
     // gets it without a CORS preflight.
     async downloadUrl(id) {
       const response = await graph('GET', `${drive}/items/${encodeURIComponent(id)}?$select=id,@microsoft.graph.downloadUrl`)
-      if (!response.ok) throw await failure(response, 'get download URL')
+      if (!response.ok) throw await graphFailure(response, 'get download URL')
       const item: { '@microsoft.graph.downloadUrl'?: string } = await response.json()
       const url = item['@microsoft.graph.downloadUrl']
       if (!url) throw new Error(`Graph item ${id} has no download URL.`)
@@ -131,7 +105,7 @@ export function graphStorage(config: GraphConfig): Storage {
 
     async deleteItem(id) {
       const response = await graph('POST', `${drive}/items/${encodeURIComponent(id)}/permanentDelete`)
-      if (!response.ok && response.status !== 404) throw await failure(response, 'permanentDelete')
+      if (!response.ok && response.status !== 404) throw await graphFailure(response, 'permanentDelete')
     },
   }
 }
@@ -153,7 +127,7 @@ async function copyFinished(monitorUrl: string) {
       await response.body?.cancel()
       return
     }
-    if (!response.ok) throw await failure(response, 'copy monitor')
+    if (!response.ok) throw await graphFailure(response, 'copy monitor')
     const monitor: { status: string; error?: { message?: string } } = await response.json()
     if (monitor.status === 'completed') return
     if (monitor.status === 'failed') throw new Error(`Graph copy failed: ${monitor.error?.message ?? 'no reason given'}`)
@@ -165,26 +139,4 @@ async function copyFinished(monitorUrl: string) {
 /** A drive item as the parentReference of a new item inside it. */
 function reference(item: { id: string; parentReference: { driveId: string } }) {
   return { driveId: item.parentReference.driveId, id: item.id }
-}
-
-/** An error with the status and the start of the body, which may be long or binary. */
-async function failure(response: Response, what: string) {
-  const body = new TextDecoder().decode(await firstBytes(response, 500))
-  return new Error(`Graph ${what} failed with ${response.status}: ${body}`)
-}
-
-/** The first length bytes of the body, or all of them when it is shorter. The rest is never read. */
-async function firstBytes(response: Response, length: number) {
-  const bytes = new Uint8Array(length)
-  let received = 0
-  const reader = response.body?.getReader()
-  while (reader && received < length) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const part = value.subarray(0, length - received)
-    bytes.set(part, received)
-    received += part.length
-  }
-  await reader?.cancel()
-  return bytes.slice(0, received)
 }

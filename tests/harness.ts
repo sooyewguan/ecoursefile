@@ -199,6 +199,18 @@ export async function fakeStoreItems(folder: string) {
   return data as { id: string; path: string; size: number; mime_type: string }[]
 }
 
+/** The emails in the fake outbox that went to this address, oldest first. */
+export async function fakeOutbox(email: string) {
+  const { data, error } = await adminClient()
+    .schema('fake_mail')
+    .from('outbox')
+    .select('recipients, subject, html')
+    .contains('recipients', [email])
+    .order('sent_at')
+  if (error) throw error
+  return data as { recipients: string[]; subject: string; html: string }[]
+}
+
 /**
  * An appointment letter as a PDF with only a permissions password: viewers open it without asking
  * for one, but printing, copying and editing need the owner password. pdf-lib refuses to load it.

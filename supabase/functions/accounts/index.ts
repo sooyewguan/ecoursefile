@@ -122,8 +122,10 @@ async function importRow(parsed: ParsedRow, caller: string): Promise<ImportedRow
   try {
     return { row, email, status: 'created', ...(await createUser(parsed.user, caller)) }
   } catch (error) {
-    if (!(error instanceof Refusal)) throw error
-    return { row, email, status: 'rejected', code: error.code, reason: error.message }
+    if (error instanceof Refusal) return { row, email, status: 'rejected', code: error.code, reason: error.message }
+    // A server error stops only its row, so the report still covers the rows done so far.
+    console.error(error)
+    return { row, email, status: 'rejected', code: 'internal_error', reason: 'The server failed to add this user. Import the row again later.' }
   }
 }
 
