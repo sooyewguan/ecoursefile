@@ -6,8 +6,6 @@ import { isUuid, rest, SERVICE } from '../_shared/http.ts'
 
 const CHUNK_MULTIPLE = 320 * 1024
 
-const HEX_DIGITS = new TextEncoder().encode('0123456789abcdef')
-
 Deno.serve(async (req) => {
   if (Deno.env.get('STORAGE_ADAPTER') !== 'fake') return graphError(404, 'itemNotFound')
   if (req.method !== 'PUT') return graphError(405, 'invalidRequest')
@@ -23,27 +21,16 @@ Deno.serve(async (req) => {
     return graphError(400, 'invalidRange')
   }
 
-  const { status, body } = await rest<{ status: number; body: unknown }>(
-    'POST',
-    '/rpc/put_chunk',
-    { session_id: sessionId, start, total, chunk: `\\x${hex(chunk)}` },
-    SERVICE,
-    { 'Content-Profile': 'fake_storage' },
-  )
+  // The bytes go to the database as they came. Encoding them as text cost the worker's CPU limit.
+  const { status, body } = await rest<{ status: number; body: unknown }>('POST', '/rpc/put_chunk', chunk, SERVICE, {
+    'Content-Profile': 'fake_storage',
+    'X-Upload-Session': sessionId,
+    'X-Upload-Start': String(start),
+    'X-Upload-Total': String(total),
+  })
   return Response.json(body, { status })
 })
 
 function graphError(status: number, code: string) {
   return Response.json({ error: { code } }, { status })
-}
-
-// Appending two digits to a string per byte builds millions of strings for one chunk, enough to take
-// the worker past its memory limit, so the digits go into bytes that are decoded once.
-function hex(bytes: Uint8Array) {
-  const digits = new Uint8Array(bytes.length * 2)
-  for (let i = 0; i < bytes.length; i++) {
-    digits[2 * i] = HEX_DIGITS[bytes[i] >> 4]
-    digits[2 * i + 1] = HEX_DIGITS[bytes[i] & 15]
-  }
-  return new TextDecoder().decode(digits)
 }
