@@ -90,7 +90,12 @@ The static app goes to the Firebase project `e-coursefile`, which serves it at h
 
 The workflow `.github/workflows/deploy.yml` builds the app and deploys it to the live channel. It runs only when you start it by hand: open the **Actions** tab, pick **Deploy to Firebase Hosting**, and click **Run workflow**. Run it only after the hosted Supabase project from sooyewguan/ecoursefile#24 exists, because the build bakes that project's URL into the page.
 
-The workflow reads three repository secrets. Add them under **Settings > Secrets and variables > Actions > New repository secret**. Never commit their values. The repository is public.
+The deploy job runs in the GitHub environment `production`. Set it up once:
+
+1. Open **Settings > Environments** and click **production**. The first run of the workflow creates it if it is not there, or click **New environment** and name it `production`.
+2. Under **Deployment protection rules**, tick **Required reviewers**, add yourself, and click **Save protection rules**. Each run then waits on the run's page until a reviewer clicks **Review deployments** and approves it.
+3. Under **Deployment branches and tags**, pick **Selected branches and tags** and add the branch you deploy from, so that runs from other branches cannot use the secrets.
+4. Under **Environment secrets**, add the three secrets below. Only jobs in the `production` environment can read them. Never commit their values. The repository is public.
 
 | Secret | Value |
 | --- | --- |

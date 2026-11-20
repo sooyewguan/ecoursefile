@@ -13,12 +13,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The production environment holds the deploy secrets and, with a required
+    # reviewer set, waits for approval before the job starts.
+    environment:
+      name: production
+      url: https://e-coursefile.web.app
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check the repository secrets
+      - name: Check the deploy secrets
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -27,7 +32,7 @@ jobs:
           missing=0
           for name in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY FIREBASE_SERVICE_ACCOUNT; do
             if [ -z "${!name}" ]; then
-              echo "::error::Repository secret for $name is not set. See 'Deploy to Firebase Hosting' in README.md."
+              echo "::error::Secret $name is not set in the production environment. See 'Deploy to Firebase Hosting' in README.md."
               missing=1
             fi
           done
