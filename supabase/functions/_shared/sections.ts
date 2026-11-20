@@ -30,6 +30,8 @@ export type Section = {
   perSheet?: PagesPerSheet
   /** Set when the section's files are shared files, stored once and linked into many course files, and what each one is shared by. */
   sharedFile?: SharedFile
+  /** Set when staff may reuse files into the section from past offerings of the same course. See isReusable. */
+  reusable?: true
 }
 
 /** The 19 sections of every course file, in the fixed order. */
@@ -43,7 +45,7 @@ export const SECTIONS: readonly Section[] = [
   { number: 7, title: 'Replacement Notices', kind: 'may-be-empty' },
   { number: 8, title: 'Proof of Absence', kind: 'may-be-empty' },
   { number: 9, title: 'Warning Letters', kind: 'may-be-empty' },
-  { number: 10, title: 'Lecture Notes', kind: 'switchable', perSheet: 8 },
+  { number: 10, title: 'Lecture Notes', kind: 'switchable', perSheet: 8, reusable: true },
   { number: 11, title: 'Lab Exercises', kind: 'switchable', itemTitle: 'Lab' },
   { number: 12, title: 'Tutorial', kind: 'switchable', itemTitle: 'Tutorial' },
   { number: 13, title: 'Quiz', kind: 'switchable', itemTitle: 'Quiz' },
@@ -68,6 +70,8 @@ export type SectionSlot = {
   oneFile?: true
   /** Set when the browser merges every PDF of the slot before upload. */
   perSheet?: PagesPerSheet
+  /** Set when staff may reuse files into the slot from past offerings of the same course. See isReusable. */
+  reusable?: true
 }
 
 const QUESTION: SectionSlot = { name: 'question', title: 'Question' }
@@ -88,8 +92,8 @@ const GRADED_SCRIPTS: SectionSlot[] = [
  * lists the oneFile slots.
  */
 export const SECTION_SLOTS: Readonly<Partial<Record<number, readonly SectionSlot[]>>> = {
-  11: [{ name: 'lab_sheet', title: 'Lab Sheet' }, ANSWER_SCHEME, ...GRADED_SCRIPTS],
-  12: [QUESTION, ANSWER_SCHEME],
+  11: [{ name: 'lab_sheet', title: 'Lab Sheet', reusable: true }, { ...ANSWER_SCHEME, reusable: true }, ...GRADED_SCRIPTS],
+  12: [{ ...QUESTION, reusable: true }, { ...ANSWER_SCHEME, reusable: true }],
   13: [QUESTION, ANSWER_SCHEME, { name: 'scripts', title: 'Scripts', perSheet: 4 }],
   14: [QUESTION, { name: 'rubric', title: 'Rubric' }, MODERATION_FORM, ...GRADED_SCRIPTS],
   15: [QUESTION, ANSWER_SCHEME, MODERATION_FORM, ...GRADED_SCRIPTS],
@@ -100,4 +104,14 @@ export const SECTION_SLOTS: Readonly<Partial<Record<number, readonly SectionSlot
     { name: 'lo_po_evaluation', title: 'LO/PO Evaluation' },
     { name: 'cqi', title: 'CQI' },
   ],
+}
+
+/**
+ * Whether staff may reuse files into this place from past offerings of the same course: the slot's
+ * reusable in a section with slots, else the section's. That is Lecture Notes, the lab sheet and
+ * answer scheme of each lab, and the question and answer scheme of each tutorial.
+ */
+export function isReusable({ section, slot }: { section: number; slot?: string | null }) {
+  const slots = SECTION_SLOTS[section]
+  return slots ? slots.some((s) => s.name === slot && s.reusable) : SECTIONS.some((s) => s.number === section && s.reusable)
 }

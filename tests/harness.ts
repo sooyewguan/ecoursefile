@@ -183,7 +183,7 @@ export async function createOffering(options: {
     lecturer_ids: options.lecturerIds ?? [],
   })
   if (error) throw error
-  return { id: id as string, semesterCode: semester.code, course: course.data as { code: string; title: string } }
+  return { id: id as string, semesterCode: semester.code, course: course.data as { id: string; code: string; title: string } }
 }
 
 /** The items in the fake storage library whose path starts with the folder, sorted by path. */
