@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { beforeAll, expect, test } from 'vitest'
-import { numberedPdf, readPdf, sizedPdf } from '../src/pdf/fixtures.ts'
+import { numberedPdf, readPdf, sizedPdf, undrawablePdf } from '../src/pdf/fixtures.ts'
 import {
   createUploadSession,
   deleteFile,
@@ -264,6 +264,8 @@ test('the browser refuses a protected or unreadable PDF, naming it, before it up
     { file: protectedPdf('letter.pdf'), says: 'protected' },
     { file: broken('header only.pdf', '%PDF-1.4\n%%EOF\n'), says: 'could not be read' },
     { file: broken('garbage.pdf', '%PDF-1.7 not really'), says: 'could not be read' },
+    { file: new File([await undrawablePdf('Resources')], 'array resources.pdf', { type: 'application/pdf' }), says: 'could not be read' },
+    { file: new File([await undrawablePdf('Contents')], 'number contents.pdf', { type: 'application/pdf' }), says: 'could not be read' },
   ]
 
   for (const slot of [course.slot, notes]) {

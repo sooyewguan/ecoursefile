@@ -1,6 +1,6 @@
 // Generated fixture PDFs, and a reader that reports what a viewer shows, for the PDF engine's
 // tests (seam 3) and the upload tests. The app does not use this file.
-import { degrees, PDFDocument, StandardFonts } from 'pdf-lib'
+import { degrees, PDFDocument, PDFName, StandardFonts } from 'pdf-lib'
 import { getDocument, Util } from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 /** Points from each corner of a fixture page to the marker there. */
@@ -26,6 +26,16 @@ export async function numberedPdf(count: number, { width = 960, height = 540, ro
     page.setMediaBox(-bleed, -bleed, w + 2 * bleed, h + 2 * bleed)
     page.setCropBox(0, 0, w, h)
   }
+  return pdf.save()
+}
+
+/**
+ * A one-page PDF that pdf-lib loads, but whose page nothing can be drawn on: its /Resources is an
+ * array instead of a dictionary, or its /Contents is a number instead of a stream or an array.
+ */
+export async function undrawablePdf(entry: 'Resources' | 'Contents') {
+  const pdf = await PDFDocument.load(await numberedPdf(1))
+  pdf.getPage(0).node.set(PDFName.of(entry), entry === 'Resources' ? pdf.context.obj([]) : pdf.context.obj(5))
   return pdf.save()
 }
 

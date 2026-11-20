@@ -369,7 +369,7 @@ Every page has "Page n of N" centred at its bottom, as a viewer shows the page: 
 
 `compile` fetches and copies one file at a time, so it holds one source file besides the PDF it builds. The PDF it builds holds every copied page's streams, and saving it writes one more copy, so memory peaks at about twice the size of the output. A compile of 25 files of 19 MB each, a 477 MB PDF, peaked at 1,000 MB of array buffers and 16 MB of heap in Node 22 (`node --expose-gc`, memory sampled every 20 ms). A file that cannot be fetched, or whose pages cannot be read or copied, such as an encrypted one, stops the compile with a `CompileError` that names the file and its section.
 
-`loadPdf(bytes)` in `src/pdf/load.ts` is how the engine reads a PDF: the compile, the merge and the browser's upload check all use it. It loads the PDF with pdf-lib and reads every page's crop box and rotation, which the compile needs to stamp page numbers. It rejects a protected PDF with `ProtectedPdf`, because pdf-lib cannot read encrypted PDFs, and a PDF that pdf-lib cannot read with pdf-lib's error.
+`loadPdf(bytes)` in `src/pdf/load.ts` is how the engine reads a PDF: the compile, the merge and the browser's upload check all use it. It loads the PDF with pdf-lib and checks every page for what the compile needs to stamp page numbers: its crop box, its rotation, and a page pdf-lib can draw on, with `/Resources` a dictionary and `/Contents` a stream or an array. It rejects a protected PDF with `ProtectedPdf`, because pdf-lib cannot read encrypted PDFs, and any other PDF that pdf-lib cannot read or draw on with an error.
 
 `nUp(bytes, perSheet)` in `src/pdf/n-up.ts` returns a new PDF with `perSheet` pages of the source on each A4 portrait page, in their order.
 
