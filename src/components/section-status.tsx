@@ -4,6 +4,8 @@ import { SECTION_STATUS_LABELS, type SectionStatus } from '../sections.ts'
 const STATUS_STYLES: Record<SectionStatus, string> = {
   missing: 'border-destructive/30 bg-destructive/10 text-destructive',
   pending_review: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+  verified: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+  needs_fix: 'bg-destructive dark:bg-destructive/60 border-transparent text-white',
   empty: 'text-muted-foreground',
   off: 'text-muted-foreground border-dashed',
 }

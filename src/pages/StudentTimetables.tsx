@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
+import { SectionVerdict } from '@/components/section-verdict'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -151,6 +152,7 @@ export function StudentTimetables() {
           Missing until a code is ticked, and while a ticked code has no timetable.
         </span>
       </div>
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} onRecorded={reload} />
       {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">

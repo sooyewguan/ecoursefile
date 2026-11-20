@@ -332,8 +332,9 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migration is `supabase/migrations/20261120010100_auditor_verdicts.sql`.
 
+- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. Staff see the card once the section has a verdict.
 - A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
-- A switch on or off after a verdict is a change too. A switched-off section marked `needs_fix` counts toward completeness until it is switched on or a new verdict replaces it.
+- A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its status is `needs_fix`: from a Needs fix verdict until a new verdict replaces it, or a file is deleted from it.
 - Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
 
 | RPC, table or column | What it does |

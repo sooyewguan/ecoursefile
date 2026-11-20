@@ -5,6 +5,7 @@ import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/dele
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
+import { SectionVerdict } from '@/components/section-verdict'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -168,6 +169,7 @@ export function LecturerTimetables() {
           section is Missing until every lecturer of this offering has one.
         </span>
       </div>
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} onRecorded={reload} />
       {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">

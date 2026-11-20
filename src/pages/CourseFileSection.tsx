@@ -6,6 +6,7 @@ import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionStatusBadge } from '@/components/section-status'
+import { SectionVerdict } from '@/components/section-verdict'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -46,6 +47,8 @@ type Offering = {
   semester: { code: string }
   course: { code: string; title: string }
   linked_files: Omit<SectionFile, 'deletable'>[]
+  /** The switchable sections that are on. */
+  sections_on: number[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
@@ -102,7 +105,7 @@ export function CourseFileSection() {
     const [offering, items, files, canUpload, statuses] = await Promise.all([
       supabase
         .from('offerings')
-        .select('semester:semesters(code), course:courses(code, title), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)')
+        .select('semester:semesters(code), course:courses(code, title), sections_on, linked_files(id, item, slot, name, size, uploaded_at, uploader_name)')
         .eq('id', offeringId)
         .eq('linked_files.section', section.number)
         .maybeSingle()
@@ -177,6 +180,8 @@ export function CourseFileSection() {
 
   const files = data?.files ?? []
   const canUpload = data?.canUpload ?? false
+  /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
+  const isOff = section.kind === 'switchable' && data?.offering?.sections_on.includes(section.number) === false
   const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
@@ -260,7 +265,7 @@ export function CourseFileSection() {
       canUpload={canUpload}
       compact={place.slot !== null}
       emptyDescription={
-        data?.status === 'off'
+        isOff
           ? 'This section is off for this offering.'
           : section.sharedFile
             ? `The admin uploads the ${section.title} of each semester, and every course file of the semester links it.`
@@ -311,7 +316,7 @@ export function CourseFileSection() {
           </EmptyMedia>
           <EmptyTitle>No items yet</EmptyTitle>
           <EmptyDescription>
-            {data.status === 'off'
+            {isOff
               ? 'This section is off for this offering.'
               : canUpload
                 ? `Add ${itemName(section.number, 1)} to upload its files.`
@@ -386,6 +391,7 @@ export function CourseFileSection() {
           </span>
         )}
       </div>
+      <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} onRecorded={reload} />
 
       {progress && (
         <p role="status" className="text-sm">
