@@ -1,10 +1,11 @@
-// Uploads and deletes the files of course file sections and shared files, and deletes items with
-// their files. The browser asks for an upload session, PUTs the file's chunks straight to the
-// session's URL, and then asks to finalize. The SQL functions can_upload, can_upload_shared_file and
-// deletable decide who may do what, asked as the caller. The add_file and remove_file RPCs write the
-// file records and the activity log with the service role.
+// Uploads and deletes the files of course file sections and shared files, deletes items with their
+// files, and reuses files from past offerings. The browser asks for an upload session, PUTs the
+// file's chunks straight to the session's URL, and then asks to finalize. The SQL functions
+// can_upload, can_upload_shared_file and deletable decide who may do what, asked as the caller. The
+// add_file, remove_file and reuse_file RPCs write the file records and the activity log with the
+// service role, and reusable_files lists the files of past offerings.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-import { itemName, SECTION_SLOTS, SECTIONS, type SectionSlot, type SharedFile } from '../_shared/sections.ts'
+import { isReusable, itemName, SECTION_SLOTS, SECTIONS, type SectionSlot, type SharedFile } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
 import {
   hasPdfName,
@@ -24,6 +25,8 @@ import {
 type Target =
   | { kind: 'course-file'; offeringId: string; section: number; item: number | null; slot: SectionSlot | null }
   | { kind: 'shared'; semesterId: string; section: number; key: SharedKey | null }
+
+type CourseFileTarget = Extract<Target, { kind: 'course-file' }>
 
 /**
  * The part of a shared file's key after its semester and section, in a section shared by lecturer
@@ -47,6 +50,8 @@ type FilesRequest =
   | { action: 'finalize-upload'; target: Target; storedName: string }
   | { action: 'delete-file'; fileId: string; confirmed: boolean }
   | { action: 'delete-item'; item: ItemRef }
+  | { action: 'list-reusable-files'; target: CourseFileTarget }
+  | { action: 'reuse-file'; target: CourseFileTarget; fileId: string }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
 const STORED_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_([^/]+)$/
@@ -64,11 +69,18 @@ serveJson(async (body, caller) => {
       return deleteFile(request.fileId, request.confirmed, caller)
     case 'delete-item':
       return deleteItemAndFiles(request.item, caller)
+    case 'list-reusable-files':
+      return listReusableFiles(request.target, caller)
+    case 'reuse-file':
+      return reuseFile(request.target, request.fileId, caller)
   }
 })
 
 const TARGET_FIELDS =
   'offeringId, section, an item for a section with items and a slot for a section with slots, or semesterId and a shared-file section, with the programCodeId of a program code for a student timetable'
+
+const REUSE_TARGET_FIELDS =
+  'offeringId, section, an item for a section with items and a slot for a section with slots, naming a place that files can be reused into'
 
 async function parseRequest(body: unknown, caller: string): Promise<FilesRequest> {
   const input = isRecord(body) ? body : {}
@@ -98,8 +110,19 @@ async function parseRequest(body: unknown, caller: string): Promise<FilesRequest
       if (!isUuid(offeringId) || !itemSection || !isItemNumber(item)) throw invalid('delete-item needs offeringId, a section with items, and item.')
       return { action: 'delete-item', item: { offeringId, section: itemSection.number, item } }
     }
+    case 'list-reusable-files': {
+      const target = await parseReuseTarget(input, caller)
+      if (!target) throw invalid(`list-reusable-files needs ${REUSE_TARGET_FIELDS}.`)
+      return { action: 'list-reusable-files', target }
+    }
+    case 'reuse-file': {
+      const target = await parseReuseTarget(input, caller)
+      const { fileId } = input
+      if (!target || !isUuid(fileId)) throw invalid(`reuse-file needs ${REUSE_TARGET_FIELDS}, and fileId.`)
+      return { action: 'reuse-file', target, fileId }
+    }
     default:
-      throw invalid('action must be create-upload-session, finalize-upload, delete-file or delete-item.')
+      throw invalid('action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files or reuse-file.')
   }
 }
 
@@ -127,6 +150,12 @@ async function parseTarget(
   const named = slots?.find((s) => s.name === slot) ?? null
   if (slots ? !named : slot != null) return null
   return { kind: 'course-file', offeringId, section: definition.number, item: isItemNumber(item) ? item : null, slot: named }
+}
+
+/** The target as parseTarget reads it, when it is a place of a course file that files can be reused into. */
+async function parseReuseTarget(input: Record<string, unknown>, caller: string): Promise<CourseFileTarget | null> {
+  const target = await parseTarget(input, caller)
+  return target?.kind === 'course-file' && isReusable({ section: target.section, slot: target.slot?.name }) ? target : null
 }
 
 /**
@@ -162,9 +191,14 @@ async function createUploadSession(target: Target, fileName: string, caller: str
   if (!hasPdfName(fileName)) throw new Refusal(422, 'not_pdf', UPLOAD_PROBLEM_MESSAGES.not_pdf)
   const folder = await uploadFolder(target, caller)
   await checkRoom(target, caller)
-  const storedName = `${new Date().toISOString().replaceAll(':', '-')}_${fileName}`
+  const storedName = storedNameOf(fileName)
   const session = await storage.createUploadSession(`${folder}/${storedName}`)
   return { ...session, storedName }
+}
+
+/** The name a file is stored under: the time now, then the file's name. STORED_NAME matches it. */
+function storedNameOf(fileName: string) {
+  return `${new Date().toISOString().replaceAll(':', '-')}_${fileName}`
 }
 
 // Finalize looks the stored item up by the path its session wrote to, not by an item id from the
@@ -192,6 +226,55 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
     throw error
   })
   return { file }
+}
+
+// The picker reads past offerings only through this list, and only for a place that the caller may
+// upload to. Each file carries no more than the picker shows. PostgREST orders a function's rows only
+// by columns it selects, so position is selected for the order and left out of the answer.
+async function listReusableFiles(target: CourseFileTarget, caller: string) {
+  await checkUpload(target, caller)
+  const files = await rest<{ position: number }[]>(
+    'POST',
+    '/rpc/reusable_files?select=id,semester_code,item,name,size,position&order=semester_code.desc,item,position',
+    placeOf(target),
+    SERVICE,
+  )
+  return { files: files.map(({ position: _, ...file }) => file) }
+}
+
+// A reuse passes the gates of an upload: the caller may upload to the place, its item exists, and
+// the file goes last in its slot. The file to reuse must be one that the list gives for the place.
+// The copy is a new stored item in the target's folder, recorded as a new file. If recording fails,
+// such as for an item deleted or a section switched off while the file was copied, the copy goes too.
+async function reuseFile(target: CourseFileTarget, fileId: string, caller: string) {
+  const folder = await uploadFolder(target, caller)
+  await checkRoom(target, caller)
+  const [source] = await rest<{ source_offering_id: string; name: string; storage_item_id: string }[]>(
+    'POST',
+    `/rpc/reusable_files?id=eq.${fileId}&select=source_offering_id,name,storage_item_id`,
+    placeOf(target),
+    SERVICE,
+  )
+  const copy = source && (await storage.copyItem(source.storage_item_id, `${folder}/${storedNameOf(source.name)}`))
+  if (!copy) throw new Refusal(404, 'not_found', 'This file cannot be reused here. It may have been deleted.')
+  const file = await rest('POST', '/rpc/reuse_file', {
+    ...slotKey(target),
+    source_offering_id: source.source_offering_id,
+    storage_item_id: copy.id,
+    name: source.name,
+    size: copy.size,
+    actor_id: (await callerUser(caller)).id,
+  }, SERVICE).catch(async (error) => {
+    await storage.deleteItem(copy.id)
+    await checkRoom(target, caller)
+    throw error
+  })
+  return { file }
+}
+
+/** The reusable_files arguments that name the target's place: its offering, section and slot. */
+function placeOf({ offeringId, section, slot }: CourseFileTarget) {
+  return { offering_id: offeringId, section, slot: slot?.name ?? null }
 }
 
 /**
@@ -327,8 +410,7 @@ async function uploadFolder(target: Target, caller: string) {
     const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
     return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(key ? [safeName(`${key.id} ${key.name}`)] : [])].join('/')
   }
-  const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
-  if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')
+  await checkUpload(target, caller)
   const [offering] = await rest<{ semester: { code: string }; course: { code: string; title: string } }[]>(
     'GET',
     `/offerings?id=eq.${target.offeringId}&select=semester:semesters(code),course:courses(code,title)`,
@@ -343,6 +425,12 @@ async function uploadFolder(target: Target, caller: string) {
     ...(target.item === null ? [] : [itemName(target.section, target.item)]),
     ...(target.slot ? [safeName(target.slot.title)] : []),
   ].join('/')
+}
+
+/** Refuses a caller who may not upload to the course file target. */
+async function checkUpload(target: CourseFileTarget, caller: string) {
+  const allowed = await rest<boolean>('POST', '/rpc/can_upload', { offering_id: target.offeringId, section: target.section }, caller)
+  if (!allowed) throw new Refusal(403, 'forbidden', 'Only the coordinator and lecturers of this offering may upload here.')
 }
 
 /** A semester's folder name, such as 2026-2027-1 for 2026/2027-1. */

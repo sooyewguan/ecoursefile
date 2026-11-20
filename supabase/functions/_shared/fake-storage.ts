@@ -1,5 +1,5 @@
 // A stand-in for SharePoint on the local stack. It keeps items in the fake_storage schema, so seam 1
-// tests can read what was stored and deleted.
+// tests can read what was stored, copied and deleted.
 // Its upload URLs point at the fake-storage Edge Function, which takes chunks the way Graph does.
 import { rest, SERVICE } from './http.ts'
 import type { Storage } from './storage.ts'
@@ -34,6 +34,18 @@ export function fakeStorage(uploadUrl: string): Storage {
       const bytes = await rest<string | null>('POST', '/rpc/read_start', { item_id: id, length }, SERVICE, SCHEMA)
       // PostgREST sends bytea as \x and two hex digits per byte.
       return Uint8Array.from(bytes?.slice(2).match(/../g) ?? [], (pair) => parseInt(pair, 16))
+    },
+
+    // The database copies the bytes, so they never pass through the function.
+    async copyItem(id, path) {
+      const [item] = await rest<{ id: string; size: number; mime_type: string }[]>(
+        'POST',
+        '/rpc/copy_item?select=id,size,mime_type',
+        { item_id: id, path },
+        SERVICE,
+        SCHEMA,
+      )
+      return item ? { id: item.id, size: item.size, mimeType: item.mime_type } : null
     },
 
     async deleteItem(id) {

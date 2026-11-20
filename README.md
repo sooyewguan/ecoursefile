@@ -213,17 +213,42 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. A lecturer timetable also has the `lecturer_id` whose timetable it is, and a student timetable the `program_code_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete, switch or tick: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section, the `program_code_id` of every row of section 5, the `action` (`upload`, `delete`, `switch_on`, `switch_off`, `tick` or `untick`), the actor, the file name of an upload or delete, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete, reuse, switch or tick: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section, the `program_code_id` of every row of section 5, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick` or `untick`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
 
-Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items.
+Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items. Staff can also copy a file in from a past offering. See [Reuse from past offerings](#reuse-from-past-offerings).
 
 | RPC or column | What it does |
 | --- | --- |
-| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for sections 10 to 16 while the offering has them on, for the offering's coordinator and lecturers. |
+| `can_upload(offering_id, section)` | Whether the caller may upload to the section. True for sections 2, 6 to 9, 17, 18 and 19, and for sections 10 to 16 while the offering has them on, for the offering's coordinator and lecturers. It asks `user_can_upload(user_id, offering_id, section)` for the caller. Clients cannot call `user_can_upload`. |
 | `add_item(offering_id, section)` | Adds the next item to a section from 11 to 16 and returns its number. Adds made at the same time run one after another, so each gets its own number. A caller for whom `can_upload` is false, or another section, fails with Postgres error `42501`. |
 | `deletable` | A column of `files`: whether the caller may delete the file. The uploader and the offering's coordinator may, while they teach the offering. Also a column of `items`: whether the caller teaches the offering and may delete every file in the item. |
 | `uploader_name` | A column of `files`: the uploader's name. |
 | `reorder_files(file_ids)` | Sets the order of one section's or slot's files to the order of `file_ids`. A caller who may not upload to the section, or a list with files of another section, item or slot, fails with Postgres error `42501`. |
+
+### Reuse from past offerings
+
+The coordinator and lecturers of an offering copy a file from a past offering of the same course into a reusable place of their course file. The reusable places are `isReusable` in `supabase/functions/_shared/sections.ts`, read from the `reusable` flag of each section and slot in the registry:
+
+| Section | Reusable places |
+| --- | --- |
+| 10 Lecture Notes | The section |
+| 11 Lab Exercises | Lab Sheet and Answer Scheme of each lab |
+| 12 Tutorial | Question and Answer Scheme of each tutorial |
+
+- A past offering is an offering of the same catalog course, so of the same course code, in an earlier semester: one with an earlier start year, or the same start year and a lower number. Semester 3 of a year comes after semester 2. A later offering, the offering itself and offerings of other courses are never past offerings.
+- On the section page, each reusable place has a **Reuse from past** button next to its upload button, for staff who may upload there. It opens the picker.
+- The picker lists the files in the same section and slot of each past offering, the latest semester first, then by item and by the order in the slot. A lab sheet takes only lab sheets, and the tutorial answer scheme only tutorial answer schemes, from any item. Each listed file has only its id, semester code, item, name and size.
+- Reuse copies the stored item into the offering's folder through the storage adapter, as `<upload time>_<file name>` in the same folder an upload would use. The copy is a new file record at the end of its slot, uploaded by the user who picked it, and it holds its own bytes. Deleting the original later leaves the copy, and deleting the copy leaves the original.
+- A reuse passes the gates of an upload: the user may upload to the place, so the section is on and they teach the offering, and the item exists. The files function checks them before it copies. `reuse_file` checks the upload right again as it records the copy, so a section switched off, or a lecturer unassigned, while the file was copied gets no file, and the function deletes the copy.
+- Each reuse adds a `reuse` row to the offering's activity log, with the file name and the past offering's id in `source_offering_id`.
+- The picker gives no other access to past offerings. A lecturer who did not teach one still reads none of its offering row, lecturers, items, files, statuses or log. Clients cannot call the two RPCs below. The `files` function calls them with the service role, after it has asked `can_upload` as the caller.
+
+| RPC | What it does |
+| --- | --- |
+| `reusable_files(offering_id, section, slot)` | The files of the past offerings of the offering's course in the section and slot, each with the past offering's id and semester code. |
+| `reuse_file(source_offering_id, offering_id, section, item, slot, storage_item_id, name, size, actor_id)` | Records a copied file at the end of its slot and logs the reuse, if the actor may still upload to the section. Otherwise it fails with Postgres error `42501`. |
+
+The migrations are `supabase/migrations/20261119170000_fake_storage_copy_item.sql`, `supabase/migrations/20261119170100_reuse_action.sql` and `supabase/migrations/20261119170200_reuse_from_past_offerings.sql`.
 
 ### Shared files
 
@@ -277,15 +302,17 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 | `finalize-upload` | The same fields as `create-upload-session`, with `storedName` in place of `fileName` | The same users as `create-upload-session` | `{ "file": <the files row> }` |
 | `delete-file` | `fileId`, and `confirmed` set to `true` for a shared file | Users who see the file with `deletable` true | `{ "fileId" }` |
 | `delete-item` | `offeringId`, `section` (11 to 16), `item` | Users who see the item with `deletable` true | `{ "item" }` |
+| `list-reusable-files` | `offeringId`, `section`, `item` and `slot` of a reusable place, as for `create-upload-session` | Users for whom `can_upload` is true | `{ "files": [{ "id", "semester_code", "item", "name", "size" }] }`, the files of past offerings that the place can take |
+| `reuse-file` | The fields of `list-reusable-files`, and the `fileId` of a file it lists | Users for whom `can_upload` is true | `{ "file": <the new files row> }` |
 
 `delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. A body with `semesterId` needs section 1, 3, 4 or 5, and takes no `offeringId`, `item` or `slot`. Section 5 needs the `programCodeId` of a program code that exists, and no other body takes `programCodeId`. |
+| 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. A body with `semesterId` needs section 1, 3, 4 or 5, and takes no `offeringId`, `item` or `slot`. Section 5 needs the `programCodeId` of a program code that exists, and no other body takes `programCodeId`. `list-reusable-files` and `reuse-file` need a reusable place. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | The caller may not upload to the section, or may not delete the file or item. |
-| 404 | `not_found` | The upload's item does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. |
+| 403 | `forbidden` | The caller may not upload to the section, or may not delete the file or item. At `reuse-file`, the section was switched off, or the caller unassigned, while the file was copied. The function deleted the copy. |
+| 404 | `not_found` | The upload's item does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. At `reuse-file`, the file is not one that `list-reusable-files` lists for the place, such as a file deleted since, or one of another course, of a later offering or of another slot. |
 | 409 | `slot_full` | The slot holds one file and has it, or the shared file's key has its file, such as the semester's calendar, the caller's timetable for the semester, or a program code's student timetable for the semester. At finalize, the function deleted the stored item. |
 | 409 | `confirmation_required` | `delete-file` of a shared file without `confirmed` set to `true`. Nothing was deleted. |
 | 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
@@ -293,10 +320,10 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 ### Storage adapters
 
-`supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
+`supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, copy an item to a path, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
-- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. No automated test covers it.
-- `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. Seam 1 tests read `fake_storage.items` with the secret key.
+- `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. To copy, it makes the target folder and any missing parents, posts the driveItem `copy`, and polls the monitor URL that Graph answers with until the copy completes, for at most 100 seconds. A copy still running then fails the reuse, and may still land in SharePoint later without a record. No automated test covers it.
+- `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. It copies an item inside the database with `fake_storage.copy_item`, so the bytes never pass through an Edge Function. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
 
@@ -352,6 +379,8 @@ An upload of a semester's calendar or letter changes sections 1 and 3 of every o
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
 
 A student timetable changes section 5 only of the offerings that tick its program code. The tests in `tests/student-timetables.test.ts` upload timetables only for program codes they create, so they also take semesters from `pickSemester`. They read the pick list only for their own codes, because other tests and runs leave student timetables in the same semesters.
+
+The tests in `tests/reuse.test.ts` offer a course they create in four different semesters from `pickSemester`, and order them by start year and number. The picker finds past offerings by course, so other tests' offerings in the same semesters never show in it.
 
 Tests read back the rows they create by id, never a whole table. The API returns at most 1,000 rows, and tables such as `course_types` grow with every run.
 

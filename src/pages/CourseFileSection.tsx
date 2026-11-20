@@ -1,9 +1,10 @@
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, LayersIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,16 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
-import { itemName, pagesPerSheet, SECTION_SLOTS, SECTIONS, SECTIONS_WITH_PAGES, type SectionSlot, type SectionStatus } from '../sections.ts'
+import {
+  isReusable,
+  itemName,
+  pagesPerSheet,
+  SECTION_SLOTS,
+  SECTIONS,
+  SECTIONS_WITH_PAGES,
+  type SectionSlot,
+  type SectionStatus,
+} from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
 
@@ -44,6 +54,9 @@ type PageData = { offering: Offering | null; status: SectionStatus | null; items
 /** One list of files: the section's, or one slot's, of one item in a section with items. */
 type Place = { item: number | null; slot: string | null }
 
+/** A place that staff reuse a file into, and its name, such as Lab 2 Lab Sheet. */
+type ReuseTarget = Place & { title: string }
+
 /**
  * The file being uploaded, where it goes, its place in the batch, and how much of it has been
  * sent: null while the browser merges it.
@@ -61,8 +74,9 @@ const COLUMNS = ['', '', WIDE, WIDE, '']
  * section has slots, and its numbered items in sections 11 to 16, each with the section's slots.
  * The offering's coordinator and lecturers add items, upload PDFs and drag them into order. The
  * uploader or the coordinator deletes a file, and staff who may delete every file in an item
- * delete the item. A section of a shared file, such as Academic Calendar, lists the file that the
- * course file links.
+ * delete the item. In a reusable place, such as Lecture Notes, staff also copy in a file from a past
+ * offering of the same course. A section of a shared file, such as Academic Calendar, lists the file
+ * that the course file links.
  */
 export function CourseFileSection() {
   const params = useParams()
@@ -78,6 +92,7 @@ export function CourseFileSection() {
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
   const [deletingItem, setDeletingItem] = useState<SectionItem | null>(null)
+  const [reusingInto, setReusingInto] = useState<ReuseTarget | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Where the files picked next go. */
   const picking = useRef<Place>({ item: null, slot: null })
@@ -228,6 +243,16 @@ export function CourseFileSection() {
       </Button>
     )
 
+  /** Opens the reuse picker for a reusable place. title names the place. */
+  const reuseButton = (place: Place, title: string) =>
+    canUpload &&
+    isReusable({ section: section.number, slot: place.slot }) && (
+      <Button variant="outline" onClick={() => setReusingInto({ ...place, title })} disabled={progress !== null}>
+        <HistoryIcon />
+        Reuse from past
+      </Button>
+    )
+
   const tableFor = (place: Place, label: string, oneFile = false) => (
     <FileTable
       label={label}
@@ -265,7 +290,10 @@ export function CourseFileSection() {
             {slot.oneFile && <Badge variant="secondary">One file</Badge>}
             {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages to a page</Badge>}
           </div>
-          {!(slot.oneFile && filesIn(place).length > 0) && uploadButton(place, slot.oneFile)}
+          <div className="flex flex-wrap gap-2">
+            {reuseButton(place, title)}
+            {!(slot.oneFile && filesIn(place).length > 0) && uploadButton(place, slot.oneFile)}
+          </div>
         </div>
         {tableFor(place, `${title} files`, slot.oneFile)}
       </section>
@@ -334,7 +362,12 @@ export function CourseFileSection() {
                     Add {itemName(section.number, nextItem)}
                   </Button>
                 )
-              : !slots && uploadButton({ item: null, slot: null })}
+              : !slots && (
+                  <>
+                    {reuseButton({ item: null, slot: null }, section.title)}
+                    {uploadButton({ item: null, slot: null })}
+                  </>
+                )}
           </div>
         }
       />
@@ -381,6 +414,19 @@ export function CourseFileSection() {
             await reload()
             setNotice({ tone: 'success', text: `Deleted ${deleting.name}.` })
             return null
+          }}
+        />
+      )}
+
+      {reusingInto && data?.offering && (
+        <ReuseDialog
+          slot={{ offeringId, section: section.number, item: reusingInto.item ?? undefined, slot: reusingInto.slot ?? undefined }}
+          title={reusingInto.title}
+          courseCode={data.offering.course.code}
+          onClose={() => setReusingInto(null)}
+          onReused={async (file) => {
+            await reload()
+            setNotice({ tone: 'success', text: `Copied ${file.name} from ${file.semester_code}.` })
           }}
         />
       )}

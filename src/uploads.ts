@@ -149,6 +149,27 @@ export async function deleteItem(client: SupabaseClient, item: Item) {
   await callFiles(client, { action: 'delete-item', ...item })
 }
 
+/**
+ * A file of a past offering that staff may reuse: the code of its semester, the number of its item
+ * in a section with items, its name and its size.
+ */
+export type ReusableFile = { id: string; semester_code: string; item: number | null; name: string; size: number }
+
+/**
+ * The files that staff may reuse into the slot: those in the same section and slot of each past
+ * offering of the same course, the latest semester first. The slot must be one that isReusable allows.
+ */
+export async function listReusableFiles(client: SupabaseClient, slot: Slot) {
+  const { files } = await callFiles<{ files: ReusableFile[] }>(client, { action: 'list-reusable-files', ...slot })
+  return files
+}
+
+/** Copies a file that listReusableFiles gives into the slot, as a new file at its end, and resolves to the new file record. */
+export async function reuseFile(client: SupabaseClient, slot: Slot, fileId: string) {
+  const { file } = await callFiles<{ file: FileRecord }>(client, { action: 'reuse-file', ...slot, fileId })
+  return file
+}
+
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.functions.invoke('files', { body })
   if (!error) return data
