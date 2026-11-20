@@ -35,7 +35,8 @@ async function staff(fullName: string, role: string, departmentId?: string) {
   const { data, error } = await service.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true, user_metadata: { full_name: fullName } })
   if (error) throw error
   await must(service.from('user_roles').insert({ user_id: data.user.id, role }))
-  if (departmentId) await must(service.from('profiles').update({ department_id: departmentId }).eq('id', data.user.id))
+  // The app asks a new user for a new password first. These users go straight to their pages.
+  await must(service.from('profiles').update({ department_id: departmentId ?? null, must_change_password: false }).eq('id', data.user.id))
   return { id: data.user.id, email, client: await signIn(email, PASSWORD) }
 }
 
