@@ -156,11 +156,12 @@ The **Course files** page lists the offerings the user reads, grouped by semeste
 | Status | Sections |
 | --- | --- |
 | `missing` | Every section that is on and has no files, except sections 7 to 9. Sections 1 and 3 are missing until the admin uploads the semester's file. Section 4 is missing while any lecturer of the offering, the coordinator included, has no timetable for the semester. Section 5 is missing while no program code is ticked, and while any ticked code has no timetable for the semester. |
-| `pending_review` | Every section that is on and has files. Sections 1 and 3 have one once the admin uploads the semester's file, section 4 once every lecturer of the offering has a timetable, and section 5 once codes are ticked and each has a timetable. See [Shared files](#shared-files). |
-| `empty` | Sections 7 to 9 while they have no files. They may stay empty and never count as missing. |
-| `off` | Sections 10 to 16 that the offering has off |
+| `pending_review` | Every section that is on and has files, with no verdict or with files changed since its latest verdict. Sections 1 and 3 have one once the admin uploads the semester's file, section 4 once every lecturer of the offering has a timetable, and section 5 once codes are ticked and each has a timetable. See [Shared files](#shared-files). |
+| `verified`, `needs_fix` | The section's latest verdict, while the section has the files it had when the auditor gave it, and is on or off as it was then. See [Auditor verdicts](#auditor-verdicts). |
+| `empty` | Sections 7 to 9 while they have no files, with no verdict or with a change since. They may stay empty and never count as missing. |
+| `off` | Sections 10 to 16 that the offering has off, with no verdict or with a change since |
 
-Each row also has `counts_toward_completeness`, which is false for a switched-off section and true for every other section. The spec makes a switched-off section with an open Needs fix verdict count too. That rule goes in `section_statuses` once verdicts exist.
+A verdict never hides `missing`. Each row also has `counts_toward_completeness`, which is false for a switched-off section and true for every other section. A switched-off section whose status is `needs_fix` counts too.
 
 ### Switching sections
 
@@ -213,7 +214,7 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. A lecturer timetable also has the `lecturer_id` whose timetable it is, and a student timetable the `program_code_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete, reuse, switch or tick: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section, the `program_code_id` of every row of section 5, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick` or `untick`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, and the reason of a switch away from the course type default. Rows are never changed or removed, not even by the service role. |
+| `activity_log` | One upload, delete, reuse, switch, tick or verdict: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section, the `program_code_id` of every row of section 5 except a verdict's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified` or `needs_fix`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, and the `comment` of a verdict. Rows are never changed or removed, not even by the service role. |
 
 Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items. Staff can also copy a file in from a past offering. See [Reuse from past offerings](#reuse-from-past-offerings).
 
@@ -323,9 +324,25 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 `supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, copy an item to a path, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
 - `graph` (`_shared/graph-storage.ts`) stores items in the default document library of one SharePoint site through Microsoft Graph. It signs in as the Entra app with the client credentials in the `GRAPH_*` secrets. It reads an item's first bytes by following the `/content` redirect to the item's download URL with a `Range` header, or from the `/content` body when Graph sends the bytes without a redirect. It reads no more of a body than it needs, and a Graph error message holds at most the first 500 bytes of the response body. To copy, it makes the target folder and any missing parents, posts the driveItem `copy`, and polls the monitor URL that Graph answers with until the copy completes, for at most 100 seconds. A copy still running then fails the reuse, and may still land in SharePoint later without a record. No automated test covers it.
-- `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. The fake takes an item's type from its name, as SharePoint does. It copies an item inside the database with `fake_storage.copy_item`, so the bytes never pass through an Edge Function. Seam 1 tests read `fake_storage.items` with the secret key.
+- `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Graph upload URL, that function takes chunks without an Authorization header, refuses chunks out of order, and wants every chunk except the last in multiples of 320 KiB. It passes each chunk to `fake_storage.put_chunk` as the raw request body, with the session, start and total in headers. Encoding a 5 MiB chunk as text cost the worker about 100 ms of CPU, and the edge runtime retires a worker after 1 s of CPU, so a chunk could fail with HTTP 503 or 546. The fake takes an item's type from its name, as SharePoint does. It copies an item inside the database with `fake_storage.copy_item`, so the bytes never pass through an Edge Function. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
+
+## Auditor verdicts
+
+Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migration is `supabase/migrations/20261120010100_auditor_verdicts.sql`.
+
+- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. Staff see the card once the section has a verdict.
+- A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
+- A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its status is `needs_fix`: from a Needs fix verdict until a new verdict replaces it, or a file is deleted from it.
+- Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
+
+| RPC, table or column | What it does |
+| --- | --- |
+| `record_verdict(offering_id, section, verdict, comment)` | Records the caller's verdict on the section and logs it. `verdict` is `verified` or `needs_fix`. `needs_fix` needs a comment that is not blank. A comment is stored without its outer blanks, and a blank comment on `verified` as none. A caller without the `auditor` role, a section outside 1 to 19, or an offering that does not exist fails with Postgres error `42501`, a missing comment with `23514`, and a missing verdict with `22004`. |
+| `section_verdicts` | Every verdict ever given: the offering, the section, the verdict, the comment, the auditor, the section's `file_ids` and `section_on` when it was given, and the time. Readers of the offering read them. Clients write them only through `record_verdict`, and nobody changes or removes them, not even the service role. |
+| `auditor_name` | A column of `section_verdicts`: the auditor's name, for everyone who reads the verdict. |
+| `section_contents(offering)` | For each of the 19 sections, whether it is on and the sorted ids of its files: the course file's own files and the shared files it links. |
 
 ## PDF engine
 
@@ -379,6 +396,8 @@ An upload of a semester's calendar or letter changes sections 1 and 3 of every o
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
 
 A student timetable changes section 5 only of the offerings that tick its program code. The tests in `tests/student-timetables.test.ts` upload timetables only for program codes they create, so they also take semesters from `pickSemester`. They read the pick list only for their own codes, because other tests and runs leave student timetables in the same semesters.
+
+The tests in `tests/verdicts.test.ts` also upload timetables only for lecturers and program codes they create, in semesters from `pickSemester`.
 
 The tests in `tests/reuse.test.ts` offer a course they create in four different semesters from `pickSemester`, and order them by start year and number. The picker finds past offerings by course, so other tests' offerings in the same semesters never show in it.
 

@@ -46,7 +46,10 @@ export function serveJson(handle: (body: unknown, caller: string) => Promise<unk
   })
 }
 
-/** Calls PostgREST as the caller, or as the service role when authorization is SERVICE. */
+/**
+ * Calls PostgREST as the caller, or as the service role when authorization is SERVICE. A body of
+ * bytes goes as it is, as application/octet-stream, and any other body as JSON.
+ */
 export async function rest<T = unknown>(
   method: string,
   path: string,
@@ -55,10 +58,11 @@ export async function rest<T = unknown>(
   headers: Record<string, string> = {},
 ): Promise<T> {
   const apikey = authorization === SERVICE ? SERVICE_KEY : ANON_KEY
+  const bytes = body instanceof Uint8Array
   const response = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     method,
-    headers: { apikey, Authorization: authorization, 'Content-Type': 'application/json', ...headers },
-    body: JSON.stringify(body),
+    headers: { apikey, Authorization: authorization, 'Content-Type': bytes ? 'application/octet-stream' : 'application/json', ...headers },
+    body: bytes ? body : JSON.stringify(body),
   })
   const text = await response.text()
   const payload = text ? JSON.parse(text) : null

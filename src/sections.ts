@@ -39,12 +39,17 @@ export function pagesPerSheet({ section, slot }: { section: number; slot?: strin
   return SECTION_SLOTS[section]?.find((s) => s.name === slot)?.perSheet ?? SECTIONS.find((s) => s.number === section)?.perSheet
 }
 
-/** A section's status, as the section_statuses RPC returns it. */
-export type SectionStatus = 'missing' | 'pending_review' | 'empty' | 'off'
+/** An auditor's verdict on a section, as the record_verdict RPC takes it. */
+export type Verdict = 'verified' | 'needs_fix'
+
+/** A section's status, as the section_statuses RPC returns it. A verdict is the status while the section is as the auditor judged it. */
+export type SectionStatus = 'missing' | 'pending_review' | Verdict | 'empty' | 'off'
 
 export const SECTION_STATUS_LABELS: Record<SectionStatus, string> = {
   missing: 'Missing',
   pending_review: 'Pending review',
+  verified: 'Verified',
+  needs_fix: 'Needs fix',
   empty: 'Empty',
   off: 'Off',
 }
