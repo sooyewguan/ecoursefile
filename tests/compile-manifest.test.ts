@@ -5,7 +5,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expect, test } from 'vitest'
-import { numberedPdf } from '../src/pdf/fixtures.ts'
+import { compile } from '../src/pdf/compile.ts'
+import { numberedPdf, readPdf } from '../src/pdf/fixtures.ts'
 import { pagesPerSheet, SECTIONS } from '../src/sections.ts'
 import { compileManifest, deleteFile, FileActionError, uploadFile, type SharedSlot, type Slot } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, pickSemester, signIn, signInAs } from './harness.ts'
@@ -204,4 +205,21 @@ test('a download URL gets the stored bytes of its file without signing in, and a
   const kept = await fetch(smallUrl)
   expect(kept.status).toBe(200)
   expect((await kept.arrayBuffer()).byteLength).toBe(small.size)
+})
+
+test('a reader compiles the course file from its manifest, fetching each file from its download URL', async () => {
+  const { offeringId, coordinator, bala } = await createCourse()
+  const pdf = async (label: string, pages: number) => new File([await numberedPdf(pages, { label })], `${label}.pdf`, { type: 'application/pdf' })
+  await uploadFile(coordinator.client, { offeringId, section: TEACHING_PLAN }, await pdf('plan', 2))
+  await uploadFile(bala.client, { offeringId, section: REPLACEMENT_NOTICES }, await pdf('notice', 1))
+  const manifest = await compileManifest(await signInAs('hod'), offeringId)
+
+  const pages = await readPdf(await compile(manifest, async (url) => new Uint8Array(await (await fetch(url)).arrayBuffer())))
+
+  const firstTexts = pages.map((page) => page.texts[0].text)
+  expect(firstTexts).toHaveLength(2 + manifest.sections.length + 3)
+  const plan = firstTexts.indexOf('Section 2')
+  expect(firstTexts.slice(plan, plan + 4)).toEqual(['Section 2', 'plan 1', 'plan 2', 'Section 3'])
+  const notice = firstTexts.indexOf('Section 7')
+  expect(firstTexts.slice(notice, notice + 3)).toEqual(['Section 7', 'notice 1', 'Section 10'])
 })

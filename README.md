@@ -347,7 +347,7 @@ Auditors read every course file in every semester, and give any section of it a 
 
 ## Compiled PDF
 
-The browser compiles a course file into one PDF from its manifest, which the `files` function gives with the `compile-manifest` action.
+Everyone who opens a course file page sees **Download compiled PDF**. The browser asks the `files` function for the course file's manifest with the `compile-manifest` action, compiles the PDF from it with the PDF engine, and saves it as `<course code> <semester>.pdf`, such as `BITP1113 2026-2027-1.pdf`. A status line counts the files downloaded so far. If a file cannot be downloaded or read as a PDF, the page names the file and its section, and saves nothing.
 
 - Everyone who reads the course file gets the manifest: its coordinator and lecturers, auditors, HoDs, deans, deputy deans and the admin. Other lecturers and root get HTTP 403. The function asks `can_read_offering` once as the caller, then reads the course file with the service role, so the database does not check each file's row.
 - `cover` holds the course code and title, the semester code, the course's department, the coordinator's name, and the names of all lecturers, the coordinator first and then by name. Deactivated staff keep their names, and lecturers get them although they cannot read other profiles.
@@ -358,6 +358,16 @@ The browser compiles a course file into one PDF from its manifest, which the `fi
 ## PDF engine
 
 `src/pdf/` holds the PDF engine: pure functions over PDF bytes, built on pdf-lib, that run in the browser and in Node. The app loads it only when it needs it, so pdf-lib is a separate chunk of the build.
+
+`compile(manifest, fetchBytes)` in `src/pdf/compile.ts` returns the compiled PDF of a course file. `fetchBytes` gets the bytes at a file's download URL. The PDF holds, in order:
+
+1. A cover page with the course code and title, the semester, the department, the coordinator and every lecturer. A character that the standard Helvetica font cannot show, one outside Windows-1252, shows as `?`.
+2. The table of contents: each section's number and title, and the page of its divider. One page lists 28 sections, so the 19 fit on one.
+3. For each section of the manifest, a divider page with its number and title, then the pages of its files in order, each at its own size. A section without files says so on its divider.
+
+Every page has "Page n of N" centred at its bottom, as a viewer shows the page: inside its crop box, and upright on a page with a `/Rotate`. Cover, contents and dividers are A4 portrait.
+
+`compile` fetches and copies one file at a time, so it holds one source file besides the PDF it builds. The PDF it builds holds every copied page's streams, and saving it writes one more copy, so memory peaks at about twice the size of the output. A compile of 25 files of 19 MB each, a 477 MB PDF, peaked at 1,000 MB of array buffers and 16 MB of heap in Node 22 (`node --expose-gc`, memory sampled every 20 ms). A file that cannot be fetched or read as a PDF, such as an encrypted one, stops the compile with a `CompileError` that names the file and its section.
 
 `nUp(bytes, perSheet)` in `src/pdf/n-up.ts` returns a new PDF with `perSheet` pages of the source on each A4 portrait page, in their order.
 
@@ -394,7 +404,7 @@ The Edge Functions import only local files in `supabase/functions/_shared`. They
 
 `npm test` runs two Vitest projects.
 
-- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
+- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
