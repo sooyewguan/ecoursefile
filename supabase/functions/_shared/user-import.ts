@@ -16,6 +16,13 @@ const COLUMNS = ['full_name', 'email', 'department', 'roles', 'temporary_passwor
 
 type Column = (typeof COLUMNS)[number]
 
+/**
+ * The most users one file may hold. Each row costs the accounts function about 3 ms of CPU and 91 ms
+ * in all, and a hosted Edge Function stops after 2 s of CPU or 150 s. A file of 300 rows takes about
+ * 0.9 s of CPU and 27 s, so a file stops at this limit rather than part way with no report.
+ */
+export const MAX_IMPORT_ROWS = 300
+
 /** What separates the roles in one cell, such as "lecturer;hod". */
 export const ROLE_SEPARATOR = ';'
 
@@ -31,7 +38,8 @@ type RowProblem = 'missing_value' | 'duplicate_email' | 'unknown_role' | 'unknow
 /**
  * What the import did with one row of the file. row is its number as a spreadsheet shows it, the
  * header being row 1. code is a RowProblem for a row the function never tried to create, and the
- * code the function refuses a single new user with otherwise, such as forbidden or email_exists.
+ * code the function refuses a single new user with otherwise, such as forbidden or email_exists, or
+ * internal_error when the server failed on the row.
  */
 export type ImportedRow = { row: number; email: string } & (
   | { status: 'created'; userId: string }
@@ -65,6 +73,9 @@ export function readUserImport(csv: string): { problem: string } | { rows: FileR
     return { problem: `The file has no ${missing.join(' or ')} column. Its first row must name the columns ${COLUMNS.join(', ')}.` }
   }
   if (body.length === 0) return { problem: 'The file has no users below its header row.' }
+  if (body.length > MAX_IMPORT_ROWS) {
+    return { problem: `The file has ${body.length} users, and one file may hold at most ${MAX_IMPORT_ROWS}. Split it into smaller files.` }
+  }
   return {
     rows: body.map(({ row, fields }) => ({
       row,

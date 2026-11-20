@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
-import { USER_IMPORT_TEMPLATE } from '../supabase/functions/_shared/user-import.ts'
+import { MAX_IMPORT_ROWS, USER_IMPORT_TEMPLATE } from '../supabase/functions/_shared/user-import.ts'
 import { adminClient, callAccounts, createDepartment, createUser, signIn, signInAs, uniqueEmail, userIdOf } from './harness.ts'
 
 const HEADER = 'full_name,email,department,roles,temporary_password'
@@ -204,6 +204,53 @@ test.each([
 
   expect(result).toMatchObject({ status: 400, body: { code: 'invalid_request', message: expect.stringMatching(says) } })
   expect(await users([email])).toEqual([])
+})
+
+test('a server error on one row rejects that row with internal_error, and the other rows are still added and reported', async () => {
+  // A profile keeps the email its user was created with. Once the user's email moves, Supabase Auth
+  // fails with HTTP 500 to add a new user with the old one, because the new profile repeats it.
+  const moved = await createUser()
+  const { error } = await adminClient().auth.admin.updateUserById(moved.id, { email: uniqueEmail('moved') })
+  if (error) throw error
+  const [before, after] = [uniqueEmail('before'), uniqueEmail('after')]
+  const csv = [
+    HEADER,
+    `Before Row,${before},,lecturer,${password('before')}`,
+    `Stale Email,${moved.email},,lecturer,${password('stale')}`,
+    `After Row,${after},,lecturer,${password('after')}`,
+  ].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result.status).toBe(200)
+  expect(result.body.rows).toEqual([
+    { row: 2, email: before, status: 'created', userId: expect.any(String) },
+    { row: 3, email: moved.email, status: 'rejected', code: 'internal_error', reason: expect.stringMatching(/\S/) },
+    { row: 4, email: after, status: 'created', userId: expect.any(String) },
+  ])
+  expect((await users([before, after])).map((user) => user.email)).toEqual([before, after].toSorted())
+})
+
+test(`a file with more than ${MAX_IMPORT_ROWS} users is refused as a whole with the limit in its message, and nothing is created`, async () => {
+  const emails = Array.from({ length: MAX_IMPORT_ROWS + 1 }, () => uniqueEmail('limit'))
+  const csv = [HEADER, ...emails.map((email) => `Limit User,${email},,lecturer,temporary-password`)].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result).toMatchObject({ status: 400, body: { code: 'invalid_request', message: expect.stringContaining(String(MAX_IMPORT_ROWS)) } })
+  expect(await users([emails[0], emails[MAX_IMPORT_ROWS]])).toEqual([])
+})
+
+test(`a file with ${MAX_IMPORT_ROWS} users is read row by row`, async () => {
+  const emails = Array.from({ length: MAX_IMPORT_ROWS }, () => uniqueEmail('limit'))
+  // Rows without a temporary password are rejected without a call to Supabase Auth, so the test stays fast.
+  const csv = [HEADER, ...emails.map((email) => `Limit User,${email},,lecturer,`)].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result.status).toBe(200)
+  expect(result.body.rows).toHaveLength(MAX_IMPORT_ROWS)
+  expect(result.body.rows.every((row: { code: string }) => row.code === 'missing_value')).toBe(true)
 })
 
 test('an import request without the file as text is refused', async () => {

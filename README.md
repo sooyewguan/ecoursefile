@@ -120,8 +120,9 @@ The `accounts` function reads the file, not the browser. It checks every row aga
 - `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
+- A file holds at most 300 users, `MAX_IMPORT_ROWS` in `user-import.ts`. A longer file is refused as a whole with HTTP 400, and the admin splits it. Each row costs the function about 3 ms of CPU and 91 ms in all, and a hosted Edge Function stops after 2 s of CPU or 150 s. A file of 300 rows takes about 0.9 s of CPU and 27 s, so it stays well inside both limits, where a file of about 700 rows would stop part way with no report.
 
-The function reads all rows before it creates anyone. It creates the users of the valid rows one at a time, in file order, through the same code as `create-user`. A rejected row stops no other row. Each rejected row gets one `code` and a `reason`.
+The function reads all rows before it creates anyone. It creates the users of the valid rows one at a time, in file order, through the same code as `create-user`. A rejected row stops no other row, and neither does a server error on a row. Each rejected row gets one `code` and a `reason`.
 
 | `code` | Reason |
 | --- | --- |
@@ -132,6 +133,7 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
 | `email_exists` | A user with the email already exists. |
 | `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+| `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
 
@@ -417,7 +419,7 @@ The JSON body has an `action` field.
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
-On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column, gets HTTP 400 and creates nobody. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
+On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
