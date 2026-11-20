@@ -96,6 +96,13 @@ export function inList(values: string[]) {
   return encodeURIComponent(`in.(${values.map((value) => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`).join(',')})`)
 }
 
+/** The value of an Edge Function secret, or an error that names the missing secret. */
+export function requiredEnv(name: string) {
+  const value = Deno.env.get(name)
+  if (!value) throw new Error(`Set the ${name} secret.`)
+  return value
+}
+
 export function invalid(message: string) {
   return new Refusal(400, 'invalid_request', message)
 }

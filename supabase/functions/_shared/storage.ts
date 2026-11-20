@@ -3,6 +3,7 @@
 // root, with / between folders.
 import { fakeStorage } from './fake-storage.ts'
 import { graphStorage } from './graph-storage.ts'
+import { requiredEnv } from './http.ts'
 
 export type StoredItem = { id: string; size: number; mimeType: string }
 
@@ -43,10 +44,4 @@ export function storageFromEnv(): Storage {
     default:
       throw new Error('Set the STORAGE_ADAPTER secret to graph or fake.')
   }
-}
-
-function requiredEnv(name: string) {
-  const value = Deno.env.get(name)
-  if (!value) throw new Error(`Set the ${name} secret.`)
-  return value
 }
