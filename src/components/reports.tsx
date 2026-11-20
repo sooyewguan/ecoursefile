@@ -125,10 +125,14 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
   )
 }
 
-/** Below md the department and coordinator, and below lg the missing sections and last upload, move into the course cell. */
+/**
+ * Below sm the status and completeness, below md the department and coordinator, and below lg the
+ * missing sections and last upload, move into the course cell.
+ */
+const SMALL = 'hidden sm:table-cell'
 const MEDIUM = 'hidden md:table-cell'
 const LARGE = 'hidden lg:table-cell'
-const OFFERING_SKELETON = ['', MEDIUM, MEDIUM, '', '', LARGE, LARGE]
+const OFFERING_SKELETON = ['', MEDIUM, MEDIUM, SMALL, SMALL, LARGE, LARGE]
 
 /**
  * The offering list: each offering with its coordinator, status, completeness, missing sections and
@@ -145,8 +149,8 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
             <TableHead className="px-4">{column.courseCode.header}</TableHead>
             <TableHead className={cn('px-4', MEDIUM)}>{column.departmentCode.header}</TableHead>
             <TableHead className={cn('px-4', MEDIUM)}>{column.coordinator.header}</TableHead>
-            <TableHead className="px-4">{column.status.header}</TableHead>
-            <TableHead className="px-4 text-right">{column.complete.header}</TableHead>
+            <TableHead className={cn('px-4', SMALL)}>{column.status.header}</TableHead>
+            <TableHead className={cn('px-4 text-right', SMALL)}>{column.complete.header}</TableHead>
             <TableHead className={cn('px-4', LARGE)}>{column.missingSections.header}</TableHead>
             <TableHead className={cn('px-4', LARGE)}>{column.lastUpload.header}</TableHead>
           </TableRow>
@@ -165,6 +169,12 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                       {column.courseCode.value(row)}
                     </Link>
                     <span>{column.courseTitle.value(row)}</span>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 sm:hidden">
+                      <OfferingStatusBadge status={row.status} />
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        {formatPercent(column.complete.value(row))} {column.complete.header.toLowerCase()}
+                      </span>
+                    </div>
                     <span className="text-muted-foreground mt-1 text-xs md:hidden">
                       {column.departmentCode.value(row)} · {column.coordinator.value(row)}
                     </span>
@@ -180,10 +190,10 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                   {column.departmentCode.value(row)} {column.departmentName.value(row)}
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>{column.coordinator.value(row)}</TableCell>
-                <TableCell className="px-4 py-3 align-top">
+                <TableCell className={cn('px-4 py-3 align-top', SMALL)}>
                   <OfferingStatusBadge status={row.status} />
                 </TableCell>
-                <TableCell className="px-4 py-3 text-right align-top tabular-nums">{formatPercent(column.complete.value(row))}</TableCell>
+                <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', SMALL)}>{formatPercent(column.complete.value(row))}</TableCell>
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
                   <SectionNumbers sections={row.missing_sections} none="None" />
                 </TableCell>
