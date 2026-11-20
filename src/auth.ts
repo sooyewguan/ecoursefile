@@ -27,17 +27,27 @@ export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
   return !page || page.roles.some((role) => roles.includes(role))
 }
 
+/** The pages for signed-out visitors, which a signed-in user is sent away from. */
+const SIGNED_OUT_PAGES = ['/sign-in', '/forgot-password']
+
+/**
+ * The page a reset link opens. It stays open in every state, since following the link signs the
+ * user in before the page sets their new password.
+ */
+export const RESET_PASSWORD_PAGE = '/reset-password'
+
 /** Where to send a visitor in this state who asked for this path, or null to let them stay. */
 export function redirectFor(state: AuthState, path: string): string | null {
+  if (path === RESET_PASSWORD_PAGE) return null
   switch (state.kind) {
     case 'loading':
       return null
     case 'signed-out':
-      return path === '/sign-in' ? null : '/sign-in'
+      return SIGNED_OUT_PAGES.includes(path) ? null : '/sign-in'
     case 'must-change-password':
       return path === '/change-password' ? null : '/change-password'
     case 'ready':
-      if (path === '/sign-in' || path === '/change-password') return '/'
+      if (SIGNED_OUT_PAGES.includes(path) || path === '/change-password') return '/'
       return canOpen(state.roles, path) ? null : '/'
   }
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { AuthLayout } from '@/components/auth-layout'
 import { ErrorAlert } from '@/components/notice'
 import { Button } from '@/components/ui/button'
@@ -31,7 +32,12 @@ export function SignIn() {
           <Input id="email" name="email" type="email" autoComplete="username" required />
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center">
+            <Label htmlFor="password">Password</Label>
+            <Link to="/forgot-password" className="ml-auto text-sm underline-offset-4 hover:underline">
+              Forgot password?
+            </Link>
+          </div>
           <Input id="password" name="password" type="password" autoComplete="current-password" required />
         </div>
         {error && <ErrorAlert>{error}</ErrorAlert>}
