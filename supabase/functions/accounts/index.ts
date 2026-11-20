@@ -2,9 +2,7 @@
 // password and resetting a password. The SQL functions assignable_roles and can_manage decide
 // who may do what, asked as the caller.
 import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-
-const GLOBAL_ROLES = ['root', 'admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as const
-type GlobalRole = (typeof GLOBAL_ROLES)[number]
+import { isGlobalRole, type GlobalRole } from '../_shared/roles.ts'
 
 type AccountRequest =
   | {
@@ -109,8 +107,4 @@ async function auth<T>(method: string, path: string, body?: unknown): Promise<T>
   if (payload?.error_code === 'email_exists') throw new Refusal(409, 'email_exists', payload.msg)
   if (response.status < 500) throw invalid(payload?.msg ?? 'The request was refused.')
   throw new Error(`${method} ${path} failed with ${response.status}: ${JSON.stringify(payload)}`)
-}
-
-function isGlobalRole(value: unknown): value is GlobalRole {
-  return (GLOBAL_ROLES as readonly unknown[]).includes(value)
 }

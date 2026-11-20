@@ -1,6 +1,6 @@
-export const GLOBAL_ROLES = ['root', 'admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as const
+import { GLOBAL_ROLES, isGlobalRole, type GlobalRole } from '../supabase/functions/_shared/roles.ts'
 
-export type GlobalRole = (typeof GLOBAL_ROLES)[number]
+export { GLOBAL_ROLES, isGlobalRole, type GlobalRole }
 
 export const ROLE_LABELS: Record<GlobalRole, string> = {
   root: 'Root',
@@ -10,8 +10,4 @@ export const ROLE_LABELS: Record<GlobalRole, string> = {
   hod: 'HoD',
   dean: 'Dean',
   deputy_dean: 'Deputy Dean',
-}
-
-export function isGlobalRole(value: unknown): value is GlobalRole {
-  return (GLOBAL_ROLES as readonly unknown[]).includes(value)
 }
