@@ -46,6 +46,9 @@ type Compiling = { files: { done: number; total: number } | null }
 
 const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section) => section.number))
 
+/** Below sm the status moves into the section cell, so a phone has room for the section's name. */
+const WIDE = 'hidden sm:table-cell'
+
 /**
  * One offering's course file. The Sections tab has its audit requests and its 19 sections in the
  * fixed order, each with its status. The coordinator and lecturers switch sections 10 to 16 on or
@@ -126,7 +129,7 @@ export function CourseFile() {
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
   /** The table's columns: number, section, status, and the row menu for staff who switch sections. */
-  const columns = canSwitch ? ['', '', '', ''] : ['', '', '']
+  const columns = canSwitch ? ['', '', WIDE, ''] : ['', '', WIDE]
 
   /** Switches the section as the user chose, reloads the page, and returns the error message or null. */
   async function switchSection(target: Switching, reason?: string) {
@@ -223,7 +226,7 @@ export function CourseFile() {
                 <TableRow>
                   <TableHead className="w-12 px-4 text-right">#</TableHead>
                   <TableHead className="px-4">Section</TableHead>
-                  <TableHead className="w-32 px-4">Status</TableHead>
+                  <TableHead className={cn('w-32 px-4', WIDE)}>Status</TableHead>
                   {canSwitch && (
                     <TableHead className="w-14 px-4">
                       <span className="sr-only">Actions</span>
@@ -253,13 +256,16 @@ export function CourseFile() {
                           ) : (
                             <span className="font-medium">{title}</span>
                           )}
+                          <div className="mt-1 sm:hidden">
+                            <SectionStatusBadge status={status} />
+                          </div>
                           {reason && (
                             <p className="text-muted-foreground mt-0.5 text-sm">
                               Switched {isOn ? 'on' : 'off'}: {reason}
                             </p>
                           )}
                         </TableCell>
-                        <TableCell className="px-4 py-3 align-top">
+                        <TableCell className={cn('px-4 py-3 align-top', WIDE)}>
                           <SectionStatusBadge status={status} />
                         </TableCell>
                         {canSwitch && (
