@@ -90,9 +90,9 @@ export const HEATMAP_TABLE = {
 /** One offering of one lecturer: a row of the lecturer view, which the screen groups by lecturer. */
 export type LecturerOffering = { lecturer: LecturerRow; offering: LecturerRow['offerings'][number] }
 
-/** The lecturer view's rows, one for each offering of each lecturer, in the report's order. */
-export function lecturerOfferings(rows: LecturerRow[]): LecturerOffering[] {
-  return rows.flatMap((lecturer) => lecturer.offerings.map((offering) => ({ lecturer, offering })))
+/** The lecturer's rows of the lecturer view, one for each of their offerings, in the report's order. */
+export function lecturerOfferings(lecturer: LecturerRow): LecturerOffering[] {
+  return lecturer.offerings.map((offering) => ({ lecturer, offering }))
 }
 
 export const LECTURERS_TABLE = {

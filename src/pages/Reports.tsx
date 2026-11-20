@@ -1,9 +1,9 @@
 import { ChartColumnIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ErrorAlert } from '@/components/notice'
 import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
-import { OfferingsTable, SectionNumbers, SemesterSelect, useReport } from '@/components/reports'
+import { ExportMenu, OfferingsTable, SectionNumbers, SemesterSelect, useReport } from '@/components/reports'
 import { SectionStatusLegend, SectionStatusSquare } from '@/components/section-status'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
+import {
+  DEPARTMENTS_TABLE,
+  FACULTY_SUMMARY_TABLE,
+  filterOfferings,
+  HEATMAP_TABLE,
+  LECTURERS_TABLE,
+  lecturerOfferings,
+  OFFERINGS_TABLE,
+} from '../report-tables.ts'
 import {
   formatPercent,
   OFFERING_STATUS_LABELS,
@@ -60,6 +69,7 @@ export function Reports() {
   const tab: Tab = TABS.find((t) => t.value === searchParams.get('tab'))?.value ?? 'summary'
   const list = semesters && 'list' in semesters ? semesters.list : null
   const semesterId = searchParams.get('semester') ?? list?.[0]?.id ?? null
+  const semester = semesterId ? { id: semesterId, code: list?.find((s) => s.id === semesterId)?.code ?? null } : null
 
   const navigate = (next: { semester?: string; tab?: Tab }) =>
     setSearchParams({ semester: next.semester ?? semesterId ?? '', tab: next.tab ?? tab }, { replace: true })
@@ -86,7 +96,7 @@ export function Reports() {
           </Table>
         </Card>
       )}
-      {semesterId && (
+      {semester && (
         <Tabs value={tab} onValueChange={(value) => navigate({ tab: value as Tab })} className="min-w-0 gap-6">
           <TabsList>
             {TABS.map((t) => (
@@ -96,17 +106,17 @@ export function Reports() {
             ))}
           </TabsList>
           <TabsContent value="summary" className="grid gap-6">
-            <FacultySummaryView semesterId={semesterId} />
-            <DepartmentsView semesterId={semesterId} />
+            <FacultySummaryView semester={semester} />
+            <DepartmentsView semester={semester} />
           </TabsContent>
           <TabsContent value="offerings">
-            <OfferingsView semesterId={semesterId} />
+            <OfferingsView semester={semester} />
           </TabsContent>
           <TabsContent value="heatmap">
-            <HeatmapView semesterId={semesterId} />
+            <HeatmapView semester={semester} />
           </TabsContent>
           <TabsContent value="lecturers">
-            <LecturersView semesterId={semesterId} />
+            <LecturersView semester={semester} />
           </TabsContent>
         </Tabs>
       )}
@@ -114,28 +124,61 @@ export function Reports() {
   )
 }
 
-function FacultySummaryView({ semesterId }: { semesterId: string }) {
-  const report = useReport<FacultySummary>('report_faculty_summary', semesterId)
+/** A semester of the Reports page. Its code names the exported files, and is null until the semesters load. */
+type ReportSemester = { id: string; code: string | null }
+
+/** A heading over a view, with the view's Export menu at its end. */
+function ViewHeading({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 id={id} className="text-lg font-semibold tracking-tight">
+        {title}
+      </h2>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * The columns that the faculty summary and the department breakdown show together: each count of
+ * sections with its percentage of the sections that count.
+ */
+const SHARES = [
+  [FACULTY_SUMMARY_TABLE.columns.uploaded, FACULTY_SUMMARY_TABLE.columns.uploadedPercent],
+  [FACULTY_SUMMARY_TABLE.columns.verified, FACULTY_SUMMARY_TABLE.columns.verifiedPercent],
+  [FACULTY_SUMMARY_TABLE.columns.needsFix, FACULTY_SUMMARY_TABLE.columns.needsFixPercent],
+] as const
+
+/** The faculty summary as four figures: the offerings, then each of SHARES. */
+function FacultySummaryView({ semester }: { semester: ReportSemester }) {
+  const report = useReport<FacultySummary>('report_faculty_summary', semester.id)
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
   const summary = report?.rows?.[0]
-  const share = (count: number | undefined) => (summary ? `${count} of ${summary.counted_sections} sections` : undefined)
+  const column = FACULTY_SUMMARY_TABLE.columns
   const tiles = [
-    { label: 'Offerings', value: summary?.offerings, detail: summary && 'Course files in the semester' },
-    { label: 'Sections uploaded', value: summary && formatPercent(summary.percent_uploaded), detail: share(summary?.uploaded_sections) },
-    { label: 'Verified', value: summary && formatPercent(summary.percent_verified), detail: share(summary?.verified_sections) },
-    { label: 'Needs fix', value: summary && formatPercent(summary.percent_needs_fix), detail: share(summary?.needs_fix_sections) },
+    { label: column.offerings.header, value: summary && column.offerings.value(summary), detail: summary && 'Course files in the semester' },
+    ...SHARES.map(([count, percent]) => ({
+      label: count.header,
+      value: summary && formatPercent(percent.value(summary)),
+      detail: summary && `${count.value(summary)} of ${column.sections.value(summary)} sections`,
+    })),
   ]
   return (
-    <section aria-label="Faculty summary" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {tiles.map((tile) => (
-        <Card key={tile.label} className="gap-2">
-          <CardHeader>
-            <CardDescription>{tile.label}</CardDescription>
-            <CardTitle className="text-3xl tabular-nums">{tile.value ?? <Skeleton className="h-9 w-24" />}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-muted-foreground text-sm">{tile.detail ?? <Skeleton className="h-5 w-32" />}</CardContent>
-        </Card>
-      ))}
+    <section aria-labelledby="faculty-summary-heading" className="grid gap-3">
+      <ViewHeading id="faculty-summary-heading" title={FACULTY_SUMMARY_TABLE.view}>
+        <ExportMenu table={FACULTY_SUMMARY_TABLE} rows={report?.rows ?? null} semesterCode={semester.code} />
+      </ViewHeading>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {tiles.map((tile) => (
+          <Card key={tile.label} className="gap-2">
+            <CardHeader>
+              <CardDescription>{tile.label}</CardDescription>
+              <CardTitle className="text-3xl tabular-nums">{tile.value ?? <Skeleton className="h-9 w-24" />}</CardTitle>
+            </CardHeader>
+            <CardContent className="text-muted-foreground text-sm">{tile.detail ?? <Skeleton className="h-5 w-32" />}</CardContent>
+          </Card>
+        ))}
+      </div>
     </section>
   )
 }
@@ -143,31 +186,30 @@ function FacultySummaryView({ semesterId }: { semesterId: string }) {
 /** Below sm the counts behind each percentage are left out. */
 const SMALL = 'hidden sm:block'
 
-function DepartmentsView({ semesterId }: { semesterId: string }) {
-  const report = useReport<DepartmentRow>('report_departments', semesterId)
+/**
+ * The department breakdown. Its headers and values are DEPARTMENTS_TABLE's, with the department's
+ * code and name in one cell, and each percentage over its count and the sections that count.
+ */
+function DepartmentsView({ semester }: { semester: ReportSemester }) {
+  const report = useReport<DepartmentRow>('report_departments', semester.id)
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
-  const percentCell = (percent: number | null, count: number, row: DepartmentRow) => (
-    <TableCell className="px-4 py-3 text-right tabular-nums">
-      {formatPercent(percent)}
-      <span className={cn('text-muted-foreground text-xs', SMALL)}>
-        {count} of {row.counted_sections}
-      </span>
-    </TableCell>
-  )
+  const column = DEPARTMENTS_TABLE.columns
   return (
     <section aria-labelledby="departments-heading" className="grid gap-3">
-      <h2 id="departments-heading" className="text-lg font-semibold tracking-tight">
-        Departments
-      </h2>
+      <ViewHeading id="departments-heading" title={DEPARTMENTS_TABLE.view}>
+        <ExportMenu table={DEPARTMENTS_TABLE} rows={report?.rows ?? null} semesterCode={semester.code} />
+      </ViewHeading>
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-labelledby="departments-heading">
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="px-4">Department</TableHead>
-              <TableHead className="px-4 text-right">Offerings</TableHead>
-              <TableHead className="px-4 text-right">Uploaded</TableHead>
-              <TableHead className="px-4 text-right">Verified</TableHead>
-              <TableHead className="px-4 text-right">Needs fix</TableHead>
+              <TableHead className="px-4">{column.departmentCode.header}</TableHead>
+              <TableHead className="px-4 text-right">{column.offerings.header}</TableHead>
+              {SHARES.map(([count]) => (
+                <TableHead key={count.header} className="px-4 text-right">
+                  {count.header}
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -177,12 +219,17 @@ function DepartmentsView({ semesterId }: { semesterId: string }) {
               report.rows!.map((row) => (
                 <TableRow key={row.department_id}>
                   <TableCell className="px-4 py-3 whitespace-normal">
-                    <span className="font-medium">{row.department_code}</span> {row.department_name}
+                    <span className="font-medium">{column.departmentCode.value(row)}</span> {column.departmentName.value(row)}
                   </TableCell>
-                  <TableCell className="px-4 py-3 text-right tabular-nums">{row.offerings}</TableCell>
-                  {percentCell(row.percent_uploaded, row.uploaded_sections, row)}
-                  {percentCell(row.percent_verified, row.verified_sections, row)}
-                  {percentCell(row.percent_needs_fix, row.needs_fix_sections, row)}
+                  <TableCell className="px-4 py-3 text-right tabular-nums">{column.offerings.value(row)}</TableCell>
+                  {SHARES.map(([count, percent]) => (
+                    <TableCell key={count.header} className="px-4 py-3 text-right tabular-nums">
+                      {formatPercent(percent.value(row))}
+                      <span className={cn('text-muted-foreground text-xs', SMALL)}>
+                        {count.value(row)} of {column.sections.value(row)}
+                      </span>
+                    </TableCell>
+                  ))}
                 </TableRow>
               ))
             )}
@@ -193,8 +240,8 @@ function DepartmentsView({ semesterId }: { semesterId: string }) {
   )
 }
 
-function OfferingsView({ semesterId }: { semesterId: string }) {
-  const report = useReport<OfferingRow>('report_offerings', semesterId)
+function OfferingsView({ semester }: { semester: ReportSemester }) {
+  const report = useReport<OfferingRow>('report_offerings', semester.id)
   const [department, setDepartment] = useState('')
   const [status, setStatus] = useState<OfferingStatus | ''>('')
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
@@ -202,7 +249,7 @@ function OfferingsView({ semesterId }: { semesterId: string }) {
   const departments = [...new Map((rows ?? []).map((row) => [row.department_id, row])).values()].toSorted((a, b) =>
     a.department_code.localeCompare(b.department_code),
   )
-  const shown = rows?.filter((row) => (!department || row.department_id === department) && (!status || row.status === status)) ?? null
+  const shown = rows && filterOfferings(rows, { departmentId: department || null, status: status || null })
 
   return (
     <div className="grid gap-4">
@@ -229,28 +276,35 @@ function OfferingsView({ semesterId }: { semesterId: string }) {
             ))}
           </NativeSelect>
         </div>
-        {rows && (
-          <p role="status" className="text-muted-foreground text-sm sm:ml-auto sm:pb-2">
-            {shown!.length} of {rows.length} offerings
-          </p>
-        )}
+        <div className="flex items-center justify-between gap-3 sm:ml-auto">
+          {rows && (
+            <p role="status" className="text-muted-foreground text-sm">
+              {shown!.length} of {rows.length} offerings
+            </p>
+          )}
+          <ExportMenu table={OFFERINGS_TABLE} rows={shown} semesterCode={semester.code} />
+        </div>
       </div>
       <OfferingsTable rows={shown} emptyDescription="No offering of the semester matches these filters." />
     </div>
   )
 }
 
-function HeatmapView({ semesterId }: { semesterId: string }) {
-  const report = useReport<OfferingRow>('report_offerings', semesterId)
+function HeatmapView({ semester }: { semester: ReportSemester }) {
+  const report = useReport<OfferingRow>('report_offerings', semester.id)
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
+  const column = HEATMAP_TABLE.columns
   return (
     <div className="grid gap-4">
-      <SectionStatusLegend />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <SectionStatusLegend />
+        <ExportMenu table={HEATMAP_TABLE} rows={report?.rows ?? null} semesterCode={semester.code} />
+      </div>
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Section heatmap" className="w-auto">
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="bg-muted sticky left-0 z-10 px-4">Course</TableHead>
+              <TableHead className="bg-muted sticky left-0 z-10 px-4">{column.courseCode.header}</TableHead>
               {SECTIONS.map((section) => (
                 <TableHead key={section.number} title={`${section.number} ${section.title}`} className="w-8 px-1 text-center tabular-nums">
                   {section.number}
@@ -268,8 +322,8 @@ function HeatmapView({ semesterId }: { semesterId: string }) {
               report.rows!.map((row) => (
                 <TableRow key={row.offering_id}>
                   <TableHead scope="row" className="bg-card sticky left-0 z-10 px-4 font-normal">
-                    <Link to={`/course-files/${row.offering_id}`} title={row.course_title} className="font-medium hover:underline">
-                      {row.course_code}
+                    <Link to={`/course-files/${row.offering_id}`} title={column.courseTitle.value(row) ?? undefined} className="font-medium hover:underline">
+                      {column.courseCode.value(row)}
                     </Link>
                   </TableHead>
                   {row.section_statuses.map((status, index) => (
@@ -287,62 +341,77 @@ function HeatmapView({ semesterId }: { semesterId: string }) {
   )
 }
 
-function LecturersView({ semesterId }: { semesterId: string }) {
-  const report = useReport<LecturerRow>('report_lecturers', semesterId)
+/**
+ * The lecturer view, by lecturer. Its rows are lecturerOfferings, one for each offering of each
+ * lecturer, and the screen shows LECTURERS_TABLE's headers and values for them, grouped by lecturer.
+ */
+function LecturersView({ semester }: { semester: ReportSemester }) {
+  const report = useReport<LecturerRow>('report_lecturers', semester.id)
   if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
+  const column = LECTURERS_TABLE.columns
+  const lecturers = report?.rows?.map(lecturerOfferings)
   return (
-    <Card className="gap-0 overflow-hidden py-0">
-      <Table aria-label="Lecturers">
-        <TableHeader className="bg-muted/50">
-          <TableRow>
-            <TableHead className="px-4">Lecturer</TableHead>
-            <TableHead className="px-4 whitespace-normal">Offerings and their missing sections</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {!report ? (
-            <TableSkeleton columns={['', '']} />
-          ) : report.rows!.length === 0 ? (
-            <TableEmpty columns={2} icon={ChartColumnIcon} title="No lecturers" description="The semester has no offerings." />
-          ) : (
-            report.rows!.map((row) => (
-              <TableRow key={row.lecturer_id}>
-                <TableCell className="px-4 py-3 align-top whitespace-normal">
-                  <div className="grid gap-1">
-                    <span className="font-medium">{row.lecturer_name}</span>
-                    {row.department_code && (
-                      <span className="text-muted-foreground text-xs">
-                        {row.department_code} {row.department_name}
-                      </span>
-                    )}
-                    {row.timetable_missing && (
-                      <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
-                        No timetable
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="px-4 py-3 align-top whitespace-normal">
-                  <ul className="grid gap-2">
-                    {row.offerings.map((offering) => (
-                      <li key={offering.offering_id} className="grid gap-1 sm:flex sm:items-center sm:gap-3">
-                        <span className="flex flex-wrap items-center gap-2 sm:w-48 sm:shrink-0">
-                          <Link to={`/course-files/${offering.offering_id}`} title={offering.course_title} className="font-medium wrap-anywhere hover:underline">
-                            {offering.course_code}
-                          </Link>
-                          {offering.coordinator && <Badge variant="secondary">Coordinator</Badge>}
-                        </span>
-                        <SectionNumbers sections={offering.missing_sections} none="Nothing missing" />
-                      </li>
-                    ))}
-                  </ul>
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-    </Card>
+    <div className="grid gap-4">
+      <ExportMenu table={LECTURERS_TABLE} rows={lecturers?.flat() ?? null} semesterCode={semester.code} />
+      <Card className="gap-0 overflow-hidden py-0">
+        <Table aria-label="Lecturers">
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="px-4">{column.lecturer.header}</TableHead>
+              <TableHead className="px-4 whitespace-normal">Offerings and their missing sections</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!lecturers ? (
+              <TableSkeleton columns={['', '']} />
+            ) : lecturers.length === 0 ? (
+              <TableEmpty columns={2} icon={ChartColumnIcon} title="No lecturers" description="The semester has no offerings." />
+            ) : (
+              lecturers.map((taught) => {
+                const [first] = taught
+                return (
+                  <TableRow key={first.lecturer.lecturer_id}>
+                    <TableCell className="px-4 py-3 align-top whitespace-normal">
+                      <div className="grid gap-1">
+                        <span className="font-medium">{column.lecturer.value(first)}</span>
+                        {column.departmentCode.value(first) && (
+                          <span className="text-muted-foreground text-xs">
+                            {column.departmentCode.value(first)} {column.departmentName.value(first)}
+                          </span>
+                        )}
+                        {first.lecturer.timetable_missing && (
+                          <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                            {column.timetable.header} {column.timetable.value(first)?.toLowerCase()}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-3 align-top whitespace-normal">
+                      <ul className="grid gap-2">
+                        {taught.map((row) => (
+                          <li key={row.offering.offering_id} className="grid gap-1 sm:flex sm:items-center sm:gap-3">
+                            <span className="flex flex-wrap items-center gap-2 sm:w-48 sm:shrink-0">
+                              <Link
+                                to={`/course-files/${row.offering.offering_id}`}
+                                title={column.courseTitle.value(row) ?? undefined}
+                                className="font-medium wrap-anywhere hover:underline"
+                              >
+                                {column.courseCode.value(row)}
+                              </Link>
+                              {row.offering.coordinator && <Badge variant="secondary">{column.role.value(row)}</Badge>}
+                            </span>
+                            <SectionNumbers sections={row.offering.missing_sections} none="Nothing missing" />
+                          </li>
+                        ))}
+                      </ul>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
   )
 }
-

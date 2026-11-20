@@ -107,7 +107,7 @@ const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; he
   },
   {
     name: 'Lecturers',
-    export: (format) => exportReport(LECTURERS_TABLE, lecturerOfferings(REPORT_FIXTURE.lecturers), REPORT_FIXTURE.semesterCode, format),
+    export: (format) => exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, format),
     headers: ['Lecturer', 'Department', 'Department name', 'Timetable', 'Course', 'Course title', 'Role', 'Missing sections'],
     rows: REPORT_FIXTURE.lecturers.flatMap(lecturer),
   },
@@ -186,7 +186,7 @@ test('My completeness exports the offerings that the lecturer teaches or coordin
 })
 
 test('the lecturer view exports one row for each offering of each lecturer', async () => {
-  const [, ...rows] = await readBack(await exportReport(LECTURERS_TABLE, lecturerOfferings(REPORT_FIXTURE.lecturers), REPORT_FIXTURE.semesterCode, 'xlsx'))
+  const [, ...rows] = await readBack(await exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, 'xlsx'))
   expect(rows.filter((row) => row[0] === 'Chloé Lefèvre').map((row) => [row[4], row[6]])).toEqual([
     [courseCode('BITP1113'), 'Lecturer'],
     [courseCode('BITS3343'), 'Coordinator'],
@@ -196,7 +196,7 @@ test('the lecturer view exports one row for each offering of each lecturer', asy
 })
 
 test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows a text that starts like a formula as text', async () => {
-  const file = await exportReport(LECTURERS_TABLE, lecturerOfferings(REPORT_FIXTURE.lecturers), REPORT_FIXTURE.semesterCode, 'csv')
+  const file = await exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, 'csv')
   const bytes = new Uint8Array(await file.arrayBuffer())
   expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
   const text = new TextDecoder().decode(bytes.slice(3))
