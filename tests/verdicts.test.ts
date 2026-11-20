@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
-import { numberedPdf } from '../src/pdf/fixtures.ts'
+import { sizedPdf } from '../src/pdf/fixtures.ts'
 import { deleteFile, deleteSharedFile, listReusableFiles, reuseFile, uploadFile, type Slot } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
@@ -52,15 +52,12 @@ async function createCourse(semester?: Semester): Promise<Course> {
 }
 
 function pdf(name: string) {
-  const bytes = new Uint8Array(1024).fill(37)
-  bytes.set(new TextEncoder().encode('%PDF-'))
-  return new File([bytes], name, { type: 'application/pdf' })
+  return new File([sizedPdf(1024)], name, { type: 'application/pdf' })
 }
 
-/** Uploads a PDF to the place in the course file as this client. A merged place, such as Lecture Notes, gets a real one-page PDF. */
-async function upload(client: SupabaseClient, slot: Slot, name: string) {
-  const file = slot.section === LECTURE_NOTES ? new File([await numberedPdf(1)], name, { type: 'application/pdf' }) : pdf(name)
-  return uploadFile(client, slot, file)
+/** Uploads a PDF to the place in the course file as this client. */
+function upload(client: SupabaseClient, slot: Slot, name: string) {
+  return uploadFile(client, slot, pdf(name))
 }
 
 /** Records the verdict as this client, the way the section page does, and returns the RPC's result. */

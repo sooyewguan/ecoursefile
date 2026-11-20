@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { beforeAll, expect, test } from 'vitest'
-import { numberedPdf, readPdf } from '../src/pdf/fixtures.ts'
+import { numberedPdf, readPdf, sizedPdf } from '../src/pdf/fixtures.ts'
 import {
   createUploadSession,
   deleteFile,
@@ -53,18 +53,8 @@ async function createCourse(sectionsOn?: number[]): Promise<Course> {
   return { slot, root, folder: `${root}/02 Teaching Plan`, coordinator, lecturer, secondLecturer, outsider }
 }
 
-/** The bytes every PDF starts with. */
-const PDF_START = new TextEncoder().encode('%PDF-')
-
-/** size bytes that start like a PDF. */
-function pdfBytes(size: number, byteAt = (_: number) => 37) {
-  const bytes = Uint8Array.from({ length: size }, (_, i) => byteAt(i))
-  bytes.set(PDF_START)
-  return bytes
-}
-
 function pdf(name: string, size = 1024) {
-  return new File([pdfBytes(size)], name, { type: 'application/pdf' })
+  return new File([sizedPdf(size)], name, { type: 'application/pdf' })
 }
 
 /** The slot's files as this client reads them, in their order. */
@@ -106,7 +96,7 @@ test.each(['coordinator', 'lecturer'] as const)('the %s uploads a PDF to Teachin
 
 test('a file larger than one chunk is stored byte for byte', async () => {
   const course = await createCourse()
-  const bytes = pdfBytes(6 * 1024 * 1024 + 7, (i) => (i * 7 + (i >> 13)) & 255)
+  const bytes = sizedPdf(6 * 1024 * 1024 + 7, (i) => (i * 7 + (i >> 13)) & 255)
 
   const file = await uploadFile(course.lecturer.client, course.slot, new File([bytes], 'plan.pdf', { type: 'application/pdf' }))
 
@@ -532,7 +522,8 @@ test('the browser refuses a Lecture Notes file that is not a PDF it can read, be
   const pptx = new File(['notes'], 'notes.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' })
 
   await expect(uploadFile(course.lecturer.client, notes, pptx)).rejects.toMatchObject({ code: 'not_pdf', status: null })
-  await expect(uploadFile(course.lecturer.client, notes, pdf('broken.pdf'))).rejects.toMatchObject({ code: 'unreadable_pdf', status: null })
+  const broken = new File([new TextEncoder().encode('%PDF-1.7 not really')], 'broken.pdf', { type: 'application/pdf' })
+  await expect(uploadFile(course.lecturer.client, notes, broken)).rejects.toMatchObject({ code: 'unreadable_pdf', status: null })
 
   expect(await fakeStoreItems(`${course.root}/10 Lecture Notes`)).toEqual([])
 })

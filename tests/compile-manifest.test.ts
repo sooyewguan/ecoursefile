@@ -6,8 +6,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expect, test } from 'vitest'
 import { compile } from '../src/pdf/compile.ts'
-import { numberedPdf, readPdf } from '../src/pdf/fixtures.ts'
-import { pagesPerSheet, SECTIONS } from '../src/sections.ts'
+import { numberedPdf, readPdf, sizedPdf } from '../src/pdf/fixtures.ts'
+import { SECTIONS } from '../src/sections.ts'
 import { compileManifest, deleteFile, FileActionError, uploadFile, type SharedSlot, type Slot } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, pickSemester, signIn, signInAs } from './harness.ts'
 
@@ -47,18 +47,9 @@ async function createCourse() {
   return { offeringId: offering.id, course: offering.course, semester, coordinator, bala, aisyah, outsider }
 }
 
-/** A PDF of size bytes that starts with the PDF signature, then random bytes. */
-function pdfBytes(size = 1024) {
-  const bytes = new Uint8Array(size)
-  for (let index = 0; index < size; index += 65536) crypto.getRandomValues(bytes.subarray(index, index + 65536))
-  bytes.set(new TextEncoder().encode('%PDF-'))
-  return bytes
-}
-
-/** Uploads a PDF to the place as this client. A place that merges PDFs, such as Lecture Notes, gets a real one-page PDF. */
-async function upload(client: SupabaseClient, slot: Slot | SharedSlot, name: string) {
-  const bytes = 'offeringId' in slot && pagesPerSheet(slot) ? await numberedPdf(1) : pdfBytes()
-  return uploadFile(client, slot, new File([bytes], name, { type: 'application/pdf' }))
+/** Uploads a PDF to the place as this client. */
+function upload(client: SupabaseClient, slot: Slot | SharedSlot, name: string) {
+  return uploadFile(client, slot, new File([sizedPdf(1024)], name, { type: 'application/pdf' }))
 }
 
 async function addItem(client: SupabaseClient, offeringId: string, section: number) {
@@ -179,7 +170,7 @@ test('everyone who reads the course file gets its manifest, and other lecturers 
 test('a download URL gets the stored bytes of its file without signing in, and a changed URL or a deleted file gets none', async () => {
   const { offeringId, coordinator } = await createCourse()
   const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-  const large = pdfBytes(19 * 1024 * 1024)
+  const large = sizedPdf(19 * 1024 * 1024)
   const largeFile = await uploadFile(coordinator.client, { offeringId, section: TEACHING_PLAN }, new File([large], 'large.pdf', { type: 'application/pdf' }))
   const small = await upload(coordinator.client, { offeringId, section: TEACHING_PLAN }, 'small.pdf')
 

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
+import { sizedPdf } from '../src/pdf/fixtures.ts'
 import {
   compileManifest,
   createUploadSession,
@@ -50,9 +51,7 @@ async function twoSemesters() {
 }
 
 function pdf(name: string, size = 1024) {
-  const bytes = new Uint8Array(size).fill(37)
-  bytes.set(new TextEncoder().encode('%PDF-'))
-  return new File([bytes], name, { type: 'application/pdf' })
+  return new File([sizedPdf(size)], name, { type: 'application/pdf' })
 }
 
 /** The semester's folder of shared files in the storage library. */

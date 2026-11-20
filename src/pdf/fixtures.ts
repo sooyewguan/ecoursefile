@@ -30,6 +30,45 @@ export async function numberedPdf(count: number, { width = 960, height = 540, ro
 }
 
 /**
+ * A PDF of exactly size bytes, 516 or more, with one blank A4 page. The bytes left over fill a
+ * stream that no page uses, its byte i being byteAt(i). The numbers in the PDF have a fixed width,
+ * so the text around the stream has the same length whatever the size.
+ */
+export function sizedPdf(size: number, byteAt = (_index: number) => 0) {
+  const fixed = (value: number) => String(value).padStart(10, '0')
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> /Contents 4 0 R >>',
+    '<< /Length 0 >>\nstream\n\nendstream',
+  ]
+  const text = (padding: number) => {
+    let head = '%PDF-1.7\n'
+    const offsets = objects.map((object, index) => {
+      const offset = head.length
+      head += `${index + 1} 0 obj\n${object}\nendobj\n`
+      return offset
+    })
+    offsets.push(head.length)
+    head += `${offsets.length} 0 obj\n<< /Length ${fixed(padding)} >>\nstream\n`
+    const end = '\nendstream\nendobj\n'
+    const xref = offsets.map((offset) => `${fixed(offset)} 00000 n \n`).join('')
+    const tail = `${end}xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n${xref}trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${fixed(head.length + padding + end.length)}\n%%EOF\n`
+    return { head, tail }
+  }
+  const empty = text(0)
+  const padding = size - empty.head.length - empty.tail.length
+  if (padding < 0) throw new RangeError(`A PDF takes at least ${size - padding} bytes.`)
+  const { head, tail } = text(padding)
+  const encoder = new TextEncoder()
+  const bytes = new Uint8Array(size)
+  bytes.set(encoder.encode(head))
+  for (let index = 0; index < padding; index++) bytes[head.length + index] = byteAt(index)
+  bytes.set(encoder.encode(tail), head.length + padding)
+  return bytes
+}
+
+/**
  * One page as a viewer shows it: its size, and where each piece of text starts, in points from the
  * bottom left corner of the shown page, and whether it reads upright.
  */
