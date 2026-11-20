@@ -246,6 +246,25 @@ test('deleting a shared file needs confirmation, lists the offerings that link i
   }
 })
 
+test('replacing the calendar after a verdict returns section 1 of every offering of the semester to Pending review', async () => {
+  const semester = await semesterWithoutSharedFiles()
+  const first = await offerIn(semester)
+  const second = await offerIn(semester)
+  const auditor = await signInAs('auditor')
+  const calendar = await uploadFile(admin, { semesterId: semester.id, section: CALENDAR }, pdf('calendar.pdf'))
+  for (const offering of [first, second]) {
+    expect((await auditor.rpc('record_verdict', { offering_id: offering.id, section: CALENDAR, verdict: 'verified' })).error).toBeNull()
+    expect(await sharedStatuses(offering.coordinator.client, offering.id)).toEqual({ calendar: 'verified', letter: 'missing' })
+  }
+
+  await deleteSharedFile(admin, calendar.id)
+  await uploadFile(admin, { semesterId: semester.id, section: CALENDAR }, pdf('calendar.pdf'))
+
+  for (const offering of [first, second]) {
+    expect(await sharedStatuses(offering.coordinator.client, offering.id)).toEqual({ calendar: 'pending_review', letter: 'missing' })
+  }
+})
+
 test('uploads and deletes of shared files are logged for the semester, and its readers read the log', async () => {
   const [semester, otherSemester] = await twoSemesters()
   const teaching = await offerIn(semester)
