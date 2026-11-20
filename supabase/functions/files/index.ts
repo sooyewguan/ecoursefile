@@ -5,7 +5,7 @@
 // can_upload, can_upload_shared_file and deletable decide who may do what, asked as the caller. The
 // add_file, remove_file and reuse_file RPCs write the file records and the activity log with the
 // service role, and reusable_files lists the files of past offerings.
-import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
+import { callerUser, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { buildManifest, MANIFEST_SELECT, type ManifestSource } from '../_shared/manifest.ts'
 import { isReusable, itemName, SECTION_SLOTS, SECTIONS, type SectionSlot, type SharedFile } from '../_shared/sections.ts'
 import { storageFromEnv, type StoredItem } from '../_shared/storage.ts'
@@ -40,9 +40,6 @@ type SharedKey = { by: 'lecturer' | 'program_code'; id: string; name: string }
 
 /** The column of the files table that holds each kind of SharedKey. */
 const KEY_COLUMNS = { lecturer: 'lecturer_id', program_code: 'program_code_id' } as const
-
-/** A signed-in user. */
-type User = { id: string; email: string }
 
 /** One item of a section with items. */
 type ItemRef = { offeringId: string; section: number; item: number }
@@ -476,11 +473,4 @@ function safeName(text: string) {
     .replace(/["*:<>?/\\|\u0000-\u001f]/g, '-')
     .trim()
     .replace(/[.\s]+$/, '')
-}
-
-async function callerUser(caller: string): Promise<User> {
-  const response = await authFetch('GET', '/user', undefined, caller)
-  if (!response.ok) throw new Refusal(401, 'unauthorized', 'Sign in again.')
-  const { id, email }: User = await response.json()
-  return { id, email }
 }

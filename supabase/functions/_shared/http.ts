@@ -91,6 +91,17 @@ export function authFetch(method: string, path: string, body: unknown, authoriza
   })
 }
 
+/** A signed-in user. */
+export type User = { id: string; email: string }
+
+/** The user whose access token the Authorization header holds, for RPCs that the service role calls on their behalf. */
+export async function callerUser(caller: string): Promise<User> {
+  const response = await authFetch('GET', '/user', undefined, caller)
+  if (!response.ok) throw new Refusal(401, 'unauthorized', 'Sign in again.')
+  const { id, email }: User = await response.json()
+  return { id, email }
+}
+
 /** A PostgREST filter that matches any of these values, such as in.("a","b"), each quoted so that it may hold commas or parentheses, and encoded for a URL. */
 export function inList(values: string[]) {
   return encodeURIComponent(`in.(${values.map((value) => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`).join(',')})`)
