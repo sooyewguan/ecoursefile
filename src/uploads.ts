@@ -97,16 +97,31 @@ async function storedBytes(slot: Slot | SharedSlot, file: File): Promise<Blob> {
     throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. ${advice}`)
   }
   if (problem) throw new FileActionError(problem, UPLOAD_PROBLEM_MESSAGES[problem])
+  // The compile reads every stored PDF with the PDF engine, so a PDF the engine cannot read is refused here.
+  const { loadPdf, ProtectedPdf } = await import('./pdf/load.ts')
+  await loadPdf(new Uint8Array(await bytes.arrayBuffer())).catch((error: unknown) => {
+    throw unreadable(file, error instanceof ProtectedPdf)
+  })
   return bytes
 }
 
 /** The PDF with perSheet of its pages on each page. pdf-lib loads only when a file needs it. */
 async function merge(file: File, perSheet: PagesPerSheet) {
-  const { nUp } = await import('./pdf/n-up.ts')
-  const merged = await nUp(new Uint8Array(await file.arrayBuffer()), perSheet).catch(() => {
-    throw new FileActionError('unreadable_pdf', 'This PDF could not be read for merging. If it has a password, save a copy without one and upload that.')
+  const [{ nUp }, { ProtectedPdf }] = await Promise.all([import('./pdf/n-up.ts'), import('./pdf/load.ts')])
+  const merged = await nUp(new Uint8Array(await file.arrayBuffer()), perSheet).catch((error: unknown) => {
+    throw unreadable(file, error instanceof ProtectedPdf)
   })
   return new Blob([merged], { type: PDF_TYPE })
+}
+
+/** The refusal of a PDF that the PDF engine cannot read, naming the file. */
+function unreadable(file: File, isProtected: boolean) {
+  return new FileActionError(
+    'unreadable_pdf',
+    isProtected
+      ? `${file.name} is protected by a password or by limits on printing or editing, so the compiled course file cannot include it. Upload a copy without protection.`
+      : `${file.name} could not be read as a PDF. Save or export it as a PDF again and upload that.`,
+  )
 }
 
 export function createUploadSession(client: SupabaseClient, slot: Slot | SharedSlot, fileName: string) {

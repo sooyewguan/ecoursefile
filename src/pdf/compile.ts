@@ -2,6 +2,7 @@
 // builds one course file's PDF from its compile manifest.
 import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
 import type { CompileManifest, ManifestCover, ManifestFile, ManifestSection } from '../../supabase/functions/_shared/manifest.ts'
+import { loadPdf } from './load.ts'
 
 export type { CompileManifest }
 
@@ -72,19 +73,6 @@ async function copyPages(output: PDFDocument, file: ManifestFile, section: Manif
   } catch (error) {
     throw new CompileError(file, section, error)
   }
-}
-
-/**
- * The PDF as pdf-lib loads it, once the crop box and rotation of each page, which the compile reads
- * to stamp the page's number, have been read. Rejects a PDF that pdf-lib cannot read.
- */
-async function loadPdf(bytes: Uint8Array) {
-  const pdf = await PDFDocument.load(bytes)
-  for (const page of pdf.getPages()) {
-    page.getCropBox()
-    page.getRotation()
-  }
-  return pdf
 }
 
 function drawCover(page: PDFPage, cover: ManifestCover, fonts: Fonts) {
