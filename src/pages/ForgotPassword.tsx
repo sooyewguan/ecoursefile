@@ -19,9 +19,10 @@ export function ForgotPassword() {
     // The Send Email Hook links to the reset page on this origin, once Supabase Auth has checked it.
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
     setBusy(false)
-    // The answer is the same whether or not the email has an account, so the page says no more.
+    // Supabase Auth refuses a repeat request for an email with an account with HTTP 429, and answers
+    // one with no account as before, so a 429 gets the same text as success, which says no more.
     setNotice(
-      error
+      error && error.status !== 429
         ? { tone: 'error', text: error.message }
         : { tone: 'success', text: `If ${email} belongs to an active account, it will get a link to set a new password. The link works once, within one hour.` },
     )
