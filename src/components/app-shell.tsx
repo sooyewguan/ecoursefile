@@ -3,6 +3,7 @@ import {
   Building2Icon,
   CalendarRangeIcon,
   ChartColumnIcon,
+  ClipboardCheckIcon,
   ChevronDownIcon,
   FolderOpenIcon,
   HouseIcon,
@@ -37,6 +38,7 @@ type PageLink = { path: string; label: string; icon: LucideIcon }
 /** How each role-gated page in auth.ts appears in the navigation and on the home page. */
 const PAGE_DETAILS: Record<(typeof ROLE_PAGES)[number]['path'], { icon: LucideIcon; description: string }> = {
   '/course-files': { icon: FolderOpenIcon, description: 'Open course files and see which sections are missing.' },
+  '/completeness': { icon: ClipboardCheckIcon, description: 'See what is missing from the course files you teach.' },
   '/reports': { icon: ChartColumnIcon, description: 'See how complete each semester is, by department, offering, section and lecturer.' },
   '/users': { icon: UsersIcon, description: 'Add accounts, assign roles and manage access.' },
   '/departments': { icon: Building2Icon, description: 'Add, rename and remove departments.' },
