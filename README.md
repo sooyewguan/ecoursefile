@@ -421,15 +421,15 @@ Each step commits first, and its email goes after it. `audit_request_emails` rec
 | `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
 | `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
 | `checklist_complete`, `email_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the email of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
-| `send_audit_request(request_id)` | Sends the caller's draft and logs it. A request already sent stays as it is. Anyone but the draft's auditor, with the `auditor` role, fails with Postgres error `42501`. |
+| `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
 | `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
-| `reply_to_audit_request(request_id, message)` | Replies to a sent request and logs the reply with its message. A request already replied stays as it is. A caller who does not teach the offering fails with `42501`, and a reply while an item is neither ticked nor commented with `23514`. |
+| `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
 
-The app makes the two steps through the `audit-requests` function, which also sends the emails.
+Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its email. The app makes the two steps through the `audit-requests` function, which calls them and sends the emails.
 
 ### The audit-requests Edge Function
 
-The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function makes the step with the RPC as the caller, then sends the step's email if it is still owed. The JSON body has an `action` field.
+The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's email if it is still owed. The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
@@ -440,9 +440,9 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | --- | --- | --- |
 | 400 | `invalid_request` | The body is not one of the actions above. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers. |
+| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
 | 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
-| 409 | `checklist_incomplete` | A `reply` while an item is neither ticked nor commented. |
+| 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
 | 502 | `mail_failed` | The step is made, but its email could not be sent. The same call again sends it. |
 
 ## Compiled PDF

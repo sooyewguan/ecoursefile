@@ -11,9 +11,11 @@
 -- writer can skip one, go back, or change a request in any other way. An auditor has at most one
 -- draft per course file, by a unique index, so marks made at the same time share one draft.
 --
--- The audit-requests Edge Function sends each step's email after the step has committed, and
--- records the delivery in audit_request_emails. A step whose email failed keeps its state, and the
--- email stays owed until a retry of the step delivers it.
+-- Only the audit-requests Edge Function makes the two steps, since the RPCs that make them are the
+-- service role's alone, so no step happens without the function trying its email. It sends each
+-- step's email after the step has committed, and records the delivery in audit_request_emails. A
+-- step whose email failed keeps its state, and the email stays owed until a retry of the step
+-- delivers it.
 
 create type public.audit_request_state as enum ('draft', 'sent', 'replied');
 
@@ -287,11 +289,12 @@ begin
 end;
 $$;
 
--- Sends the caller's draft request: each item keeps the section's files as they are now, which
+-- Sends a draft request for the actor: each item keeps the section's files as they are now, which
 -- later uploads tick against, and the send is logged. Only the auditor who drafted the request may
--- send it. A request that is already sent stays as it is, so a retry or a second click changes
--- nothing. The audit-requests function calls this as the caller, then emails staff.
-create function public.send_audit_request(request_id uuid)
+-- send it, while they have the auditor role and an active profile. A request that is already sent
+-- stays as it is, so a retry or a second click changes nothing. The audit-requests function calls
+-- this with the service role and the caller's id, then emails staff.
+create function public.send_audit_request(request_id uuid, actor_id uuid)
 returns public.audit_requests
 language plpgsql
 security definer
@@ -301,7 +304,15 @@ declare
   target public.audit_requests;
 begin
   select * into target from public.audit_requests r where r.id = send_audit_request.request_id for update;
-  if not found or target.auditor_id <> (select auth.uid()) or not (select public.jwt_roles()) @> '{auditor}' then
+  if not found
+    or target.auditor_id <> send_audit_request.actor_id
+    or not exists (
+      select 1
+      from public.profiles p
+      join public.user_roles u on u.user_id = p.id and u.role = 'auditor'
+      where p.id = send_audit_request.actor_id and p.active
+    )
+  then
     raise exception 'Only the auditor who drafted this request may send it.' using errcode = '42501';
   end if;
   if target.state <> 'draft' then
@@ -363,13 +374,15 @@ begin
 end;
 $$;
 
--- Replies to a sent request for the offering's staff: each item keeps the section's files as they
--- are now, so its tick stays as staff replied, and the reply is logged with its message, which is
--- optional and kept without its outer blanks. The caller must be the coordinator or a lecturer of
--- the offering, and every item must be ticked or commented. A request that is already replied stays
--- as it is, so a retry or a second click changes nothing. The audit-requests function calls this as
--- the caller, then emails the auditor.
-create function public.reply_to_audit_request(request_id uuid, message text default null)
+-- Replies to a sent request for the actor, one of the offering's staff: each item keeps the
+-- section's files as they are now, so its tick stays as staff replied, and the reply is logged with
+-- its message, which is optional and kept without its outer blanks. The actor must be the
+-- coordinator or a lecturer of the offering, with an active profile. A request that is already
+-- replied stays as it is, so a retry or a second click changes nothing, and so does one with an item
+-- neither ticked nor commented. The audit-requests function calls this with the service role and
+-- the caller's id, and tells the two apart by the state that comes back: it emails the auditor for
+-- a replied request, and refuses a sent one as not ready.
+create function public.reply_to_audit_request(request_id uuid, actor_id uuid, message text default null)
 returns public.audit_requests
 language plpgsql
 security definer
@@ -380,14 +393,15 @@ declare
   stored_message text := nullif(regexp_replace(reply_to_audit_request.message, '^\s+|\s+$', '', 'g'), '');
 begin
   select * into target from public.audit_requests r where r.id = reply_to_audit_request.request_id for update;
-  if not found or target.state = 'draft' or not public.teaches((select auth.uid()), target.offering_id) then
+  if not found
+    or target.state = 'draft'
+    or not public.teaches(reply_to_audit_request.actor_id, target.offering_id)
+    or not exists (select 1 from public.profiles p where p.id = reply_to_audit_request.actor_id and p.active)
+  then
     raise exception 'Only the coordinator and lecturers of the offering may reply to a sent audit request.' using errcode = '42501';
   end if;
-  if target.state = 'replied' then
+  if target.state = 'replied' or not public.checklist_complete(target) then
     return target;
-  end if;
-  if not public.checklist_complete(target) then
-    raise exception 'Tick or comment on every item of the checklist before you reply.' using errcode = '23514';
   end if;
 
   update public.audit_request_items i
@@ -397,7 +411,7 @@ begin
   where o.id = target.offering_id and i.request_id = target.id and c.section = i.section;
 
   update public.audit_requests r
-  set state = 'replied', replied_at = now(), replied_by = (select auth.uid()), reply_message = stored_message
+  set state = 'replied', replied_at = now(), replied_by = reply_to_audit_request.actor_id, reply_message = stored_message
   where r.id = target.id
   returning * into target;
 
@@ -426,16 +440,17 @@ as $$
 $$;
 
 revoke execute on function public.ticked, public.checklist_complete, public.email_pending, public.auditor_name(public.audit_requests),
-  public.replier_name, public.commenter_name, public.send_audit_request, public.comment_on_audit_item,
-  public.reply_to_audit_request from anon, public;
-revoke execute on function public.teaches, public.claim_audit_email from anon, authenticated, public;
+  public.replier_name, public.commenter_name, public.comment_on_audit_item from anon, public;
+revoke execute on function public.teaches, public.send_audit_request, public.reply_to_audit_request, public.claim_audit_email
+  from anon, authenticated, public;
 
 alter table public.audit_requests enable row level security;
 alter table public.audit_request_items enable row level security;
 alter table public.audit_request_emails enable row level security;
 
 -- A draft is its auditor's alone. Once sent, a request and its items are read by every reader of the
--- course file. With no write policies, clients change requests only through the RPCs above.
+-- course file. With no write policies, clients change requests only through record_verdict and
+-- comment_on_audit_item, and the audit-requests function sends and replies.
 create policy "Auditors read their drafts, and readers of an offering its sent requests" on public.audit_requests
   for select to authenticated using (
     case when state = 'draft' then auditor_id = (select auth.uid()) else public.can_read_offering(offering_id) end

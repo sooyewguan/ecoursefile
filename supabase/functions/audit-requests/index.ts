@@ -1,7 +1,9 @@
 // Sends audit requests and replies to them. The auditor who drafted a request sends it, which emails
 // the offering's coordinator and lecturers every flagged section with its comment. The offering's
 // staff reply once every checklist item is ticked or commented, which emails the auditor. The
-// send_audit_request and reply_to_audit_request RPCs make each step as the caller, and decide who may.
+// send_audit_request and reply_to_audit_request RPCs make each step and decide who may. Clients
+// cannot call them, so this function calls them with the service role and the caller's id, and no
+// step happens without its email.
 //
 // Each step commits first, and its email goes after. audit_request_emails records the email's
 // delivery, and a call claims it before it sends, so two calls never send it at once. A step made
@@ -9,7 +11,7 @@
 // owed. So a mail failure leaves the step made and its email owed, the caller is told, and a retry
 // sends the email once.
 import { escapeHtml } from '../_shared/html.ts'
-import { invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
+import { callerUser, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { mailerFromEnv, type Mail } from '../_shared/mail.ts'
 import { SECTIONS } from '../_shared/sections.ts'
 
@@ -73,31 +75,34 @@ function parseRequest(body: unknown): AuditRequestsRequest {
 
 async function send(requestId: string, caller: string) {
   await findRequest(requestId, caller)
-  const request = await rest<AuditRequest>('POST', '/rpc/send_audit_request', { request_id: requestId }, caller)
+  const request = await rest<AuditRequest>(
+    'POST',
+    '/rpc/send_audit_request',
+    { request_id: requestId, actor_id: (await callerUser(caller)).id },
+    SERVICE,
+  )
   if (request.state === 'sent') await deliver(request.id, 'sent')
   return { request: { id: request.id, state: request.state } }
 }
 
+/** The RPC decides who may reply before it looks at the checklist, and returns a sent request unchanged while an item is neither ticked nor commented. */
 async function reply(requestId: string, message: string | null, caller: string) {
-  const found = await findRequest(requestId, caller)
-  if (found.state === 'sent' && !found.checklist_complete) {
-    throw new Refusal(409, 'checklist_incomplete', 'Tick or comment on every item of the checklist before you reply.')
-  }
-  const request = await rest<AuditRequest>('POST', '/rpc/reply_to_audit_request', { request_id: requestId, message }, caller)
-  if (request.state === 'replied') await deliver(request.id, 'replied')
+  await findRequest(requestId, caller)
+  const request = await rest<AuditRequest>(
+    'POST',
+    '/rpc/reply_to_audit_request',
+    { request_id: requestId, actor_id: (await callerUser(caller)).id, message },
+    SERVICE,
+  )
+  if (request.state !== 'replied') throw new Refusal(409, 'checklist_incomplete', 'Tick or comment on every item of the checklist before you reply.')
+  await deliver(request.id, 'replied')
   return { request: { id: request.id, state: request.state } }
 }
 
-/** The request as the caller reads it. A draft is its auditor's alone, so nobody else finds one. */
+/** Refuses a request that the caller cannot read. A draft is its auditor's alone, so nobody else finds one. */
 async function findRequest(requestId: string, caller: string) {
-  const [found] = await rest<{ state: AuditRequest['state']; checklist_complete: boolean }[]>(
-    'GET',
-    `/audit_requests?id=eq.${requestId}&select=state,checklist_complete`,
-    undefined,
-    caller,
-  )
+  const [found] = await rest<unknown[]>('GET', `/audit_requests?id=eq.${requestId}&select=id`, undefined, caller)
   if (!found) throw new Refusal(404, 'not_found', 'This audit request does not exist, or you cannot see it.')
-  return found
 }
 
 /**
