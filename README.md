@@ -22,7 +22,7 @@ A web platform where course coordinators and lecturers submit course files for t
    npm run stack:start
    ```
 
-3. Copy `.env.example` to `.env`.
+3. Create a `.env` file in the repository root. [Environment variables](#environment-variables) lists each variable it needs.
 4. In `.env`, set `VITE_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` to the `PUBLISHABLE_KEY` and `SECRET_KEY` values that `npx supabase status -o env` prints.
 5. In `.env`, set `ROOT_PASSWORD`.
 6. Create the root user.
