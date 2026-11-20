@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
+import { fetchReport, type LecturerRow, type OfferingRow } from '../src/reports.ts'
 import type { GlobalRole } from '../src/roles.ts'
 import { uploadFile, type SharedSlot, type Slot } from '../src/uploads.ts'
 import {
@@ -475,3 +476,51 @@ test('an offering is complete when every section that is on has a file, with sec
   await switchSection(lecturer.client, offering.id, LECTURE_NOTES, false, 'Notes are in the textbook')
   expect(await completeness()).toEqual({ status: 'pending_review', counted: 10, uploaded: 10, percent: 100, missing: [] })
 })
+
+test('the app reads every offering of a semester with more than the 1,000 rows the API returns at once', async () => {
+  const semester = await emptyReportSemester()
+  const service = adminClient()
+  const [coordinator, departmentId] = await Promise.all([createStaff('Coordinator Many'), createDepartment()])
+  const courseType = await service.from('course_types').insert({ name: `Type-${randomUUID()}`, sections_on: [] }).select('id').single()
+  if (courseType.error) throw courseType.error
+  const total = 1_001
+  const prefix = `MANY-${randomUUID()}`
+  const courses = await service
+    .from('courses')
+    .insert(
+      Array.from({ length: total }, (_, index) => ({
+        code: `${prefix}-${String(index).padStart(4, '0')}`,
+        title: 'Seam1 Course',
+        department_id: departmentId,
+        course_type_id: courseType.data.id,
+      })),
+    )
+    .select('id, code')
+  if (courses.error) throw courses.error
+  // create_offering adds an offering and its coordinator in one transaction, so offer them in batches.
+  for (let start = 0; start < total; start += 50) {
+    await Promise.all(
+      courses.data.slice(start, start + 50).map(async (course) => {
+        const { error } = await service.rpc('create_offering', {
+          semester_id: semester.id,
+          course_id: course.id,
+          coordinator_id: coordinator.id,
+          lecturer_ids: [],
+        })
+        if (error) throw error
+      }),
+    )
+  }
+  const codes = courses.data.map((course) => course.code).toSorted()
+
+  // The offering list, the heatmap and My completeness read report_offerings.
+  for (const client of [await signInAs('dean'), coordinator.client]) {
+    const rows = await fetchReport<OfferingRow>(client, 'report_offerings', semester.id)
+    expect(rows.map((row) => row.course_code)).toEqual(codes)
+  }
+  const dean = await signInAs('dean')
+  expect(await fetchReport(dean, 'report_faculty_summary', semester.id)).toMatchObject([{ offerings: total }])
+  expect(await fetchReport(dean, 'report_departments', semester.id)).toMatchObject([{ department_id: departmentId, offerings: total }])
+  const [lecturer] = await fetchReport<LecturerRow>(dean, 'report_lecturers', semester.id)
+  expect(lecturer.offerings.map((offering) => offering.course_code)).toEqual(codes)
+}, 120_000)

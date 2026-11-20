@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
-import type { OfferingRow } from '../reports.ts'
+import { fetchReport, type OfferingRow, type ReportRpc } from '../reports.ts'
 import { SECTIONS } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -30,17 +30,16 @@ export function SemesterSelect({ semesters, value, onChange }: { semesters: Seme
   )
 }
 
-type ReportRpc = 'report_faculty_summary' | 'report_departments' | 'report_offerings' | 'report_lecturers'
-
-/** The rows of a report RPC for the semester: null while they load, or the error message. */
+/** Every row of a report RPC for the semester: null while they load, or the error message. */
 export function useReport<Row>(rpc: ReportRpc, semesterId: string) {
   const [result, setResult] = useState<{ key: string; rows?: Row[]; error?: string } | null>(null)
   const key = `${rpc} ${semesterId}`
   useEffect(() => {
     let current = true
-    void supabase.rpc(rpc, { semester_id: semesterId }).then(({ data, error }) => {
-      if (current) setResult(error ? { key, error: error.message } : { key, rows: data as Row[] })
-    })
+    fetchReport<Row>(supabase, rpc, semesterId).then(
+      (rows) => current && setResult({ key, rows }),
+      (error: Error) => current && setResult({ key, error: error.message }),
+    )
     return () => {
       current = false
     }
