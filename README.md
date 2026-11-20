@@ -95,7 +95,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
@@ -109,6 +109,31 @@ Some limits apply to everyone:
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+### Importing users from a CSV file
+
+On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+
+The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
+
+- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
+- `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
+- Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
+
+The function reads all rows before it creates anyone. It creates the users of the valid rows one at a time, in file order, through the same code as `create-user`. A rejected row stops no other row. Each rejected row gets one `code` and a `reason`.
+
+| `code` | Reason |
+| --- | --- |
+| `missing_value` | The full name, email, roles or temporary password is empty. |
+| `duplicate_email` | Another row of the file has the same email, in any case. Every row with that email is rejected. |
+| `unknown_role` | A role is not a global role. |
+| `unknown_department` | No department has the code. |
+| `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
+| `email_exists` | A user with the email already exists. |
+| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+
+A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
 
 ## Catalog
 
@@ -369,7 +394,7 @@ Every page has "Page n of N" centred at its bottom, as a viewer shows the page: 
 
 `compile` fetches and copies one file at a time, so it holds one source file besides the PDF it builds. The PDF it builds holds every copied page's streams, and saving it writes one more copy, so memory peaks at about twice the size of the output. A compile of 25 files of 19 MB each, a 477 MB PDF, peaked at 1,000 MB of array buffers and 16 MB of heap in Node 22 (`node --expose-gc`, memory sampled every 20 ms). A file that cannot be fetched, or whose pages cannot be read or copied, such as an encrypted one, stops the compile with a `CompileError` that names the file and its section.
 
-`loadPdf(bytes)` in `src/pdf/load.ts` is how the engine reads a PDF: the compile, the merge and the browser's upload check all use it. It loads the PDF with pdf-lib and reads every page's crop box and rotation, which the compile needs to stamp page numbers. It rejects a protected PDF with `ProtectedPdf`, because pdf-lib cannot read encrypted PDFs, and a PDF that pdf-lib cannot read with pdf-lib's error.
+`loadPdf(bytes)` in `src/pdf/load.ts` is how the engine reads a PDF: the compile, the merge and the browser's upload check all use it. It loads the PDF with pdf-lib and checks every page for what the compile needs to stamp page numbers: its crop box, its rotation, and a page pdf-lib can draw on, with `/Resources` a dictionary and `/Contents` a stream or an array. It rejects a protected PDF with `ProtectedPdf`, because pdf-lib cannot read encrypted PDFs, and any other PDF that pdf-lib cannot read or draw on with an error.
 
 `nUp(bytes, perSheet)` in `src/pdf/n-up.ts` returns a new PDF with `perSheet` pages of the source on each A4 portrait page, in their order.
 
@@ -389,13 +414,14 @@ The JSON body has an `action` field.
 | `action` | Other fields | Who may call it | What it does |
 | --- | --- | --- | --- |
 | `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
+| `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
-On success, the function returns HTTP 200 and `{ "userId": "..." }`. On failure, it returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
+On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column, gets HTTP 400 and creates nobody. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above, or Supabase Auth refused a value, such as a short password. |
+| 400 | `invalid_request` | The body is not one of the actions above, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not do this. |
 | 409 | `email_exists` | A user with this email already exists. |

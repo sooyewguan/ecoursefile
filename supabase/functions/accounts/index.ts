@@ -1,25 +1,25 @@
 // Account administration that needs the service role: creating a user with a temporary
-// password and resetting a password. The SQL functions assignable_roles and can_manage decide
-// who may do what, asked as the caller.
-import { authFetch, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-
-const GLOBAL_ROLES = ['root', 'admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] as const
-type GlobalRole = (typeof GLOBAL_ROLES)[number]
+// password, importing users from a CSV file, and resetting a password. The SQL functions
+// jwt_roles, assignable_roles and can_manage decide who may do what, asked as the caller.
+import { authFetch, inList, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
+import { isGlobalRole, type GlobalRole } from '../_shared/roles.ts'
+import { readUserImport, toNewUsers, type ImportedRow, type NewUser, type ParsedRow } from '../_shared/user-import.ts'
 
 type AccountRequest =
-  | {
-      action: 'create-user'
-      email: string
-      fullName: string
-      departmentId: string | null
-      roles: GlobalRole[]
-      temporaryPassword: string
-    }
+  | ({ action: 'create-user' } & NewUser)
+  | { action: 'import-users'; csv: string }
   | { action: 'reset-password'; userId: string; temporaryPassword: string }
 
 serveJson(async (body, caller) => {
   const request = parseRequest(body)
-  return request.action === 'create-user' ? await createUser(request, caller) : await resetPassword(request, caller)
+  switch (request.action) {
+    case 'create-user':
+      return await createUser(request, caller)
+    case 'import-users':
+      return await importUsers(request.csv, caller)
+    case 'reset-password':
+      return await resetPassword(request, caller)
+  }
 })
 
 function parseRequest(body: unknown): AccountRequest {
@@ -48,6 +48,10 @@ function parseRequest(body: unknown): AccountRequest {
         temporaryPassword,
       }
     }
+    case 'import-users': {
+      if (typeof input.csv !== 'string') throw invalid('import-users needs csv, the text of the file.')
+      return { action: 'import-users', csv: input.csv }
+    }
     case 'reset-password': {
       const { userId, temporaryPassword } = input
       if (!isUuid(userId) || typeof temporaryPassword !== 'string') {
@@ -56,17 +60,19 @@ function parseRequest(body: unknown): AccountRequest {
       return { action: 'reset-password', userId, temporaryPassword }
     }
     default:
-      throw invalid('action must be create-user or reset-password.')
+      throw invalid('action must be create-user, import-users or reset-password.')
   }
 }
 
 // Root may create accounts whose roles are all admin, and admins may create staff. Each new
 // account holds at least one role the caller may grant, so root creates nothing but admins.
-async function createUser(request: Extract<AccountRequest, { action: 'create-user' }>, caller: string) {
+async function createUser(request: NewUser, caller: string) {
   const assignable = await callerRpc<GlobalRole[]>('assignable_roles', {}, caller)
-  if (request.roles.length === 0 || !request.roles.every((role) => assignable.includes(role))) {
-    throw new Refusal(403, 'forbidden', 'You may not create a user with these roles.')
-  }
+  const refused = request.roles.filter((role) => !assignable.includes(role))
+  if (request.roles.length === 0) throw new Refusal(403, 'forbidden', 'A user needs at least one role.')
+  if (refused.length > 0) throw new Refusal(403, 'forbidden', `You may not give the ${refused.join(' or ')} role.`)
+  // The grant rules refuse it too, but only once the account exists.
+  if (request.roles.includes('hod') && request.departmentId === null) throw new Refusal(403, 'forbidden', 'An HoD needs a department.')
 
   // The new profile starts with the must-change-password flag set.
   const user = await auth<{ id: string }>('POST', '/admin/users', {
@@ -86,6 +92,39 @@ async function createUser(request: Extract<AccountRequest, { action: 'create-use
     throw error
   }
   return { userId: user.id }
+}
+
+/**
+ * Creates the user of each row of the file that holds one, as create-user does, and returns what it
+ * did with each row. A row that holds no user, or whose user create-user refuses, is rejected with
+ * the reason and stops no other row. Every row's email is new or refused, so importing a file again
+ * creates nobody twice. Only admins import, so no row can give the admin or root role.
+ */
+async function importUsers(csv: string, caller: string): Promise<{ rows: ImportedRow[] }> {
+  if (!(await callerRpc<GlobalRole[]>('jwt_roles', {}, caller)).includes('admin')) {
+    throw new Refusal(403, 'forbidden', 'Only admins may import users.')
+  }
+  const file = readUserImport(csv)
+  if ('problem' in file) throw invalid(file.problem)
+  // Only the departments the file names, since the API returns at most 1,000 rows.
+  const codes = [...new Set(file.rows.map((row) => row.cells.department).filter(Boolean))]
+  const departments = codes.length === 0 ? [] : await rest<{ id: string; code: string }[]>('GET', `/departments?select=id,code&code=${inList(codes)}`, undefined, caller)
+  const rows: ImportedRow[] = []
+  for (const row of toNewUsers(file.rows, new Map(departments.map((department) => [department.code, department.id])))) {
+    rows.push(await importRow(row, caller))
+  }
+  return { rows }
+}
+
+async function importRow(parsed: ParsedRow, caller: string): Promise<ImportedRow> {
+  const { row, email } = parsed
+  if (!('user' in parsed)) return { row, email, status: 'rejected', code: parsed.code, reason: parsed.reason }
+  try {
+    return { row, email, status: 'created', ...(await createUser(parsed.user, caller)) }
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error
+    return { row, email, status: 'rejected', code: error.code, reason: error.message }
+  }
 }
 
 async function resetPassword(request: Extract<AccountRequest, { action: 'reset-password' }>, caller: string) {
@@ -109,8 +148,4 @@ async function auth<T>(method: string, path: string, body?: unknown): Promise<T>
   if (payload?.error_code === 'email_exists') throw new Refusal(409, 'email_exists', payload.msg)
   if (response.status < 500) throw invalid(payload?.msg ?? 'The request was refused.')
   throw new Error(`${method} ${path} failed with ${response.status}: ${JSON.stringify(payload)}`)
-}
-
-function isGlobalRole(value: unknown): value is GlobalRole {
-  return (GLOBAL_ROLES as readonly unknown[]).includes(value)
 }

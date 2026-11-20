@@ -3,7 +3,7 @@
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { expect, test } from 'vitest'
 import { compile, CompileError, type CompileManifest } from './compile.ts'
-import { numberedPdf, readPdf, type ShownPage } from './fixtures.ts'
+import { numberedPdf, readPdf, undrawablePdf, type ShownPage } from './fixtures.ts'
 
 const COVER = {
   courseCode: 'BITP1113',
@@ -157,6 +157,8 @@ test.each([
   { problem: 'is only a PDF header', get: async () => encode('%PDF-1.4\n%%EOF\n') },
   { problem: 'is a PDF header then garbage', get: async () => encode('%PDF-1.7 not really') },
   { problem: 'has a page without a size', get: sizelessPdf },
+  { problem: 'has a page whose /Resources is an array', get: () => undrawablePdf('Resources') },
+  { problem: 'has a page whose /Contents is a number', get: () => undrawablePdf('Contents') },
 ])('a file that $problem stops the compile with a CompileError naming it and its section', async ({ get }) => {
   const { manifest, fetchBytes } = await fixture(SECTIONS)
 

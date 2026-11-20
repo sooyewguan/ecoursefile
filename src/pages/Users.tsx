@@ -1,5 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
-import { KeyRoundIcon, PencilIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
+import { FileUpIcon, KeyRoundIcon, PencilIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ComponentProps } from 'react'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
 import { RoleBadges } from '@/components/identity'
@@ -14,7 +14,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ImportResults, ImportUsersDialog } from '@/components/user-import'
 import { cn } from '@/lib/utils'
+import type { ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
@@ -40,6 +42,7 @@ type UserChanges = { grant: GlobalRole[]; revoke: GlobalRole[]; departmentId?: s
 /** The dialog that is open, and the user it acts on. */
 type OpenDialog =
   | { kind: 'create' }
+  | { kind: 'import' }
   | { kind: 'edit'; user: UserRow }
   | { kind: 'reset-password'; user: UserRow }
   | { kind: 'set-active'; user: UserRow }
@@ -55,6 +58,8 @@ export function Users() {
   const [data, setData] = useState<PageData | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
+  /** What the last import did with each row of its file. */
+  const [imported, setImported] = useState<ImportedRow[] | null>(null)
 
   const reload = useCallback(async () => {
     const [users, departments, assignable] = await Promise.all([
@@ -96,6 +101,15 @@ export function Users() {
     setDialog(null)
   }
 
+  async function importUsers(csv: string) {
+    const { data, error } = await supabase.functions.invoke('accounts', { body: { action: 'import-users', csv } })
+    if (error) return errorMessage(error)
+    setNotice(null)
+    setImported(data.rows)
+    await reload()
+    return null
+  }
+
   return (
     <div className="grid gap-6">
       <PageHeader
@@ -107,14 +121,23 @@ export function Users() {
         }
         action={
           assignable.length > 0 && (
-            <Button onClick={() => setDialog({ kind: 'create' })}>
-              <UserPlusIcon />
-              Add user
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {state.roles.includes('admin') && (
+                <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
+                  <FileUpIcon />
+                  Import CSV
+                </Button>
+              )}
+              <Button onClick={() => setDialog({ kind: 'create' })}>
+                <UserPlusIcon />
+                Add user
+              </Button>
+            </div>
           )
         }
       />
       {notice && <NoticeAlert notice={notice} />}
+      {imported && <ImportResults rows={imported} onDismiss={() => setImported(null)} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -243,6 +266,8 @@ export function Users() {
           <RoleCheckboxes idPrefix="create-role" roles={assignable} />
         </FormDialog>
       )}
+
+      {dialog?.kind === 'import' && <ImportUsersDialog roles={assignable} onImport={importUsers} onClose={close} />}
 
       {dialog?.kind === 'edit' && (
         <EditUserDialog
@@ -449,7 +474,11 @@ async function updateProfile(user: UserRow, changes: { department_id?: string | 
 /** Calls the accounts Edge Function and returns its error message, or null when it succeeded. */
 async function callAccounts(body: Record<string, unknown>): Promise<string | null> {
   const { error } = await supabase.functions.invoke('accounts', { body })
-  if (!error) return null
+  return error ? errorMessage(error) : null
+}
+
+/** The message of an Edge Function's error: the function's own, when it answered with one. */
+async function errorMessage(error: Error) {
   if (error instanceof FunctionsHttpError) {
     const payload: { message?: string } | null = await error.context.json().catch(() => null)
     return payload?.message ?? error.message

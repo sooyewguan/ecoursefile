@@ -91,6 +91,11 @@ export function authFetch(method: string, path: string, body: unknown, authoriza
   })
 }
 
+/** A PostgREST filter that matches any of these values, such as in.("a","b"), each quoted so that it may hold commas or parentheses, and encoded for a URL. */
+export function inList(values: string[]) {
+  return encodeURIComponent(`in.(${values.map((value) => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`).join(',')})`)
+}
+
 export function invalid(message: string) {
   return new Refusal(400, 'invalid_request', message)
 }
