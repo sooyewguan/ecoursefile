@@ -10,12 +10,14 @@ const messageId = (field: string) => `${field}-error`
 
 /**
  * Shows a form's last error. A field's error shows where FieldError is placed for that field, and
- * the field is marked invalid and focused. Any other error shows after the children.
+ * the field is marked invalid and focused. A hidden input with data-control, such as a Combobox's,
+ * stands for the control with that id. Any other error shows after the children.
  */
 export function FormErrors({ form, error, children }: { form: RefObject<HTMLFormElement | null>; error: ActionError | null; children: ReactNode }) {
   useEffect(() => {
     if (!error || typeof error === 'string') return
-    const field = form.current?.elements.namedItem(error.field)
+    const named = form.current?.elements.namedItem(error.field)
+    const field = named instanceof HTMLElement && named.dataset.control ? document.getElementById(named.dataset.control) : named
     if (!(field instanceof HTMLElement)) return
     const describedBy = field.getAttribute('aria-describedby')
     field.setAttribute('aria-invalid', 'true')
