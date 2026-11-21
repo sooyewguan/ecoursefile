@@ -58,7 +58,7 @@ npm run stack:start
 | `npm run preview` | Serves the built `dist/` locally. |
 | `npm test` | Runs all tests. The local Supabase stack must be running. |
 | `npm run seed` | Runs `scripts/seed-root.ts` with the variables in `.env`. |
-| `npm run drive:token` | Runs `scripts/google-drive-token.ts` with the variables in `.env`, and prints a refresh token for Google Drive storage. See [Google Drive setup](#google-drive-setup). |
+| `npm run google:token` | Runs `scripts/google-token.ts` with the variables in `.env`, and prints a refresh token for Google Drive storage and Gmail. See [Google account setup](#google-account-setup). |
 | `npm run stack:start` | Starts the local Supabase stack without the services that the app does not use. |
 | `npm run db:reset` | Resets the local database to the migrations, then runs `npm run seed`. |
 
@@ -82,15 +82,37 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files`, `drive-download` and `fake-storage` functions | `drive` to store files in Google Drive, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it. The `drive-download` function answers only while it is `drive`, and the `fake-storage` function only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `MAIL_ADAPTER` | `send-email` and `audit-requests` functions | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The functions do not start without it. |
+| `MAIL_ADAPTER` | `send-email` and `audit-requests` functions | `gmail` to send email from the Google account's Gmail address, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The functions do not start without it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
-| `GOOGLE_CLIENT_ID` | `files` and `drive-download` functions, with `drive` | The client ID of the Google OAuth client of the Desktop app type. |
+| `GOOGLE_CLIENT_ID` | `files` and `drive-download` functions with `STORAGE_ADAPTER` `drive`, and `send-email` and `audit-requests` with `MAIL_ADAPTER` `gmail` | The client ID of the Google OAuth client of the Desktop app type. |
 | `GOOGLE_CLIENT_SECRET` | The same | The client secret of that client. |
-| `GOOGLE_REFRESH_TOKEN` | The same | The refresh token that `npm run drive:token` prints for the Google account that holds the files. |
-| `GRAPH_TENANT_ID` | `send-email` and `audit-requests` functions, with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
-| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that may send as the shared mailbox. |
-| `GRAPH_CLIENT_SECRET` | The same | The client secret of that app. |
-| `GRAPH_MAILBOX` | `send-email` and `audit-requests` functions, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
+| `GOOGLE_REFRESH_TOKEN` | The same | The refresh token that `npm run google:token` prints for the Google account that holds the files and sends the email. |
+
+## Google account setup
+
+A hosted project stores files in the My Drive of one Google account, and sends email from that account's Gmail address. A personal Google account has 15 GB, which it shares with its Gmail and Google Photos. The account owns the files, so use an account that outlives any one staff member.
+
+1. In the Google Cloud console, create a project, and enable the Google Drive API and the Gmail API.
+2. Under Google Auth Platform, set the audience to External, add the `https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/gmail.send` scopes, and publish the app to production. While the app is in testing, Google expires its refresh tokens after 7 days. `gmail.send` is a sensitive scope, so Google shows an unverified app screen at sign-in and limits the app to 100 users until it is verified. Only the one account signs in, so the app needs no verification.
+3. Under Clients, create an OAuth client of the Desktop app type. In `.env`, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to its client ID and secret.
+4. Run the script on a computer with a browser. Open the link it prints, and sign in with the Google account. At the unverified app screen, choose Advanced, then go on to the app. Allow both permissions. The script prints `GOOGLE_REFRESH_TOKEN=...`.
+
+   ```sh
+   npm run google:token
+   ```
+
+5. Set the secrets, and deploy the functions. `[functions.drive-download]` in `supabase/config.toml` turns off the JWT check for `drive-download`, since a download URL carries its own signature.
+
+   ```sh
+   npx supabase secrets set STORAGE_ADAPTER=drive MAIL_ADAPTER=gmail GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... GOOGLE_REFRESH_TOKEN=...
+   npx supabase functions deploy
+   ```
+
+The files go in an `eCourseFile` folder in the account's My Drive. The database records each file by its Drive id, so a file you move in Google Drive still downloads. A folder you move or rename is no longer at its path, so the adapter makes a new one there for later uploads. An upload whose session opened on a worker that still had the old folder's id can then fail at finalize with `not_found`. Leave the folders as the adapter made them.
+
+Google stops a refresh token when it goes unused for six months, when the account's password changes, since the token holds a Gmail scope, when the account removes the app's access, and when the account holds more than 100 refresh tokens for the client. Uploads and email then fail with `Google token request failed`. Run `npm run google:token` again and set the new `GOOGLE_REFRESH_TOKEN`.
+
+Gmail warns that an account may send at most 500 emails a day. Each password reset is one email, and each audit request one email to all its recipients.
 
 ## Seeding root again
 
@@ -373,34 +395,10 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 `supabase/functions/_shared/storage.ts` defines the storage adapter: create an upload session for a path, get the item at a path, read an item's first bytes, copy an item to a path, give a short-lived download URL for an item, and delete an item for good. `STORAGE_ADAPTER` picks the implementation.
 
-- `drive` (`_shared/drive-storage.ts`) stores items in folders under the My Drive of one Google account. It signs in with the refresh token in `GOOGLE_REFRESH_TOKEN` for the `drive.file` scope, so it sees and changes only the folders and files it made. Drive finds items by id and lets a folder hold two items of the same name, so the adapter finds a path one folder name at a time from My Drive's root, and keeps each folder's id for the life of the worker. When two requests make the same folder at once, both use the older one, and the newer one stays empty. The upload session is a Drive resumable upload. The adapter passes the browser's `Origin` header when it opens the session, so Drive answers the browser's chunks with CORS headers. Drive copies at once, so a reuse never waits. Drive has no download URL that works without an Authorization header, so the download URL is `<SUPABASE_URL>/functions/v1/drive-download/<item id>?expires=<time>&signature=<HMAC>`, signed as the fake signs its URLs. The `drive-download` function streams the file from Drive to the browser, so every compiled course file counts toward the Supabase project's egress. A Drive error message holds at most the first 500 bytes of the response body. No automated test covers it.
+- `drive` (`_shared/drive-storage.ts`) stores items in folders under the My Drive of one Google account. It signs in as the Google account in `_shared/google.ts`, with the `drive.file` scope, so it sees and changes only the folders and files it made. Drive finds items by id and lets a folder hold two items of the same name, so the adapter finds a path one folder name at a time from My Drive's root, and keeps each folder's id for the life of the worker. When two requests make the same folder at once, both use the older one, and the newer one stays empty. The upload session is a Drive resumable upload. The adapter passes the browser's `Origin` header when it opens the session, so Drive answers the browser's chunks with CORS headers. Drive copies at once, so a reuse never waits. Drive has no download URL that works without an Authorization header, so the download URL is `<SUPABASE_URL>/functions/v1/drive-download/<item id>?expires=<time>&signature=<HMAC>`, signed as the fake signs its URLs. The `drive-download` function streams the file from Drive to the browser, so every compiled course file counts toward the Supabase project's egress. A Google error message, from `_shared/google.ts`, holds at most the first 500 bytes of the response body. No automated test covers it.
 - `fake` (`_shared/fake-storage.ts`) keeps items in the `fake_storage` schema, which only the service role can use. Its upload URLs point at the `fake-storage` Edge Function. Like a Drive upload session URL, that function takes chunks without an Authorization header, refuses chunks out of order, wants every chunk except the last in multiples of 256 KiB, and answers each of those with HTTP 308. It passes each chunk to `fake_storage.put_chunk` as the raw request body, with the session, start and total in headers. Encoding a 5 MiB chunk as text cost the worker about 100 ms of CPU, and the edge runtime retires a worker after 1 s of CPU, so a chunk could fail with HTTP 503 or 546. The fake takes an item's type from its name. It copies an item inside the database with `fake_storage.copy_item`, so the bytes never pass through an Edge Function. Its download URL is `<FAKE_STORAGE_URL>/<item id>?expires=<time>&signature=<HMAC>`, which works for an hour. The `fake-storage` function answers a `GET` of it, without an Authorization header, with the item's bytes, if the signature matches the item and expiry. `_shared/download-url.ts` signs it with the service role key, so the URL needs no stored session. It streams the bytes from `fake_storage.read_item`, which PostgREST sends as the raw body because the function returns the `"application/octet-stream"` domain, so the worker never encodes them. A changed or expired URL gets HTTP 401, and a deleted item 404. Seam 1 tests read `fake_storage.items` with the secret key.
 
 `supabase/config.toml` exposes the `fake_storage` schema to the API, so the schema comes from a migration and exists in every database.
-
-### Google Drive setup
-
-A hosted project stores files in the My Drive of one Google account. A personal Google account has 15 GB, which it shares with its Gmail and Google Photos. The account owns the files, so use an account that outlives any one staff member.
-
-1. In the Google Cloud console, create a project and enable the Google Drive API.
-2. Under Google Auth Platform, set the audience to External, add the `https://www.googleapis.com/auth/drive.file` scope, and publish the app to production. While the app is in testing, Google expires its refresh tokens after 7 days. `drive.file` is a non-sensitive scope, so publishing needs no review by Google.
-3. Under Clients, create an OAuth client of the Desktop app type. In `.env`, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to its client ID and secret.
-4. Run the script on a computer with a browser. Open the link it prints, and sign in with the Google account that will hold the files. The script prints `GOOGLE_REFRESH_TOKEN=...`.
-
-   ```sh
-   npm run drive:token
-   ```
-
-5. Set the secrets, and deploy the functions. `[functions.drive-download]` in `supabase/config.toml` turns off the JWT check for `drive-download`, since a download URL carries its own signature.
-
-   ```sh
-   npx supabase secrets set STORAGE_ADAPTER=drive GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... GOOGLE_REFRESH_TOKEN=...
-   npx supabase functions deploy
-   ```
-
-The files go in an `eCourseFile` folder in the account's My Drive. The database records each file by its Drive id, so a file you move in Google Drive still downloads. A folder you move or rename is no longer at its path, so the adapter makes a new one there for later uploads. An upload whose session opened on a worker that still had the old folder's id can then fail at finalize with `not_found`. Leave the folders as the adapter made them.
-
-Google stops a refresh token when it goes unused for six months, when the account removes the app's access, and when the account holds more than 100 refresh tokens for the client. Uploads then fail with `Drive token request failed`. Run `npm run drive:token` again and set the new `GOOGLE_REFRESH_TOKEN`.
 
 ## Auditor verdicts
 
@@ -667,7 +665,7 @@ On the local stack, Supabase Auth reaches the function at `http://host.docker.in
 
 `supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. The `send-email` and `audit-requests` functions send through it, and escape what users wrote with `escapeHtml` in `_shared/html.ts`. `MAIL_ADAPTER` picks the implementation.
 
-- `graph` (`_shared/graph-mail.ts`) sends from the shared mailbox in `GRAPH_MAILBOX` with Graph `sendMail`, as the Entra app in the `GRAPH_*` secrets, with an app-only token. Graph keeps a copy in the mailbox's Sent Items. Exchange limits the app to that mailbox through RBAC for Applications. No automated test covers it.
+- `gmail` (`_shared/gmail-mail.ts`) sends through the Gmail API `messages.send`, as the Google account in `_shared/google.ts`, with the `gmail.send` scope. It builds an RFC 2822 message with every recipient in `To`, and no `From`, which Gmail fills in with the account's address. The subject and the HTML body go as UTF-8 in base64, so text that a user wrote cannot add a header. It refuses a recipient address that holds a line break or a comma. Gmail keeps a copy in the account's Sent folder. See [Google account setup](#google-account-setup). No automated test covers it.
 - `fake` (`_shared/fake-mail.ts`) records each email in `fake_mail.outbox`, with its recipients, subject, HTML and time. Only the service role can use the `fake_mail` schema. Seam 1 tests read it with the secret key. To read the latest email on the local stack, such as a reset link:
 
   ```sh

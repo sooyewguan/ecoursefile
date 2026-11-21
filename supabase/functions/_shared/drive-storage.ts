@@ -1,15 +1,14 @@
-// Google Drive storage. The app signs in as one Google account with a refresh token for the
-// drive.file scope, so it sees only the folders and files it made. Items live in folders under that
+// Google Drive storage. The app signs in as the Google account in google.ts, with the drive.file
+// scope, so it sees only the folders and files it made. Items live in folders under that
 // account's My Drive, named as the path says.
 //
 // Drive finds items by id, not by path, and lets a folder hold two items of the same name. So the
 // adapter walks the path one folder at a time from the root, and when two requests make the same
 // folder at once, both use the older one. An empty newer folder may stay behind.
 import { signedDownloadUrl } from './download-url.ts'
-import { firstBytes, requiredEnv } from './http.ts'
+import { type GoogleCredentials, googleClient, googleFailure } from './google.ts'
+import { firstBytes } from './http.ts'
 import type { Storage, StoredItem } from './storage.ts'
-
-export type DriveCredentials = { clientId: string; clientSecret: string; refreshToken: string }
 
 export const DRIVE_URL = 'https://www.googleapis.com/drive/v3'
 
@@ -25,61 +24,16 @@ type DriveFile = { id: string; size?: string; mimeType: string }
 
 const FILE_FIELDS = 'id,size,mimeType'
 
-export function driveCredentialsFromEnv(): DriveCredentials {
-  return {
-    clientId: requiredEnv('GOOGLE_CLIENT_ID'),
-    clientSecret: requiredEnv('GOOGLE_CLIENT_SECRET'),
-    refreshToken: requiredEnv('GOOGLE_REFRESH_TOKEN'),
-  }
-}
-
-export function driveClient(credentials: DriveCredentials) {
-  let token: { value: string; expiresAt: number } | null = null
-
-  /** An access token from the refresh token, fetched again a minute before the last one expires. */
-  async function accessToken() {
-    if (token && token.expiresAt > Date.now() + 60_000) return token.value
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      body: new URLSearchParams({
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        refresh_token: credentials.refreshToken,
-        grant_type: 'refresh_token',
-      }),
-    })
-    if (!response.ok) throw await driveFailure(response, 'token request')
-    const body: { access_token: string; expires_in: number } = await response.json()
-    token = { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 }
-    return token.value
-  }
-
-  /** Calls Drive as the account, with a JSON body, if any, and any other headers. */
-  async function drive(method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
-    return fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${await accessToken()}`,
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json; charset=UTF-8' }),
-        ...headers,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-  }
-
-  return { drive }
-}
-
 /** downloadFunctionUrl is the drive-download Edge Function's URL as the browser reaches it. */
-export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl: string): Storage {
-  const { drive } = driveClient(credentials)
+export function driveStorage(credentials: GoogleCredentials, downloadFunctionUrl: string): Storage {
+  const { google: drive } = googleClient(credentials)
   /** Folder ids by path. The adapter never deletes a folder, so an id stays right. */
   const folders = new Map<string, string>()
 
   async function list<T>(query: string, fields: string): Promise<T[]> {
     const params = new URLSearchParams({ q: query, fields: `files(${fields})`, spaces: 'drive', pageSize: '100' })
     const response = await drive('GET', `${DRIVE_URL}/files?${params}`)
-    if (!response.ok) throw await driveFailure(response, 'list files')
+    if (!response.ok) throw await googleFailure(response, 'list files')
     return (await response.json()).files
   }
 
@@ -104,7 +58,7 @@ export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl:
     let id = await childFolder(parentId, name)
     if (!id && make) {
       const made = await drive('POST', `${DRIVE_URL}/files?fields=id`, { name, mimeType: FOLDER_TYPE, parents: [parentId] })
-      if (!made.ok) throw await driveFailure(made, 'create folder')
+      if (!made.ok) throw await googleFailure(made, 'create folder')
       const { id: madeId }: { id: string } = await made.json()
       // A request at the same time may have made one too. Both take the older one.
       id = (await childFolder(parentId, name)) ?? madeId
@@ -121,7 +75,7 @@ export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl:
       const parentId = (await folderAt(folder, true))!
       const response = await drive('POST', `${UPLOAD_URL}?uploadType=resumable`, { name, parents: [parentId] }, origin ? { Origin: origin } : {})
       const uploadUrl = response.headers.get('Location')
-      if (!response.ok || !uploadUrl) throw await driveFailure(response, 'create upload session')
+      if (!response.ok || !uploadUrl) throw await googleFailure(response, 'create upload session')
       await response.body?.cancel()
       return { uploadUrl, expiresAt: new Date(Date.now() + SESSION_LIFETIME_MS).toISOString() }
     },
@@ -136,7 +90,7 @@ export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl:
 
     async readStart(id, length) {
       const response = await drive('GET', `${DRIVE_URL}/files/${encodeURIComponent(id)}?alt=media`, undefined, { Range: `bytes=0-${length - 1}` })
-      if (!response.ok) throw await driveFailure(response, 'download')
+      if (!response.ok) throw await googleFailure(response, 'download')
       return firstBytes(response, length)
     },
 
@@ -149,7 +103,7 @@ export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl:
         await response.body?.cancel()
         return null
       }
-      if (!response.ok) throw await driveFailure(response, 'copy')
+      if (!response.ok) throw await googleFailure(response, 'copy')
       return storedItem(await response.json())
     },
 
@@ -160,16 +114,10 @@ export function driveStorage(credentials: DriveCredentials, downloadFunctionUrl:
     // DELETE skips the trash.
     async deleteItem(id) {
       const response = await drive('DELETE', `${DRIVE_URL}/files/${encodeURIComponent(id)}`)
-      if (!response.ok && response.status !== 404) throw await driveFailure(response, 'delete')
+      if (!response.ok && response.status !== 404) throw await googleFailure(response, 'delete')
       await response.body?.cancel()
     },
   }
-}
-
-/** An error with the status and the start of the body, which may be long or binary. */
-export async function driveFailure(response: Response, what: string) {
-  const body = new TextDecoder().decode(await firstBytes(response, 500))
-  return new Error(`Drive ${what} failed with ${response.status}: ${body}`)
 }
 
 function storedItem(file: DriveFile): StoredItem {

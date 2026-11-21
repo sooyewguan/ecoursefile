@@ -4,7 +4,7 @@
 // while the signature matches and the expiry is in the future.
 import { SERVICE } from './http.ts'
 
-/** How long a download URL works, about as long as a Graph download URL did. */
+/** How long a download URL works. */
 const LIFETIME_MS = 60 * 60 * 1000
 
 const signingKey = crypto.subtle.importKey('raw', new TextEncoder().encode(SERVICE), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])

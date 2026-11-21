@@ -1,7 +1,8 @@
 // The storage library behind the files Edge Function. The STORAGE_ADAPTER secret picks Google Drive
 // (drive) or the local fake (fake). Paths are relative to the library's root, with / between folders.
-import { driveCredentialsFromEnv, driveStorage } from './drive-storage.ts'
+import { driveStorage } from './drive-storage.ts'
 import { fakeStorage } from './fake-storage.ts'
+import { googleCredentialsFromEnv } from './google.ts'
 import { requiredEnv } from './http.ts'
 
 export type StoredItem = { id: string; size: number; mimeType: string }
@@ -35,7 +36,7 @@ export interface Storage {
 export function storageFromEnv(): Storage {
   switch (Deno.env.get('STORAGE_ADAPTER')) {
     case 'drive':
-      return driveStorage(driveCredentialsFromEnv(), `${requiredEnv('SUPABASE_URL')}/functions/v1/drive-download`)
+      return driveStorage(googleCredentialsFromEnv(), `${requiredEnv('SUPABASE_URL')}/functions/v1/drive-download`)
     case 'fake':
       return fakeStorage(requiredEnv('FAKE_STORAGE_URL'))
     default:

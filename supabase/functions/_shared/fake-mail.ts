@@ -1,4 +1,4 @@
-// A stand-in for the shared mailbox on the local stack. It records each email in the fake_mail
+// A stand-in for Gmail on the local stack. It records each email in the fake_mail
 // schema instead of sending it, so seam 1 tests can read what was sent to whom.
 import { rest, SERVICE } from './http.ts'
 import type { Mailer } from './mail.ts'
