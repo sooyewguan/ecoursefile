@@ -1,6 +1,7 @@
 import { isGlobalRole, type GlobalRole } from './roles.ts'
 
-export type Profile = { id: string; email: string; fullName: string }
+/** The signed-in user. displayName is how the app names them to others: their title and full name. */
+export type Profile = { id: string; email: string; fullName: string; title: string | null; displayName: string }
 
 export type AuthState =
   | { kind: 'loading' }

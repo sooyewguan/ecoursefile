@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { plural } from '@/lib/utils'
-import { MAX_IMPORT_ROWS, ROLE_SEPARATOR, USER_IMPORT_TEMPLATE, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
+import { MAX_IMPORT_ROWS, MAX_TITLE_LENGTH, ROLE_SEPARATOR, USER_IMPORT_TEMPLATE, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import type { GlobalRole } from '../roles.ts'
 
 /**
@@ -44,6 +44,9 @@ export function ImportUsersDialog({
           <li>
             <code>roles</code>: {roles.join(', ')}, with several separated by <code>{ROLE_SEPARATOR}</code>, such as{' '}
             <code>lecturer{ROLE_SEPARATOR}hod</code>.
+          </li>
+          <li>
+            <code>title</code>, if the file has it: a title such as Dr. or Ts., of at most {MAX_TITLE_LENGTH} characters, or empty for none.
           </li>
         </ul>
         <p className="text-muted-foreground">

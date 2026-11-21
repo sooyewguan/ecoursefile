@@ -8,12 +8,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { useAuth } from '../auth-provider.tsx'
+import { MAX_TITLE_LENGTH } from '../../supabase/functions/_shared/user-import.ts'
+import type { Profile as SignedInProfile } from '../auth.ts'
+import { useAuth, useReloadAuth } from '../auth-provider.tsx'
 import { supabase } from '../supabase.ts'
 
 type Department = { code: string; name: string }
 
-/** The signed-in user's own account: who they are, their department and roles, and a new password. */
+/** The signed-in user's own account: their title and name, their department and roles, and a new password. */
 export function Profile() {
   const state = useAuth()
   const userId = state.kind === 'ready' ? state.profile.id : null
@@ -48,41 +50,125 @@ export function Profile() {
 
   return (
     <div className="grid max-w-2xl gap-6">
-      <PageHeader title="My profile" description="Your account details and password." />
+      <PageHeader title="My profile" description="Your name as others see it, your account details and your password." />
 
       <Card>
-        <CardHeader className="flex items-start gap-4 sm:items-center">
-          <Initials name={state.profile.fullName} className="size-12 text-base sm:size-14 sm:text-lg" />
-          <div className="grid min-w-0 gap-1">
-            <CardTitle className="text-lg">{state.profile.fullName}</CardTitle>
-            <CardDescription className="break-all">{state.profile.email}</CardDescription>
-          </div>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            <h2>Your details</h2>
+          </CardTitle>
+          <CardDescription>eCourseFile shows your title and name wherever it names you to others.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <dl className="grid gap-4 text-sm sm:grid-cols-[8rem_1fr]">
-            <dt className="text-muted-foreground">Department</dt>
-            <dd>
-              {department === undefined ? (
-                <Skeleton className="h-5 w-40" />
-              ) : departmentError ? (
-                <span className="text-destructive">Could not read your department: {departmentError}</span>
-              ) : department ? (
-                `${department.code} ${department.name}`
-              ) : (
-                'None'
-              )}
-            </dd>
-            <dt className="text-muted-foreground">Roles</dt>
-            <dd>{state.roles.length > 0 ? <RoleBadges roles={state.roles} /> : 'None'}</dd>
-          </dl>
-          <p className="text-muted-foreground mt-6 text-sm">
-            To change your name, email, department or roles, ask an admin.
-          </p>
+        <CardContent className="grid gap-6">
+          <DetailsForm profile={state.profile} />
+          <div className="grid gap-4 border-t pt-6">
+            <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr] sm:gap-y-4">
+              <dt className="text-muted-foreground">Email</dt>
+              <dd className="mb-2 break-all sm:mb-0">{state.profile.email}</dd>
+              <dt className="text-muted-foreground">Department</dt>
+              <dd className="mb-2 sm:mb-0">
+                {department === undefined ? (
+                  <Skeleton className="h-5 w-40" />
+                ) : departmentError ? (
+                  <span className="text-destructive">Could not read your department: {departmentError}</span>
+                ) : department ? (
+                  `${department.code} ${department.name}`
+                ) : (
+                  'None'
+                )}
+              </dd>
+              <dt className="text-muted-foreground">Roles</dt>
+              <dd>{state.roles.length > 0 ? <RoleBadges roles={state.roles} /> : 'None'}</dd>
+            </dl>
+            <p className="text-muted-foreground text-sm">An admin changes your email, department and roles.</p>
+          </div>
         </CardContent>
       </Card>
 
       <PasswordCard />
     </div>
+  )
+}
+
+/** How the app names a person: the title and the full name, as the profiles table's display_name joins them. */
+function displayNameOf(title: string, fullName: string) {
+  return [title.trim(), fullName.trim()].filter(Boolean).join(' ')
+}
+
+/** The user's title and full name, saved with update_my_profile. Every page shows the new name once it is saved. */
+function DetailsForm({ profile }: { profile: SignedInProfile }) {
+  const reloadAuth = useReloadAuth()
+  const [title, setTitle] = useState(profile.title ?? '')
+  const [fullName, setFullName] = useState(profile.fullName)
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [busy, setBusy] = useState(false)
+  const changed = fullName.trim() !== profile.fullName || (title.trim() || null) !== profile.title
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    const { error } = await supabase.rpc('update_my_profile', { full_name: fullName, title })
+    if (!error) await reloadAuth()
+    setBusy(false)
+    if (error) {
+      setNotice({ tone: 'error', text: error.message })
+      return
+    }
+    setTitle(title.trim())
+    setFullName(fullName.trim())
+    setNotice({ tone: 'success', text: `Saved. Others now see you as ${displayNameOf(title, fullName)}.` })
+  }
+
+  return (
+    <form onSubmit={onSubmit} aria-label="Your details" className="grid gap-5">
+      <div className="grid gap-5 sm:grid-cols-[10rem_1fr]">
+        <div className="grid content-start gap-2">
+          <Label htmlFor="title">
+            Title <span className="text-muted-foreground font-normal">(optional)</span>
+          </Label>
+          <Input
+            id="title"
+            name="title"
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value)
+              setNotice(null)
+            }}
+            placeholder="Dr., Prof. Madya, Ts."
+            maxLength={MAX_TITLE_LENGTH}
+            autoComplete="honorific-prefix"
+          />
+        </div>
+        <div className="grid content-start gap-2">
+          <Label htmlFor="full-name">Full name</Label>
+          <Input
+            id="full-name"
+            name="fullName"
+            value={fullName}
+            onChange={(event) => {
+              setFullName(event.target.value)
+              setNotice(null)
+            }}
+            autoComplete="name"
+            required
+          />
+        </div>
+      </div>
+      {fullName.trim() && (
+        <div className="bg-muted/50 flex items-center gap-3 rounded-lg border px-3 py-2.5" aria-live="polite">
+          <Initials name={fullName} className="bg-background" />
+          <p className="min-w-0 text-sm">
+            <span className="text-muted-foreground">Shown to others as </span>
+            <span className="font-medium break-words">{displayNameOf(title, fullName)}</span>
+          </p>
+        </div>
+      )}
+      {notice && <NoticeAlert notice={notice} />}
+      <Button type="submit" disabled={busy || !changed} className="justify-self-start">
+        {busy && <Spinner />}
+        Save
+      </Button>
+    </form>
   )
 }
 

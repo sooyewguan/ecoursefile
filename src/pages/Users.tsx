@@ -16,7 +16,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ImportResults, ImportUsersDialog } from '@/components/user-import'
 import { cn } from '@/lib/utils'
-import type { ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
+import { MAX_TITLE_LENGTH, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
@@ -25,6 +25,9 @@ type UserRow = {
   id: string
   email: string
   full_name: string
+  title: string | null
+  /** The title and full name, as the app names the user to others. */
+  display_name: string
   active: boolean
   department_id: string | null
   /** Whether the signed-in user may edit, deactivate or reset this user, as the database decides. */
@@ -36,8 +39,11 @@ type Department = { id: string; code: string; name: string }
 
 type PageData = { users: UserRow[]; departments: Department[]; assignable: GlobalRole[] }
 
-/** What the edit dialog changes. A departmentId of undefined leaves the department as it is. */
-type UserChanges = { grant: GlobalRole[]; revoke: GlobalRole[]; departmentId?: string | null }
+/** The profile columns that admins write. */
+type ProfileChanges = { full_name?: string; title?: string | null; department_id?: string | null; active?: boolean }
+
+/** What the edit dialog changes. A column missing from profile stays as it is. */
+type UserChanges = { grant: GlobalRole[]; revoke: GlobalRole[]; profile: Omit<ProfileChanges, 'active'> }
 
 /** The dialog that is open, and the user it acts on. */
 type OpenDialog =
@@ -65,7 +71,7 @@ export function Users() {
     const [users, departments, assignable] = await Promise.all([
       supabase
         .from('profiles')
-        .select('id, email, full_name, active, department_id, manageable, user_roles(role)')
+        .select('id, email, full_name, title, display_name, active, department_id, manageable, user_roles(role)')
         .order('full_name'),
       supabase.from('departments').select('id, code, name').order('code'),
       supabase.rpc('assignable_roles'),
@@ -168,7 +174,7 @@ export function Users() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       <div className={cn('grid gap-0.5', !user.active && 'opacity-60')}>
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
-                          {user.full_name}
+                          {user.display_name}
                           {user.id === me && <Badge variant="outline">You</Badge>}
                         </span>
                         <span className="text-muted-foreground">{user.email}</span>
@@ -240,6 +246,7 @@ export function Users() {
                   action: 'create-user',
                   email,
                   fullName: String(form.get('fullName')),
+                  title: String(form.get('title')),
                   departmentId: String(form.get('departmentId') ?? '') || null,
                   roles: form.getAll('roles').map(String),
                   temporaryPassword: String(form.get('temporaryPassword')),
@@ -248,10 +255,7 @@ export function Users() {
             )
           }}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="create-full-name">Full name</Label>
-            <Input id="create-full-name" name="fullName" autoComplete="off" required />
-          </div>
+          <NameFields idPrefix="create" />
           <div className="grid gap-2">
             <Label htmlFor="create-email">Email</Label>
             <Input id="create-email" name="email" type="email" autoComplete="off" required />
@@ -273,6 +277,7 @@ export function Users() {
         <EditUserDialog
           user={dialog.user}
           assignable={assignable}
+          editsName={dialog.user.manageable}
           departments={choosesDepartment && dialog.user.manageable ? departments : null}
           onClose={close}
           onSave={(changes) => perform(() => saveUser(dialog.user, changes), `Saved the changes to ${dialog.user.email}.`)}
@@ -281,7 +286,7 @@ export function Users() {
 
       {dialog?.kind === 'reset-password' && (
         <FormDialog
-          title={`Reset the password of ${dialog.user.full_name}`}
+          title={`Reset the password of ${dialog.user.display_name}`}
           description={`Give ${dialog.user.email} a temporary password. They must change it at their next sign-in.`}
           submitLabel="Reset password"
           onClose={close}
@@ -306,7 +311,7 @@ export function Users() {
 
       {dialog?.kind === 'set-active' && (
         <ConfirmDialog
-          title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.full_name}?`}
+          title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.display_name}?`}
           description={
             dialog.user.active
               ? `${dialog.user.email} can no longer sign in. Their profile stays, and you can reactivate them later.`
@@ -392,15 +397,63 @@ function RoleCheckboxes({
   )
 }
 
+/** The title and full name of a new or edited user. Without values the inputs keep their own state and submit as title and fullName. */
+function NameFields({
+  idPrefix,
+  title,
+  fullName,
+  onTitleChange,
+  onFullNameChange,
+}: {
+  idPrefix: string
+  title?: string
+  fullName?: string
+  onTitleChange?: (value: string) => void
+  onFullNameChange?: (value: string) => void
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
+      <div className="grid content-start gap-2">
+        <Label htmlFor={`${idPrefix}-title`}>
+          Title <span className="text-muted-foreground font-normal">(optional)</span>
+        </Label>
+        <Input
+          id={`${idPrefix}-title`}
+          name="title"
+          value={title}
+          onChange={onTitleChange && ((event) => onTitleChange(event.target.value))}
+          placeholder="Dr., Ts."
+          maxLength={MAX_TITLE_LENGTH}
+          autoComplete="off"
+        />
+      </div>
+      <div className="grid content-start gap-2">
+        <Label htmlFor={`${idPrefix}-full-name`}>Full name</Label>
+        <Input
+          id={`${idPrefix}-full-name`}
+          name="fullName"
+          value={fullName}
+          onChange={onFullNameChange && ((event) => onFullNameChange(event.target.value))}
+          autoComplete="off"
+          required
+        />
+      </div>
+    </div>
+  )
+}
+
 function EditUserDialog({
   user,
   assignable,
+  editsName,
   departments,
   onSave,
   onClose,
 }: {
   user: UserRow
   assignable: GlobalRole[]
+  /** Whether the signed-in user may change this user's title and name. */
+  editsName: boolean
   /** The departments to choose from, or null when the signed-in user may not change this user's department. */
   departments: Department[] | null
   onSave: Action<[UserChanges]>
@@ -408,24 +461,34 @@ function EditUserDialog({
 }) {
   const held = user.user_roles.map((r) => r.role)
   const [roles, setRoles] = useState(() => assignable.filter((role) => held.includes(role)))
+  const [title, setTitle] = useState(user.title ?? '')
+  const [fullName, setFullName] = useState(user.full_name)
   const [departmentId, setDepartmentId] = useState(user.department_id ?? '')
 
+  const profile: UserChanges['profile'] = {
+    ...(fullName.trim() !== user.full_name && { full_name: fullName.trim() }),
+    ...((title.trim() || null) !== user.title && { title: title.trim() || null }),
+    ...(departmentId !== (user.department_id ?? '') && { department_id: departmentId || null }),
+  }
   const changes: UserChanges = {
     grant: roles.filter((role) => !held.includes(role)),
     revoke: assignable.filter((role) => held.includes(role) && !roles.includes(role)),
-    departmentId: departmentId === (user.department_id ?? '') ? undefined : departmentId || null,
+    profile,
   }
-  const changed = changes.grant.length > 0 || changes.revoke.length > 0 || changes.departmentId !== undefined
+  const changed = changes.grant.length > 0 || changes.revoke.length > 0 || Object.keys(profile).length > 0
 
   return (
     <FormDialog
-      title={`Edit ${user.full_name}`}
+      title={`Edit ${user.display_name}`}
       description={`${user.email}. Role changes take effect at their next sign-in, or within an hour.`}
       submitLabel="Save"
       submitDisabled={!changed}
       onClose={onClose}
-      onSubmit={() => onSave(changes)}
+      onSubmit={async () => (fullName.trim() === '' ? "Give the user's full name." : onSave(changes))}
     >
+      {editsName && (
+        <NameFields idPrefix="edit" title={title} fullName={fullName} onTitleChange={setTitle} onFullNameChange={setFullName} />
+      )}
       {departments && (
         <DepartmentSelect
           id="edit-department"
@@ -455,8 +518,8 @@ async function saveUser(user: UserRow, changes: UserChanges): Promise<string | n
     const { error } = await supabase.from('user_roles').delete().match({ user_id: user.id, role })
     if (error) return error.message
   }
-  if (changes.departmentId !== undefined) {
-    const error = await updateProfile(user, { department_id: changes.departmentId })
+  if (Object.keys(changes.profile).length > 0) {
+    const error = await updateProfile(user, changes.profile)
     if (error) return error
   }
   for (const role of changes.grant) {
@@ -466,7 +529,7 @@ async function saveUser(user: UserRow, changes: UserChanges): Promise<string | n
   return null
 }
 
-async function updateProfile(user: UserRow, changes: { department_id?: string | null; active?: boolean }) {
+async function updateProfile(user: UserRow, changes: ProfileChanges) {
   const { error } = await supabase.from('profiles').update(changes).eq('id', user.id)
   return error?.message ?? null
 }

@@ -142,16 +142,16 @@ function UserMenu({ profile, roles }: { profile: Profile; roles: GlobalRole[] })
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-10 gap-2 px-1.5 sm:pr-2" aria-label={`Account menu for ${profile.fullName}`}>
+        <Button variant="ghost" className="h-10 gap-2 px-1.5 sm:pr-2" aria-label={`Account menu for ${profile.displayName}`}>
           <Initials name={profile.fullName} />
-          <span className="hidden max-w-48 truncate sm:inline">{profile.fullName}</span>
+          <span className="hidden max-w-48 truncate sm:inline">{profile.displayName}</span>
           <ChevronDownIcon className="text-muted-foreground hidden sm:block" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel className="grid gap-2 font-normal">
           <div className="grid gap-0.5">
-            <span className="truncate font-medium">{profile.fullName}</span>
+            <span className="truncate font-medium">{profile.displayName}</span>
             <span className="text-muted-foreground truncate text-xs">{profile.email}</span>
           </div>
           <RoleBadges roles={roles} />

@@ -21,7 +21,8 @@ import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from 
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
 
-type Person = { id: string; full_name: string; email: string; active: boolean; user_roles: { role: GlobalRole }[] }
+/** display_name is the title and full name, as the app names a person to others. */
+type Person = { id: string; display_name: string; email: string; active: boolean; user_roles: { role: GlobalRole }[] }
 
 type Course = { id: string; code: string; title: string }
 
@@ -108,7 +109,7 @@ export function Semester() {
         .overrideTypes<SharedFile[], { merge: false }>(),
       supabase.from('program_codes').select('id, code').order('code'),
       supabase.from('courses').select('id, code, title').order('code'),
-      supabase.from('profiles').select('id, full_name, email, active, user_roles(role)').order('full_name'),
+      supabase.from('profiles').select('id, display_name, email, active, user_roles(role)').order('full_name'),
     ])
     if (semester.error || offerings.error || sharedFiles.error || programCodes.error || courses.error || people.error) {
       const error = semester.error ?? offerings.error ?? sharedFiles.error ?? programCodes.error ?? courses.error ?? people.error
@@ -154,7 +155,7 @@ export function Semester() {
   }
 
   const people = data?.people ?? []
-  const nameOf = new Map(people.map((person) => [person.id, person.full_name]))
+  const nameOf = new Map(people.map((person) => [person.id, person.display_name]))
   const offeredCourseIds = new Set(data?.offerings.map((offering) => offering.course_id))
   const unofferedCourses = (data?.courses ?? []).filter((course) => !offeredCourseIds.has(course.id))
   const shownCodes = (data?.programCodes ?? []).filter((programCode) => programCode.code.toLowerCase().includes(codeFilter.trim().toLowerCase()))
@@ -576,7 +577,7 @@ function StaffFields({ people, offering }: { people: Person[]; offering?: Offeri
           </NativeSelectOption>
           {candidates.map((person) => (
             <NativeSelectOption key={person.id} value={person.id}>
-              {person.full_name}
+              {person.display_name}
             </NativeSelectOption>
           ))}
         </NativeSelect>
@@ -594,7 +595,7 @@ function StaffFields({ people, offering }: { people: Person[]; offering?: Offeri
         <div className="grid max-h-64 gap-1 overflow-y-auto rounded-md border p-1">
           {candidates.map((person) => {
             const isCoordinator = person.id === coordinatorId
-            const shown = `${person.full_name} ${person.email}`.toLowerCase().includes(needle)
+            const shown = `${person.display_name} ${person.email}`.toLowerCase().includes(needle)
             return (
               // Rows that the filter hides stay in the form, so their ticks are still sent.
               <Label
@@ -611,7 +612,7 @@ function StaffFields({ people, offering }: { people: Person[]; offering?: Offeri
                   onCheckedChange={(checked) => toggle(person.id, checked === true)}
                 />
                 <span className="grid min-w-0 flex-1">
-                  <span className="truncate">{person.full_name}</span>
+                  <span className="truncate">{person.display_name}</span>
                   <span className="text-muted-foreground truncate text-xs">{person.email}</span>
                 </span>
                 {isCoordinator && <Badge variant="secondary">Coordinator</Badge>}
