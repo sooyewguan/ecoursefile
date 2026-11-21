@@ -58,11 +58,11 @@ const STORED_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_([^/]+)$/
 
 const storage = storageFromEnv()
 
-serveJson(async (body, caller) => {
+serveJson(async (body, caller, req) => {
   const request = await parseRequest(body, caller)
   switch (request.action) {
     case 'create-upload-session':
-      return createUploadSession(request.target, request.fileName, caller)
+      return createUploadSession(request.target, request.fileName, caller, req.headers.get('Origin'))
     case 'finalize-upload':
       return finalizeUpload(request.target, request.storedName, caller)
     case 'delete-file':
@@ -196,12 +196,12 @@ function isItemNumber(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 32767
 }
 
-async function createUploadSession(target: Target, fileName: string, caller: string) {
+async function createUploadSession(target: Target, fileName: string, caller: string, origin: string | null) {
   if (!hasPdfName(fileName)) throw new Refusal(422, 'not_pdf', UPLOAD_PROBLEM_MESSAGES.not_pdf)
   const folder = await uploadFolder(target, caller)
   await checkRoom(target, caller)
   const storedName = storedNameOf(fileName)
-  const session = await storage.createUploadSession(`${folder}/${storedName}`)
+  const session = await storage.createUploadSession(`${folder}/${storedName}`, origin)
   return { ...session, storedName }
 }
 
@@ -467,7 +467,7 @@ function sectionOf(number: number) {
   return SECTIONS.find((s) => s.number === number)!
 }
 
-/** text as one SharePoint path segment: no characters SharePoint forbids, and no trailing dots or spaces. */
+/** text as one folder or file name: no characters Windows forbids, and no trailing dots or spaces, so the folders sync to Windows. */
 function safeName(text: string) {
   return text
     .replace(/["*:<>?/\\|\u0000-\u001f]/g, '-')

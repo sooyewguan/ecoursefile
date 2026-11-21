@@ -62,8 +62,8 @@ export class FileActionError extends Error {
   }
 }
 
-/** Chunks are 5 MiB, a multiple of the 320 KiB that Graph requires. */
-const CHUNK_BYTES = 16 * 320 * 1024
+/** Chunks are 5 MiB, a multiple of the 256 KiB that Drive requires. */
+const CHUNK_BYTES = 20 * 256 * 1024
 
 /**
  * Uploads a PDF to the slot: merges it when pagesPerSheet says so, checks the result, asks for an
@@ -128,7 +128,10 @@ export function createUploadSession(client: SupabaseClient, slot: Slot | SharedS
   return callFiles<UploadSession>(client, { action: 'create-upload-session', ...slot, fileName })
 }
 
-/** PUTs the bytes to the upload URL in order, without an Authorization header, as Graph requires. */
+/**
+ * PUTs the bytes to the upload URL in order, without an Authorization header, as Drive requires.
+ * Drive answers 308 Resume Incomplete to each chunk before the last.
+ */
 export async function sendChunks(uploadUrl: string, bytes: Blob, onProgress?: (fraction: number) => void) {
   for (let start = 0; start < bytes.size; start += CHUNK_BYTES) {
     const end = Math.min(start + CHUNK_BYTES, bytes.size)
@@ -137,7 +140,7 @@ export async function sendChunks(uploadUrl: string, bytes: Blob, onProgress?: (f
       headers: { 'Content-Range': `bytes ${start}-${end - 1}/${bytes.size}` },
       body: bytes.slice(start, end),
     })
-    if (!response.ok) throw new FileActionError('upload_failed', `The upload stopped with HTTP ${response.status}.`, response.status)
+    if (!response.ok && response.status !== 308) throw new FileActionError('upload_failed', `The upload stopped with HTTP ${response.status}.`, response.status)
     onProgress?.(end / bytes.size)
   }
 }
