@@ -1,11 +1,13 @@
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
+import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
-import { SectionStatusBadge } from '@/components/section-status'
+import { SectionPager } from '@/components/section-pager'
+import { useSectionSwitch } from '@/components/section-switch'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +17,7 @@ import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdow
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize, plural } from '@/lib/utils'
+import { useAuth } from '../auth-provider.tsx'
 import {
   isReusable,
   itemName,
@@ -27,7 +30,7 @@ import {
 } from '../sections.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
-import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
+import { deleteFile, deleteItem, listReusableFiles, uploadFile, type ReusableFile } from '../uploads.ts'
 
 /** An item of a section with items, such as Lab 2. */
 type SectionItem = { number: number; deletable: boolean }
@@ -50,6 +53,10 @@ type Offering = {
   linked_files: Omit<SectionFile, 'deletable'>[]
   /** The switchable sections that are on. */
   sections_on: number[]
+  /** The reason for each switchable section whose setting differs from the course type, by section number. */
+  section_reasons: Record<string, string>
+  /** Every lecturer of the offering, the coordinator included. */
+  lecturers: { lecturer_id: string }[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
@@ -70,17 +77,15 @@ type Progress = Place & { name: string; index: number; count: number; fraction: 
 /** Below md the uploader and time move into the file cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: drag handle, file, uploaded by, uploaded at and the row menu. */
-const COLUMNS = ['', '', WIDE, WIDE, '']
-
 /**
  * One section of a course file: its files in the order staff set, one list per slot when the
- * section has slots, and its numbered items in sections 11 to 16, each with the section's slots.
- * The offering's coordinator and lecturers add items, upload PDFs and drag them into order. The
- * uploader or the coordinator deletes a file, and staff who may delete every file in an item
- * delete the item. In a reusable place, such as Lecture Notes, staff also copy in a file from a past
- * offering of the same course. A section of a shared file, such as Academic Calendar, lists the file
- * that the course file links.
+ * section has slots, and its numbered items in sections 11 to 16, each with the section's slots,
+ * then its review and links to the sections either side. Each file opens in a new tab. The
+ * offering's coordinator and lecturers add items, upload PDFs and drag them into order, and switch
+ * a switched-off section back on. The uploader or the coordinator deletes a file, and staff who may
+ * delete every file in an item delete the item. In a reusable place, such as Lecture Notes, staff
+ * also copy in a file from a past offering of the same course. A section of a shared file, such as
+ * Academic Calendar, lists the file that the course file links.
  */
 export function CourseFileSection() {
   const params = useParams()
@@ -95,6 +100,9 @@ export function CourseFileSection() {
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
   const [deletingItem, setDeletingItem] = useState<SectionItem | null>(null)
   const [reusingInto, setReusingInto] = useState<ReuseTarget | null>(null)
+  /** The files of past offerings that staff may reuse, by slot name, or under null in a section without slots. */
+  const [reusable, setReusable] = useState<ReadonlyMap<string | null, ReusableFile[]>>(new Map())
+  const auth = useAuth()
   const picker = useRef<HTMLInputElement>(null)
   /** Where the files picked next go. */
   const picking = useRef<Place>({ item: null, slot: null })
@@ -104,7 +112,9 @@ export function CourseFileSection() {
     const [offering, items, files, canUpload, statuses] = await Promise.all([
       supabase
         .from('offerings')
-        .select('semester:semesters(code), course:courses(code, title), sections_on, linked_files(id, item, slot, name, size, uploaded_at, uploader_name)')
+        .select(
+          'semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
+        )
         .eq('id', offeringId)
         .eq('linked_files.section', section.number)
         .maybeSingle()
@@ -146,6 +156,28 @@ export function CourseFileSection() {
     void reload()
   }, [reload])
 
+  const canUpload = data?.canUpload ?? false
+  const firstItem = data?.items[0]?.number
+
+  // Reuse from past shows only where there is something to reuse. The list of a slot is the same for
+  // every item, so the first item's stands for all.
+  useEffect(() => {
+    if (!section || !canUpload || (section.itemTitle && firstItem === undefined)) return
+    const slotNames = (SECTION_SLOTS[section.number]?.map((slot) => slot.name) ?? [null]).filter((slot) => isReusable({ section: section.number, slot }))
+    let current = true
+    Promise.all(
+      slotNames.map(async (slot) => [slot, await listReusableFiles(supabase, { offeringId, section: section.number, item: firstItem, slot: slot ?? undefined })] as const),
+    ).then(
+      (lists) => current && setReusable(new Map(lists)),
+      () => {},
+    )
+    return () => {
+      current = false
+    }
+  }, [offeringId, section, canUpload, firstItem])
+
+  const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId, reload)
+
   const backLink = (
     <Button asChild variant="outline">
       <Link to={`/course-files/${offeringId}`}>
@@ -171,9 +203,10 @@ export function CourseFileSection() {
   }
 
   const files = data?.files ?? []
-  const canUpload = data?.canUpload ?? false
   /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
   const isOff = section.kind === 'switchable' && data?.offering?.sections_on.includes(section.number) === false
+  const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const isStaff = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
   const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
@@ -252,10 +285,10 @@ export function CourseFileSection() {
       </Button>
     )
 
-  /** Opens the reuse picker for a reusable place. title names the place. */
+  /** Opens the reuse picker for a place with files to reuse. title names the place. */
   const reuseButton = (place: Place, title: string) =>
     canUpload &&
-    isReusable({ section: section.number, slot: place.slot }) && (
+    (reusable.get(place.slot)?.length ?? 0) > 0 && (
       <Button variant="outline" onClick={() => setReusingInto({ ...place, title })} disabled={progress !== null}>
         <HistoryIcon />
         Reuse from past
@@ -275,9 +308,7 @@ export function CourseFileSection() {
       canUpload={canUpload}
       compact={place.slot !== null}
       empty={
-        isOff
-          ? { title: 'No files yet', description: 'This section is off for this offering.' }
-          : section.sharedFile
+        section.sharedFile
             ? { title: `Not uploaded for ${data?.offering?.semester.code ?? 'this semester'} yet` }
             : { title: 'No files yet', description: canUpload ? uploadRule(oneFile) : undefined }
       }
@@ -320,12 +351,7 @@ export function CourseFileSection() {
     tableFor({ item: null, slot: null }, 'Files')
   ) : data.items.length === 0 ? (
     <Card className="py-0">
-      <EmptyState
-        icon={LayersIcon}
-        title="No items yet"
-        description={isOff ? 'This section is off for this offering.' : undefined}
-        action={!isOff && addItemButton}
-      />
+      <EmptyState icon={LayersIcon} title="No items yet" action={addItemButton} />
     </Card>
   ) : (
     data.items.map((item) => {
@@ -375,13 +401,6 @@ export function CourseFileSection() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      {data?.status && (
-        <div>
-          <SectionStatusBadge status={data.status} />
-        </div>
-      )}
-      <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} status={data?.status ?? null} onRecorded={reload} />
-
       {progress && (
         <p role="status" className="text-sm">
           {progress.fraction === null && progressPerSheet
@@ -389,7 +408,34 @@ export function CourseFileSection() {
             : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
-      {section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files')}
+      {isOff && (
+        <Card className="py-0">
+          <EmptyState
+            icon={PowerIcon}
+            title={`${section.title} is off`}
+            action={
+              isStaff && (
+                <Button
+                  variant="outline"
+                  disabled={switching !== null}
+                  onClick={() =>
+                    void requestSwitch({ section: section.number, title: section.title, isOn: true, reason: data?.offering?.section_reasons[section.number] })
+                  }
+                >
+                  {switching ? <Spinner /> : <PowerIcon />}
+                  Switch on
+                </Button>
+              )
+            }
+          />
+        </Card>
+      )}
+      {/* A switched-off section shows the files and items it still has. */}
+      {!(isOff && files.length === 0 && data?.items.length === 0) &&
+        (section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files'))}
+
+      <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} status={data?.status ?? null} onRecorded={reload} />
+      <SectionPager offeringId={offeringId} section={section.number} />
 
       {deleting && (
         <ConfirmDialog
@@ -416,6 +462,7 @@ export function CourseFileSection() {
           slot={{ offeringId, section: section.number, item: reusingInto.item ?? undefined, slot: reusingInto.slot ?? undefined }}
           title={reusingInto.title}
           courseCode={data.offering.course.code}
+          files={reusable.get(reusingInto.slot) ?? []}
           onClose={() => setReusingInto(null)}
           onReused={async (file) => {
             await reload()
@@ -447,14 +494,16 @@ export function CourseFileSection() {
           }}
         />
       )}
+      {switchDialog}
     </div>
   )
 }
 
 /**
- * One section's or slot's files in their order, or placeholder rows while they load. Staff who
- * may upload drag rows, or use the row menu, to reorder them. Rows drag only within this table.
- * A compact table, one of several slots on the page, says it is empty in one line.
+ * One section's or slot's files in their order, or placeholder rows while they load. Each file's
+ * name opens it in a new tab. Staff who may upload reorder two or more files with the row menu, or
+ * by dragging rows on a wider screen. Rows drag only within this table. A compact table, one of
+ * several slots on the page, says it is empty in one line.
  */
 function FileTable({
   label,
@@ -475,6 +524,9 @@ function FileTable({
   onDelete: (file: SectionFile) => void
 }) {
   const [dragged, setDragged] = useState<string | null>(null)
+  const reorderable = canUpload && (files?.length ?? 0) > 1
+  /** The table's columns: the drag handle while rows reorder, file, uploaded by, uploaded at and the row menu. */
+  const columns = [...(reorderable ? [WIDE] : []), '', WIDE, WIDE, '']
 
   function move(fileId: string, to: number) {
     if (!files) return
@@ -488,9 +540,11 @@ function FileTable({
       <Table aria-label={label}>
         <TableHeader className="bg-muted/50">
           <TableRow>
-            <TableHead className="w-10 px-2">
-              <span className="sr-only">Order</span>
-            </TableHead>
+            {reorderable && (
+              <TableHead className={cn('w-10 px-2', WIDE)}>
+                <span className="sr-only">Order</span>
+              </TableHead>
+            )}
             <TableHead className="px-4">File</TableHead>
             <TableHead className={cn('w-56 px-4', WIDE)}>Uploaded by</TableHead>
             <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
@@ -501,23 +555,23 @@ function FileTable({
         </TableHeader>
         <TableBody>
           {!files ? (
-            <TableSkeleton columns={COLUMNS} />
+            <TableSkeleton columns={columns} />
           ) : files.length === 0 && compact ? (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={COLUMNS.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
+              <TableCell colSpan={columns.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
                 {empty.title}
                 {empty.description && <span className="text-xs"> · {empty.description}</span>}
               </TableCell>
             </TableRow>
           ) : files.length === 0 ? (
-            <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title={empty.title} description={empty.description} />
+            <TableEmpty columns={columns.length} icon={FileTextIcon} title={empty.title} description={empty.description} />
           ) : (
             files.map((file, index) => {
               const uploadedAt = <Time value={file.uploaded_at} />
               return (
                 <TableRow
                   key={file.id}
-                  draggable={canUpload}
+                  draggable={reorderable}
                   onDragStart={(event) => {
                     event.dataTransfer.setData('text/plain', file.id)
                     event.dataTransfer.effectAllowed = 'move'
@@ -533,12 +587,14 @@ function FileTable({
                   onDragEnd={() => setDragged(null)}
                   className={cn(dragged === file.id && 'opacity-50')}
                 >
-                  <TableCell className="text-muted-foreground px-2 py-3">
-                    {canUpload && <GripVerticalIcon aria-hidden="true" className="mx-auto size-4 cursor-grab" />}
-                  </TableCell>
+                  {reorderable && (
+                    <TableCell className={cn('text-muted-foreground px-2 py-3', WIDE)}>
+                      <GripVerticalIcon aria-hidden="true" className="mx-auto size-4 cursor-grab" />
+                    </TableCell>
+                  )}
                   <TableCell className="px-4 py-3 whitespace-normal">
                     <div className="grid gap-0.5">
-                      <span className="font-medium">{file.name}</span>
+                      <FileLink file={file} />
                       <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
                       <span className="text-muted-foreground text-xs md:hidden">
                         {file.uploader_name}, {uploadedAt}
@@ -548,29 +604,31 @@ function FileTable({
                   <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{file.uploader_name}</TableCell>
                   <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
                   <TableCell className="px-4 py-2 text-right">
-                    {(canUpload || file.deletable) && (
-                      <RowActions label={`Actions for ${file.name}`}>
-                        {canUpload && (
-                          <>
-                            <DropdownMenuItem disabled={index === 0} onSelect={() => move(file.id, index - 1)}>
-                              <ArrowUpIcon />
-                              Move up
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => move(file.id, index + 1)}>
-                              <ArrowDownIcon />
-                              Move down
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {canUpload && file.deletable && <DropdownMenuSeparator />}
-                        {file.deletable && (
+                    <RowActions label={`Actions for ${file.name}`}>
+                      <FileMenuItems file={file} />
+                      {reorderable && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem disabled={index === 0} onSelect={() => move(file.id, index - 1)}>
+                            <ArrowUpIcon />
+                            Move up
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => move(file.id, index + 1)}>
+                            <ArrowDownIcon />
+                            Move down
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {file.deletable && (
+                        <>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
                             <Trash2Icon />
                             Delete
                           </DropdownMenuItem>
-                        )}
-                      </RowActions>
-                    )}
+                        </>
+                      )}
+                    </RowActions>
                   </TableCell>
                 </TableRow>
               )

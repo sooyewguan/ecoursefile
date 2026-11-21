@@ -12,17 +12,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '../auth-provider.tsx'
 import { friendlyError } from '../errors.ts'
-import type { SectionStatus, Verdict } from '../sections.ts'
+import { SECTION_STATUS_LABELS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type LatestVerdict = { verdict: Verdict; comment: string | null; auditor_name: string; created_at: string }
 
 /**
- * The latest verdict on a section of a course file, with its auditor, time and comment, and for
- * auditors the buttons that record a new one. Staff see it only once there is one. status is the
- * section's status. When it is neither the verdict nor Missing, the section changed after the
- * verdict, and the card says so. A verdict never hides Missing, so Missing says nothing about a
- * change. onRecorded runs after a verdict is recorded, so the page can read the section's new status.
+ * A section's review: its status, and the latest verdict on it with its auditor, time and comment,
+ * and for auditors the buttons that record a new one. status is the section's status, null while it
+ * loads. When it is neither the verdict nor Missing, the section changed after the verdict, and the
+ * card says so. A verdict never hides Missing, so Missing says nothing about a change. onRecorded runs
+ * after a verdict is recorded, so the page can read the section's new status.
  */
 export function SectionVerdict({
   offeringId,
@@ -70,28 +70,31 @@ export function SectionVerdict({
     return null
   }
 
-  if (!isAuditor && !latest && !loadFailed) return null
-
   return (
-    <Card aria-label="Auditor verdict" className="gap-3 px-4 py-4 md:px-6">
+    <Card aria-labelledby="review-heading" className="gap-3 px-4 py-4 md:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1.5">
-          <h2 className="text-sm font-semibold">Auditor verdict</h2>
-          {latest === undefined ? (
+          <h2 id="review-heading" className="font-semibold">
+            Review
+          </h2>
+          {latest === undefined || !status ? (
             <Skeleton className="h-5 w-64 max-w-full" />
-          ) : latest ? (
+          ) : (
             <>
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <SectionStatusBadge status={latest.verdict} />
-                <span>
-                  {latest.auditor_name}, <Time value={latest.created_at} />
-                </span>
-                {status && status !== latest.verdict && status !== 'missing' && <span>Given before the latest change to this section</span>}
+                <SectionStatusBadge status={status} />
+                {latest ? (
+                  <span>
+                    {status !== latest.verdict && `${SECTION_STATUS_LABELS[latest.verdict]} by `}
+                    {latest.auditor_name}, <Time value={latest.created_at} />
+                    {status !== latest.verdict && status !== 'missing' && ', before the latest change'}
+                  </span>
+                ) : (
+                  !loadFailed && <span>Not reviewed yet</span>
+                )}
               </div>
-              {latest.comment && <p className="text-sm whitespace-pre-wrap">{latest.comment}</p>}
+              {latest?.comment && <p className="text-sm whitespace-pre-wrap">{latest.comment}</p>}
             </>
-          ) : (
-            !loadFailed && <p className="text-muted-foreground text-sm">No verdict yet.</p>
           )}
         </div>
         {isAuditor && (

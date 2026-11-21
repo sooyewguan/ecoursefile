@@ -3,14 +3,16 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
+import { FileLink, FileMenuItems } from '@/components/file-link'
 import { LoadError, NotFound, PageHeader, RowActions, TableSkeleton } from '@/components/page'
+import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
@@ -42,7 +44,7 @@ type PageData = { offering: Offering | null; status: SectionStatus | null }
 /** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: lecturer, timetable, uploaded, and the row menu of the user's own timetable. */
+/** The table's columns: lecturer, timetable, uploaded, and the row menu of each timetable. */
 const COLUMNS = ['', '', WIDE, '']
 
 /**
@@ -156,13 +158,6 @@ export function LecturerTimetables() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      {data?.status && (
-        <div>
-          <SectionStatusBadge status={data.status} />
-        </div>
-      )}
-      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Lecturer timetables">
           <TableHeader className="bg-muted/50">
@@ -195,7 +190,7 @@ export function LecturerTimetables() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       {timetable ? (
                         <div className="grid gap-0.5">
-                          <span>{timetable.name}</span>
+                          <FileLink file={timetable} />
                           <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
                           <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
                         </div>
@@ -205,12 +200,18 @@ export function LecturerTimetables() {
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
                     <TableCell className="px-4 py-2 text-right">
-                      {isOwn && timetable && (
-                        <RowActions label="Actions for your timetable">
-                          <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(timetable)}>
-                            <Trash2Icon />
-                            Delete
-                          </DropdownMenuItem>
+                      {timetable && (
+                        <RowActions label={isOwn ? 'Actions for your timetable' : `Actions for the timetable of ${lecturer.lecturer_name}`}>
+                          <FileMenuItems file={timetable} />
+                          {isOwn && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(timetable)}>
+                                <Trash2Icon />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </RowActions>
                       )}
                     </TableCell>
@@ -221,6 +222,9 @@ export function LecturerTimetables() {
           </TableBody>
         </Table>
       </Card>
+
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
+      <SectionPager offeringId={offeringId} section={SECTION.number} />
 
       {deleting && offering && (
         <DeleteSharedFileDialog

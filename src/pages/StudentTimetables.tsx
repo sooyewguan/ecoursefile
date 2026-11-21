@@ -2,7 +2,9 @@ import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { LoadError, NotFound, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { FileLink, FileMenuItems } from '@/components/file-link'
+import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
@@ -43,8 +45,8 @@ type PageData = { offering: Offering | null; status: SectionStatus | null }
 /** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: tick, program code, timetable and uploaded. */
-const COLUMNS = ['', '', '', WIDE]
+/** The table's columns: tick, program code, timetable, uploaded and the timetable's row menu. */
+const COLUMNS = ['', '', '', WIDE, '']
 
 /**
  * Section 5 of a course file: the program codes whose students take the course. The list holds
@@ -138,13 +140,6 @@ export function StudentTimetables() {
         action={backLink}
       />
 
-      {data?.status && (
-        <div>
-          <SectionStatusBadge status={data.status} />
-        </div>
-      )}
-      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Program codes">
           <TableHeader className="bg-muted/50">
@@ -155,6 +150,9 @@ export function StudentTimetables() {
               <TableHead className="px-4">Program code</TableHead>
               <TableHead className="px-4">Timetable</TableHead>
               <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
+              <TableHead className="w-14 px-4">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -190,7 +188,7 @@ export function StudentTimetables() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       {timetable ? (
                         <div className="grid gap-0.5">
-                          <span>{timetable.name}</span>
+                          <FileLink file={timetable} />
                           <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
                           <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
                         </div>
@@ -204,6 +202,13 @@ export function StudentTimetables() {
                       )}
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
+                    <TableCell className="px-4 py-2 text-right">
+                      {timetable && (
+                        <RowActions label={`Actions for the student timetable of ${programCode.code}`}>
+                          <FileMenuItems file={timetable} />
+                        </RowActions>
+                      )}
+                    </TableCell>
                   </TableRow>
                 )
               })
@@ -211,6 +216,9 @@ export function StudentTimetables() {
           </TableBody>
         </Table>
       </Card>
+
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
+      <SectionPager offeringId={offeringId} section={SECTION.number} />
     </div>
   )
 }
