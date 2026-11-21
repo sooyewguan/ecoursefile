@@ -77,7 +77,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
             <TableRow key={row.row}>
               <TableCell className="px-4 py-3 align-top tabular-nums">{row.row}</TableCell>
               <TableCell className="px-4 py-3 align-top whitespace-normal">
-                {row.email || <span className="text-muted-foreground">No email</span>}
+                {row.email || <span className="text-muted-foreground">—</span>}
               </TableCell>
               <TableCell className="px-4 py-3 whitespace-normal">
                 {row.status === 'created' ? (

@@ -27,6 +27,8 @@ export function usePagedList<Row>(fetchPage: (range: { from: number; to: number 
   }, [query])
 
   const scope = `${filters}\n${search}`
+  // Page 1 of a new scope, so going back to an earlier search starts at page 1 too.
+  if (paging.scope !== scope) setPaging({ scope, page: 1 })
   const page = paging.scope === scope ? paging.page : 1
   const key = `${scope}\n${page}\n${attempt}`
 
@@ -58,6 +60,8 @@ export function usePagedList<Row>(fetchPage: (range: { from: number; to: number 
     setPage: (page: number) => setPaging({ scope, page }),
     query,
     setQuery,
+    /** The query, trimmed, once typing pauses. When loading is false, rows answer this search. */
+    search,
     retry: () => setAttempt((count) => count + 1),
   }
 }
