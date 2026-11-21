@@ -146,6 +146,17 @@ export function Semester() {
     return <NotFound icon={CalendarRangeIcon} title="Semester not found" backTo="/semesters" backLabel="All semesters" />
   }
 
+  if (loadFailed) {
+    return (
+      <div className="grid gap-6">
+        <PageHeader title={'Semester'} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load this semester" onRetry={reload} />
+        </Card>
+      </div>
+    )
+  }
+
   const people = data?.people ?? []
   const nameOf = new Map(people.map((person) => [person.id, person.display_name]))
   const offeredCourseIds = new Set(data?.offerings.map((offering) => offering.course_id))
@@ -212,8 +223,6 @@ export function Semester() {
           </div>
         }
       />
-      {loadFailed && <LoadError title="Couldn't load this semester" onRetry={reload} />}
-
       <section aria-labelledby="shared-files-heading" className="grid gap-3">
         <h2 id="shared-files-heading" className="text-lg font-semibold tracking-tight">
           Shared files

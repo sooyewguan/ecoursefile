@@ -98,6 +98,17 @@ export function LecturerTimetables() {
     return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
+  if (loadFailed) {
+    return (
+      <div className="grid gap-6">
+        <PageHeader title={SECTION.title} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load the timetables" onRetry={reload} />
+        </Card>
+      </div>
+    )
+  }
+
   const offering = data?.offering
   const isCoordinator = (lecturerId: string) => lecturerId === offering?.coordinator_id
   const lecturers = (offering?.lecturers ?? []).toSorted(
@@ -151,11 +162,6 @@ export function LecturerTimetables() {
         </div>
       )}
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {loadFailed && (
-        <Card className="py-0">
-          <LoadError title="Couldn't load the timetables" onRetry={reload} />
-        </Card>
-      )}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Lecturer timetables">

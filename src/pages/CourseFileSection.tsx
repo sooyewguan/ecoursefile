@@ -159,6 +159,17 @@ export function CourseFileSection() {
     return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
+  if (loadFailed) {
+    return (
+      <div className="grid gap-6">
+        <PageHeader title={section.title} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load this section" onRetry={reload} />
+        </Card>
+      </div>
+    )
+  }
+
   const files = data?.files ?? []
   const canUpload = data?.canUpload ?? false
   /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
@@ -378,12 +389,6 @@ export function CourseFileSection() {
             : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
-      {loadFailed && (
-        <Card className="py-0">
-          <LoadError title="Couldn't load this section" onRetry={reload} />
-        </Card>
-      )}
-
       {section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files')}
 
       {deleting && (

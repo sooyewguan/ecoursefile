@@ -99,6 +99,17 @@ export function StudentTimetables() {
     return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
+  if (loadFailed) {
+    return (
+      <div className="grid gap-6">
+        <PageHeader title={SECTION.title} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load the student timetables" onRetry={reload} />
+        </Card>
+      </div>
+    )
+  }
+
   const offering = data?.offering
   const choices = offering?.program_code_choices ?? []
   const ticked = new Set(offering?.ticks.map((tick) => tick.program_code.id))
@@ -133,11 +144,6 @@ export function StudentTimetables() {
         </div>
       )}
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {loadFailed && (
-        <Card className="py-0">
-          <LoadError title="Couldn't load the student timetables" onRetry={reload} />
-        </Card>
-      )}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Program codes">
