@@ -96,7 +96,7 @@ export function Users() {
   const departmentName = new Map(departments.map((d) => [d.id, `${d.code} ${d.name}`]))
 
   /** Runs an action, reloads the page data, and returns the action's error message or null. */
-  async function perform(action: Action, success: string) {
+  async function perform(action: () => Promise<string | null>, success: string) {
     const error = await action()
     await reload()
     if (!error) setNotice({ tone: 'success', text: success })
