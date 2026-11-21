@@ -1,6 +1,7 @@
+import { ClipboardCheckIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { LoadError, PageHeader } from '@/components/page'
+import { EmptyState, LoadError, PageHeader } from '@/components/page'
 import { ExportMenu, OfferingsTable, ReportLoadError, SemesterSelect, useReport } from '@/components/reports'
 import { Card } from '@/components/ui/card'
 import { useAuth } from '../auth-provider.tsx'
@@ -50,7 +51,6 @@ export function Completeness() {
     <div className="grid gap-6">
       <PageHeader
         title="My completeness"
-        description="What is missing from the course files you teach or coordinate."
         action={
           own &&
           semesterId &&
@@ -65,7 +65,9 @@ export function Completeness() {
         </Card>
       )}
       {own?.semesters.length === 0 && (
-        <OfferingsTable rows={[]} emptyDescription="Your course files appear here once the admin assigns you to an offering." />
+        <Card className="py-0">
+          <EmptyState icon={ClipboardCheckIcon} title="No course files yet" />
+        </Card>
       )}
       {own && semesterId && (
         <OwnOfferings
@@ -85,7 +87,7 @@ function OwnOfferings({ semesterId, semesterCode, offeringIds }: { semesterId: s
   return (
     <div className="grid gap-4">
       <ExportMenu table={MY_COMPLETENESS_TABLE} rows={rows} semesterCode={semesterCode} />
-      <OfferingsTable rows={rows} emptyDescription="You teach no offering in this semester." />
+      <OfferingsTable rows={rows} empty={{ title: 'No course files this semester' }} />
     </div>
   )
 }

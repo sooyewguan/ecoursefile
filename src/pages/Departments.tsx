@@ -18,7 +18,7 @@ type Department = { id: string; code: string; name: string }
 /** The dialog that is open, and the department it acts on. */
 type OpenDialog =
   | { kind: 'add' }
-  | { kind: 'rename'; department: Department }
+  | { kind: 'edit'; department: Department }
   | { kind: 'delete'; department: Department }
 
 /** The table's columns: code, name and the row menu. */
@@ -53,18 +53,16 @@ export function Departments() {
     setDialog(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })}>
+      <PlusIcon />
+      Add department
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Departments"
-        description="The departments that staff belong to. Every HoD needs one."
-        action={
-          <Button onClick={() => setDialog({ kind: 'add' })}>
-            <PlusIcon />
-            Add department
-          </Button>
-        }
-      />
+      <PageHeader title="Departments" action={addButton} />
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -83,12 +81,7 @@ export function Departments() {
             ) : !departments ? (
               <TableSkeleton columns={COLUMNS} />
             ) : departments.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={Building2Icon}
-                title="No departments yet"
-                description="Add a department so that you can place staff in it."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={Building2Icon} title="No departments yet" action={addButton} />
             ) : (
               departments.map((department) => (
                 <TableRow key={department.id}>
@@ -96,9 +89,9 @@ export function Departments() {
                   <TableCell className="px-4 py-3 whitespace-normal">{department.name}</TableCell>
                   <TableCell className="px-4 py-2 text-right">
                     <RowActions label={`Actions for ${department.code}`}>
-                      <DropdownMenuItem onSelect={() => setDialog({ kind: 'rename', department })}>
+                      <DropdownMenuItem onSelect={() => setDialog({ kind: 'edit', department })}>
                         <PencilIcon />
-                        Rename
+                        Edit
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem variant="destructive" onSelect={() => setDialog({ kind: 'delete', department })}>
@@ -117,7 +110,6 @@ export function Departments() {
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add a department"
-          description="Staff and HoDs can be placed in it once it exists."
           submitLabel="Add department"
           onClose={close}
           onSubmit={(form) => {
@@ -129,10 +121,9 @@ export function Departments() {
         </FormDialog>
       )}
 
-      {dialog?.kind === 'rename' && (
+      {dialog?.kind === 'edit' && (
         <FormDialog
-          title={`Rename ${dialog.department.code}`}
-          description="Change the department's code or name. Its staff stay in it."
+          title={`Edit ${dialog.department.code}`}
           submitLabel="Save"
           onClose={close}
           onSubmit={(form) => {
@@ -147,7 +138,7 @@ export function Departments() {
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
           title={`Delete ${dialog.department.code} ${dialog.department.name}?`}
-          description="This cannot be undone. A department that still has staff or courses in it cannot be deleted."
+          description="This can't be undone."
           confirmLabel="Delete"
           destructive
           onClose={close}

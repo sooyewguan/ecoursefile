@@ -50,18 +50,16 @@ export function ProgramCodes() {
     setDialog(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })}>
+      <PlusIcon />
+      Add program code
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Program codes"
-        description="The master list of program codes that student timetables are tagged with."
-        action={
-          <Button onClick={() => setDialog({ kind: 'add' })}>
-            <PlusIcon />
-            Add program code
-          </Button>
-        }
-      />
+      <PageHeader title="Program codes" action={addButton} />
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -79,12 +77,7 @@ export function ProgramCodes() {
             ) : !programCodes ? (
               <TableSkeleton columns={COLUMNS} />
             ) : programCodes.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={TagsIcon}
-                title="No program codes yet"
-                description="Add a program code, such as 1 BITS S1G1."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={TagsIcon} title="No program codes yet" action={addButton} />
             ) : (
               programCodes.map((programCode) => (
                 <TableRow key={programCode.id}>
@@ -107,7 +100,6 @@ export function ProgramCodes() {
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add a program code"
-          description="Program codes are unique."
           submitLabel="Add program code"
           onClose={close}
           onSubmit={(form) => {
@@ -122,7 +114,6 @@ export function ProgramCodes() {
       {dialog?.kind === 'edit' && (
         <FormDialog
           title={`Edit ${dialog.programCode.code}`}
-          description="Program codes are unique."
           submitLabel="Save"
           onClose={close}
           onSubmit={(form) => {

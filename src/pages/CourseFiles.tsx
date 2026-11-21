@@ -1,7 +1,7 @@
 import { FolderOpenIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, PageHeader, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -52,7 +52,7 @@ export function CourseFiles() {
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Course files" description="Open a course file to see the status of its 19 sections." />
+      <PageHeader title="Course files" />
 
       {loadFailed ? (
         <Card className="py-0">
@@ -61,17 +61,8 @@ export function CourseFiles() {
       ) : !groups ? (
         <OfferingsTable title="Loading" offerings={null} userId={state.profile.id} />
       ) : groups.length === 0 ? (
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FolderOpenIcon}
-                title="No course files yet"
-                description="A course file appears here once the admin offers its course in a semester and assigns its lecturers."
-              />
-            </TableBody>
-          </Table>
+        <Card className="py-0">
+          <EmptyState icon={FolderOpenIcon} title="No course files yet" />
         </Card>
       ) : (
         groups.map((group) => (

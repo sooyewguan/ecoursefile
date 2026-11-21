@@ -67,10 +67,7 @@ export function ReuseDialog({
       <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="leading-snug">Reuse a file in {title}</DialogTitle>
-          <DialogDescription>
-            Files in this slot from past semesters of {courseCode}. The file you pick is copied into this course file, so deleting the original later
-            leaves your copy.
-          </DialogDescription>
+          <DialogDescription>From past semesters of {courseCode}</DialogDescription>
         </DialogHeader>
         <div className="overflow-hidden rounded-md border">
           <Table aria-label="Files from past semesters">
@@ -87,12 +84,7 @@ export function ReuseDialog({
               {!files ? (
                 <TableSkeleton columns={COLUMNS} rows={2} />
               ) : files.length === 0 ? (
-                <TableEmpty
-                  columns={COLUMNS.length}
-                  icon={HistoryIcon}
-                  title="Nothing to reuse"
-                  description={`No past semester of ${courseCode} has files in this slot.`}
-                />
+                <TableEmpty columns={COLUMNS.length} icon={HistoryIcon} title="Nothing to reuse" />
               ) : (
                 files.map((file) => (
                   <TableRow key={file.id}>

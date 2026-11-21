@@ -1,11 +1,10 @@
 import { HistoryIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { LoadError } from '@/components/page'
+import { EmptyState, LoadError } from '@/components/page'
 import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { ACTIVITY_ACTIONS, activityNote, activityPage, describeActivity, type ActivityEntry } from '../activity.ts'
@@ -65,15 +64,7 @@ export function ActivityLog({ offeringId }: { offeringId: string }) {
         </Card>
       ) : entries.length === 0 ? (
         <Card className="py-0">
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <HistoryIcon />
-              </EmptyMedia>
-              <EmptyTitle>No activity yet</EmptyTitle>
-              <EmptyDescription>Uploads, switches, verdicts and audit requests show here as they happen.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <EmptyState icon={HistoryIcon} title="No activity yet" />
         </Card>
       ) : (
         <Card className="gap-0 py-0">

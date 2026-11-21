@@ -111,12 +111,8 @@ export function SectionVerdict({
 
       {recording && (
         <FormDialog
-          title={recording === 'verified' ? `Mark ${sectionTitle} verified` : `${sectionTitle} needs fix`}
-          description={
-            recording === 'verified'
-              ? 'The section shows as Verified until its files change. Staff see your comment on this page.'
-              : 'Say what the coordinator and lecturers must fix. They see your comment on this page. The section goes into your draft audit request, which emails them once you send it from the course file page.'
-          }
+          title={`Mark ${sectionTitle} ${recording === 'verified' ? 'verified' : 'needs fix'}`}
+          description={recording === 'needs_fix' ? 'It goes into your draft audit request.' : undefined}
           submitLabel={recording === 'verified' ? 'Mark verified' : 'Mark needs fix'}
           onClose={() => setRecording(null)}
           onSubmit={(form) => record(recording, String(form.get('comment')))}

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
-import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
@@ -95,23 +95,7 @@ export function LecturerTimetables() {
   )
 
   if (data && !data.offering) {
-    return (
-      <div className="grid gap-6">
-        <PageHeader title={SECTION.title} description="Open a section from its course file." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FileTextIcon}
-                title="Section not found"
-                description="It does not exist, or you do not have access to its course file."
-              />
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-    )
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
   const offering = data?.offering
@@ -161,13 +145,11 @@ export function LecturerTimetables() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {data?.status && <SectionStatusBadge status={data.status} />}
-        <span>
-          Each lecturer uploads their own timetable, one PDF of up to 20 MB per semester. It shows in every course file they teach that semester. This
-          section is Missing until every lecturer of this offering has one.
-        </span>
-      </div>
+      {data?.status && (
+        <div>
+          <SectionStatusBadge status={data.status} />
+        </div>
+      )}
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
       {loadFailed && (
         <Card className="py-0">
@@ -237,8 +219,7 @@ export function LecturerTimetables() {
       {deleting && offering && (
         <DeleteSharedFileDialog
           file={deleting}
-          section={SECTION}
-          subject={`Your timetable for ${offering.semester.code}`}
+          title="your timetable"
           onClose={() => setDeleting(null)}
           onDeleted={async () => {
             await reload()

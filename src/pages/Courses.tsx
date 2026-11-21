@@ -71,18 +71,16 @@ export function Courses() {
     setDialog(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })}>
+      <PlusIcon />
+      Add course
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Courses"
-        description="The catalog of courses that can be offered in a semester."
-        action={
-          <Button onClick={() => setDialog({ kind: 'add' })}>
-            <PlusIcon />
-            Add course
-          </Button>
-        }
-      />
+      <PageHeader title="Courses" action={addButton} />
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -102,12 +100,7 @@ export function Courses() {
             ) : !data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.courses.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={BookOpenIcon}
-                title="No courses yet"
-                description="Add a course so that it can be offered in a semester. It needs a department and a course type."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={BookOpenIcon} title="No courses yet" action={addButton} />
             ) : (
               data.courses.map((course) => {
                 const department = departmentName.get(course.department_id)
@@ -145,7 +138,6 @@ export function Courses() {
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add a course"
-          description="Once it is in the catalog, it can be offered in any semester."
           submitLabel="Add course"
           onClose={close}
           onSubmit={(form) => {
@@ -160,7 +152,6 @@ export function Courses() {
       {dialog?.kind === 'edit' && (
         <FormDialog
           title={`Edit ${dialog.course.code}`}
-          description="A new course type applies only to offerings created afterwards."
           submitLabel="Save"
           onClose={close}
           onSubmit={(form) => {
@@ -223,7 +214,13 @@ function CourseFields({
       </div>
       <div className="grid gap-2">
         <Label htmlFor="course-type">Course type</Label>
-        <NativeSelect id="course-type" name="course_type_id" defaultValue={course?.course_type_id ?? ''} required>
+        <NativeSelect
+          id="course-type"
+          name="course_type_id"
+          defaultValue={course?.course_type_id ?? ''}
+          aria-describedby={course ? 'course-type-hint' : undefined}
+          required
+        >
           <NativeSelectOption value="" disabled>
             Choose a course type
           </NativeSelectOption>
@@ -233,6 +230,11 @@ function CourseFields({
             </NativeSelectOption>
           ))}
         </NativeSelect>
+        {course && (
+          <p id="course-type-hint" className="text-muted-foreground text-sm">
+            A new course type applies only to offerings created afterwards.
+          </p>
+        )}
       </div>
     </>
   )

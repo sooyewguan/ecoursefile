@@ -1,5 +1,5 @@
 import { ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { LoadError, TableEmpty, TableSkeleton } from '@/components/page'
@@ -68,8 +68,8 @@ export function ReportLoadError({ onRetry }: { onRetry: () => void }) {
 }
 
 /** Section numbers as small badges, each named in full for screen readers and on hover. */
-export function SectionNumbers({ sections, none }: { sections: number[]; none: string }) {
-  if (sections.length === 0) return <span className="text-muted-foreground text-sm">{none}</span>
+export function SectionNumbers({ sections }: { sections: number[] }) {
+  if (sections.length === 0) return <span className="text-muted-foreground">None missing</span>
   return (
     <ul className="flex flex-wrap gap-1">
       {sections.map((section) => {
@@ -118,11 +118,11 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
         <DropdownMenuContent align="end">
           <DropdownMenuItem onSelect={() => void save('xlsx')}>
             <FileSpreadsheetIcon />
-            Excel (.xlsx)
+            Excel
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void save('csv')}>
             <FileTextIcon />
-            CSV (.csv)
+            CSV
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -144,7 +144,7 @@ const OFFERING_SKELETON = ['', MEDIUM, MEDIUM, SMALL, SMALL, LARGE, LARGE]
  * last upload. Its headers and values are OFFERING_COLUMNS, which its export writes, with the
  * course's code and title in one cell, and the department's code and name in another.
  */
-export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[] | null; emptyDescription: string }) {
+export function OfferingsTable({ rows, empty }: { rows: OfferingRow[] | null; empty: { title: string; action?: ReactNode } }) {
   const column = OFFERING_COLUMNS
   return (
     <Card className="gap-0 overflow-hidden py-0">
@@ -164,7 +164,7 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
           {!rows ? (
             <TableSkeleton columns={OFFERING_SKELETON} />
           ) : rows.length === 0 ? (
-            <TableEmpty columns={7} icon={ChartColumnIcon} title="No offerings" description={emptyDescription} />
+            <TableEmpty columns={7} icon={ChartColumnIcon} title={empty.title} action={empty.action} />
           ) : (
             rows.map((row) => (
               <TableRow key={row.offering_id}>
@@ -184,7 +184,7 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                       {column.departmentCode.value(row)} · {column.coordinator.value(row)}
                     </span>
                     <div className="mt-1 grid gap-1 text-xs lg:hidden">
-                      <SectionNumbers sections={row.missing_sections} none="Nothing missing" />
+                      <SectionNumbers sections={row.missing_sections} />
                       <span className="text-muted-foreground">
                         {row.last_upload_at ? (
                           <>
@@ -206,7 +206,7 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', SMALL)}>{formatPercent(column.complete.value(row))}</TableCell>
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
-                  <SectionNumbers sections={row.missing_sections} none="None" />
+                  <SectionNumbers sections={row.missing_sections} />
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top', LARGE)}>
                   {row.last_upload_at ? <Time value={row.last_upload_at} dateOnly /> : <span className="text-muted-foreground">—</span>}

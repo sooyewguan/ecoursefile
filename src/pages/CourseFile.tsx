@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
-import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -107,23 +107,7 @@ export function CourseFile() {
   }
 
   if (data && !data.offering) {
-    return (
-      <div className="grid gap-6">
-        <PageHeader title="Course file" description="Course files you can open are listed on the Course files page." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FolderOpenIcon}
-                title="Course file not found"
-                description="It does not exist, or you do not have access to it."
-              />
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-    )
+    return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
   }
 
   const offering = data?.offering
@@ -297,11 +281,6 @@ export function CourseFile() {
       {switching && !switching.reason && (
         <FormDialog
           title={`Switch ${switching.title} ${switching.isOn ? 'on' : 'off'}`}
-          description={
-            switching.isOn
-              ? 'The course type has this section off. Say why this offering needs it. The reason shows on the course file.'
-              : 'The course type has this section on. Say why this offering does without it. The reason shows on the course file, and the section no longer counts toward completeness. Its files stay.'
-          }
           submitLabel={`Switch ${switching.isOn ? 'on' : 'off'}`}
           onClose={() => setSwitching(null)}
           onSubmit={(form) => switchSection(switching, String(form.get('reason')))}
@@ -316,7 +295,7 @@ export function CourseFile() {
       {switching?.reason && (
         <ConfirmDialog
           title={`Switch ${switching.title} ${switching.isOn ? 'on' : 'off'}?`}
-          description={`This returns the section to its course type setting and clears the reason: ${switching.reason}`}
+          description={`This clears the reason "${switching.reason}".`}
           confirmLabel={`Switch ${switching.isOn ? 'on' : 'off'}`}
           onConfirm={() => switchSection(switching)}
           onClose={() => setSwitching(null)}

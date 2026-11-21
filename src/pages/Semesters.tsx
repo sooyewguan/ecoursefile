@@ -49,18 +49,16 @@ export function Semesters() {
     return null
   }
 
+  const addButton = (
+    <Button onClick={() => setAdding(true)}>
+      <PlusIcon />
+      Add semester
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Semesters"
-        description="Open a semester to offer courses in it and assign their lecturers."
-        action={
-          <Button onClick={() => setAdding(true)}>
-            <PlusIcon />
-            Add semester
-          </Button>
-        }
-      />
+      <PageHeader title="Semesters" action={addButton} />
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -76,12 +74,7 @@ export function Semesters() {
             ) : !semesters ? (
               <TableSkeleton columns={COLUMNS} />
             ) : semesters.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={CalendarRangeIcon}
-                title="No semesters yet"
-                description="Add a semester, then offer courses from the catalog in it."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={CalendarRangeIcon} title="No semesters yet" action={addButton} />
             ) : (
               semesters.map((semester) => (
                 <TableRow key={semester.id} className="relative">
@@ -104,7 +97,6 @@ export function Semesters() {
       {adding && (
         <FormDialog
           title="Add a semester"
-          description="The code is the start year, the next year and the semester number, such as 2026/2027-1."
           submitLabel="Add semester"
           onClose={() => setAdding(false)}
           onSubmit={add}

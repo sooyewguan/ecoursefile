@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'reac
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
-import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -12,7 +12,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize, plural } from '@/lib/utils'
@@ -89,8 +88,6 @@ export function CourseFileSection() {
   const section = SECTIONS.find((s) => String(s.number) === params.section && SECTIONS_WITH_PAGES.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
   const perSheet = section && pagesPerSheet({ section: section.number })
-  /** How many pages the browser puts on each page of an answer script, in a section with script slots. */
-  const scriptsPerSheet = slots?.find((slot) => slot.perSheet)?.perSheet
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -159,23 +156,7 @@ export function CourseFileSection() {
   )
 
   if (!section || (data && !data.offering)) {
-    return (
-      <div className="grid gap-6">
-        <PageHeader title="Section" description="Open a section from its course file." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FileTextIcon}
-                title="Section not found"
-                description="It does not exist, or you do not have access to its course file."
-              />
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-    )
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
   const files = data?.files ?? []
@@ -270,24 +251,24 @@ export function CourseFileSection() {
       </Button>
     )
 
+  /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet", for staff who upload to it. */
+  const uploadRule = (oneFile: boolean) =>
+    [section.kind === 'may-be-empty' && 'Optional', oneFile ? 'One PDF' : 'PDF', 'max 20 MB', perSheet && `${perSheet} pages per sheet`]
+      .filter(Boolean)
+      .join(' · ')
+
   const tableFor = (place: Place, label: string, oneFile = false) => (
     <FileTable
       label={label}
       files={data && filesIn(place)}
       canUpload={canUpload}
       compact={place.slot !== null}
-      emptyDescription={
+      empty={
         isOff
-          ? 'This section is off for this offering.'
+          ? { title: 'No files yet', description: 'This section is off for this offering.' }
           : section.sharedFile
-            ? `The admin uploads the ${section.title} of each semester, and every course file of the semester links it.`
-            : !canUpload
-              ? 'The coordinator and lecturers upload files here.'
-              : section.kind === 'may-be-empty'
-                ? 'This section may stay empty. Upload PDF files if there are any.'
-                : oneFile
-                  ? 'Upload one PDF file.'
-                  : 'Upload one or more PDF files.'
+            ? { title: `Not uploaded for ${data?.offering?.semester.code ?? 'this semester'} yet` }
+            : { title: 'No files yet', description: canUpload ? uploadRule(oneFile) : undefined }
       }
       onReorder={(reordered) => void reorder(reordered)}
       onDelete={setDeleting}
@@ -305,7 +286,7 @@ export function CourseFileSection() {
           <div className="flex flex-wrap items-center gap-2">
             <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
             {slot.oneFile && <Badge variant="secondary">One file</Badge>}
-            {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages to a page</Badge>}
+            {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages per sheet</Badge>}
           </div>
           <div className="flex flex-wrap gap-2">
             {reuseButton(place, title)}
@@ -317,25 +298,23 @@ export function CourseFileSection() {
     )
   }
 
+  const addItemButton = canUpload && (
+    <Button onClick={() => void addItem()} disabled={adding}>
+      {adding ? <Spinner /> : <PlusIcon />}
+      Add {itemName(section.number, nextItem)}
+    </Button>
+  )
+
   const itemList = !data ? (
     tableFor({ item: null, slot: null }, 'Files')
   ) : data.items.length === 0 ? (
     <Card className="py-0">
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <LayersIcon />
-          </EmptyMedia>
-          <EmptyTitle>No items yet</EmptyTitle>
-          <EmptyDescription>
-            {isOff
-              ? 'This section is off for this offering.'
-              : canUpload
-                ? `Add ${itemName(section.number, 1)} to upload its files.`
-                : 'The coordinator and lecturers add items here.'}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <EmptyState
+        icon={LayersIcon}
+        title="No items yet"
+        description={isOff ? 'This section is off for this offering.' : undefined}
+        action={!isOff && addItemButton}
+      />
     </Card>
   ) : (
     data.items.map((item) => {
@@ -373,12 +352,7 @@ export function CourseFileSection() {
           <div className="flex flex-wrap gap-2">
             {backLink}
             {section.itemTitle
-              ? canUpload && (
-                  <Button onClick={() => void addItem()} disabled={adding}>
-                    {adding ? <Spinner /> : <PlusIcon />}
-                    Add {itemName(section.number, nextItem)}
-                  </Button>
-                )
+              ? addItemButton
               : !slots && (
                   <>
                     {reuseButton({ item: null, slot: null }, section.title)}
@@ -390,25 +364,17 @@ export function CourseFileSection() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {data?.status && <SectionStatusBadge status={data.status} />}
-        {canUpload && (
-          <span>
-            {perSheet
-              ? `PDF files, merged ${perSheet} pages to a page in your browser. A merged file can be at most 20 MB.`
-              : scriptsPerSheet
-                ? `PDF files of up to 20 MB. Your browser merges answer scripts ${scriptsPerSheet} pages to a page first, and the limit applies to the merged file.`
-                : 'PDF files of up to 20 MB.'}{' '}
-            Drag files to set their order in the compiled course file.
-          </span>
-        )}
-      </div>
+      {data?.status && (
+        <div>
+          <SectionStatusBadge status={data.status} />
+        </div>
+      )}
       <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} status={data?.status ?? null} onRecorded={reload} />
 
       {progress && (
         <p role="status" className="text-sm">
           {progress.fraction === null && progressPerSheet
-            ? `Merging ${progress.name} ${progressPerSheet} pages to a page (${progress.index + 1} of ${progress.count})`
+            ? `Merging ${progress.name} at ${progressPerSheet} pages per sheet (${progress.index + 1} of ${progress.count})`
             : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
@@ -422,9 +388,9 @@ export function CourseFileSection() {
 
       {deleting && (
         <ConfirmDialog
-          title={`Delete ${deleting.name}?`}
-          description="The file is deleted for good, from SharePoint and from this course file."
-          confirmLabel="Delete file"
+          title="Delete file?"
+          description={`${deleting.name} will be permanently deleted.`}
+          confirmLabel="Delete"
           destructive
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
@@ -457,11 +423,11 @@ export function CourseFileSection() {
         <ConfirmDialog
           title={`Delete ${deletingItemName}?`}
           description={
-            deletingItemFiles === 0
-              ? `${deletingItemName} has no files. It is removed from this course file.`
-              : `${deletingItemName} and its ${deletingItemFiles === 1 ? 'file' : plural(deletingItemFiles, 'file')} are deleted for good, from SharePoint and from this course file.`
+            deletingItemFiles > 0
+              ? `${deletingItemName} and its ${deletingItemFiles === 1 ? 'file' : plural(deletingItemFiles, 'file')} will be permanently deleted.`
+              : undefined
           }
-          confirmLabel={`Delete ${deletingItemName}`}
+          confirmLabel="Delete"
           destructive
           onClose={() => setDeletingItem(null)}
           onConfirm={async () => {
@@ -490,7 +456,7 @@ function FileTable({
   files,
   canUpload,
   compact,
-  emptyDescription,
+  empty,
   onReorder,
   onDelete,
 }: {
@@ -498,7 +464,8 @@ function FileTable({
   files: SectionFile[] | null
   canUpload: boolean
   compact: boolean
-  emptyDescription: string
+  /** What the table says while it has no files. */
+  empty: { title: string; description?: string }
   onReorder: (files: SectionFile[]) => void
   onDelete: (file: SectionFile) => void
 }) {
@@ -533,11 +500,12 @@ function FileTable({
           ) : files.length === 0 && compact ? (
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={COLUMNS.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
-                No files yet. {emptyDescription}
+                {empty.title}
+                {empty.description && <span className="text-xs"> · {empty.description}</span>}
               </TableCell>
             </TableRow>
           ) : files.length === 0 ? (
-            <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title="No files yet" description={emptyDescription} />
+            <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title={empty.title} description={empty.description} />
           ) : (
             files.map((file, index) => {
               const uploadedAt = <Time value={file.uploaded_at} />

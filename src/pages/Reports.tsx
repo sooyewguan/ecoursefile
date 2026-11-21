@@ -1,17 +1,18 @@
 import { ChartColumnIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { ExportMenu, OfferingsTable, ReportLoadError, SectionNumbers, SemesterSelect, useReport } from '@/components/reports'
 import { SectionStatusLegend, SectionStatusSquare } from '@/components/section-status'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { cn } from '@/lib/utils'
+import { cn, plural } from '@/lib/utils'
 import {
   DEPARTMENTS_TABLE,
   FACULTY_SUMMARY_TABLE,
@@ -80,7 +81,6 @@ export function Reports() {
     <div className="grid gap-6">
       <PageHeader
         title="Reports"
-        description="How complete each course file of a semester is, by department, offering, section and lecturer."
         action={list && list.length > 0 && semesterId && <SemesterSelect semesters={list} value={semesterId} onChange={(semester) => navigate({ semester })} />}
       />
       {semesters === 'failed' && (
@@ -89,17 +89,8 @@ export function Reports() {
         </Card>
       )}
       {list?.length === 0 && (
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={ChartColumnIcon}
-                title="No course files yet"
-                description="Reports appear once the admin offers courses in a semester."
-              />
-            </TableBody>
-          </Table>
+        <Card className="py-0">
+          <EmptyState icon={ChartColumnIcon} title="No reports yet" />
         </Card>
       )}
       {semester && (
@@ -161,8 +152,8 @@ function FacultySummaryView({ semester }: { semester: ReportSemester }) {
   const summary = report?.rows?.[0]
   const column = FACULTY_SUMMARY_TABLE.columns
   const tiles = [
-    { label: column.offerings.header, value: summary && column.offerings.value(summary), detail: summary && 'Course files in the semester' },
-    ...SHARES.map(([count, percent]) => ({
+    { label: column.offerings.header, value: summary && column.offerings.value(summary) },
+    ...SHARES.map(([count, percent]): { label: string; value: ReactNode; detail?: string } => ({
       label: count.header,
       value: summary && formatPercent(percent.value(summary)),
       detail: summary && `${count.value(summary)} of ${column.sections.value(summary)} sections`,
@@ -183,7 +174,9 @@ function FacultySummaryView({ semester }: { semester: ReportSemester }) {
                 <CardDescription>{tile.label}</CardDescription>
                 <CardTitle className="text-3xl tabular-nums">{tile.value ?? <Skeleton className="h-9 w-24" />}</CardTitle>
               </CardHeader>
-              <CardContent className="text-muted-foreground text-sm">{tile.detail ?? <Skeleton className="h-5 w-32" />}</CardContent>
+              {'detail' in tile && (
+                <CardContent className="text-muted-foreground text-sm">{tile.detail ?? <Skeleton className="h-5 w-32" />}</CardContent>
+              )}
             </Card>
           ))}
         </div>
@@ -265,6 +258,7 @@ function OfferingsView({ semester }: { semester: ReportSemester }) {
     a.department_code.localeCompare(b.department_code),
   )
   const shown = rows && filterOfferings(rows, { departmentId: department || null, status: status || null })
+  const filtered = department !== '' || status !== ''
 
   return (
     <div className="grid gap-4">
@@ -294,13 +288,33 @@ function OfferingsView({ semester }: { semester: ReportSemester }) {
         <div className="flex items-center justify-between gap-3 sm:ml-auto">
           {rows && (
             <p role="status" className="text-muted-foreground text-sm">
-              {shown!.length} of {rows.length} offerings
+              {filtered ? `${shown!.length} of ${plural(rows.length, 'offering')}` : plural(rows.length, 'offering')}
             </p>
           )}
           <ExportMenu table={OFFERINGS_TABLE} rows={shown} semesterCode={semester.code} />
         </div>
       </div>
-      <OfferingsTable rows={shown} emptyDescription="No offering of the semester matches these filters." />
+      <OfferingsTable
+        rows={shown}
+        empty={
+          filtered
+            ? {
+                title: 'No matching offerings',
+                action: (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDepartment('')
+                      setStatus('')
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                ),
+              }
+            : { title: 'No offerings this semester' }
+        }
+      />
     </div>
   )
 }
@@ -332,7 +346,7 @@ function HeatmapView({ semester }: { semester: ReportSemester }) {
             {!report ? (
               <TableSkeleton columns={['', ...SECTIONS.map(() => '')]} />
             ) : report.rows!.length === 0 ? (
-              <TableEmpty columns={20} icon={ChartColumnIcon} title="No offerings" description="The semester has no offerings." />
+              <TableEmpty columns={20} icon={ChartColumnIcon} title="No offerings this semester" />
             ) : (
               report.rows!.map((row) => (
                 <TableRow key={row.offering_id}>
@@ -377,14 +391,14 @@ function LecturersView({ semester }: { semester: ReportSemester }) {
           <TableHeader className="bg-muted/50">
             <TableRow>
               <TableHead className="px-4">{column.lecturer.header}</TableHead>
-              <TableHead className="px-4 whitespace-normal">Offerings and their missing sections</TableHead>
+              <TableHead className="px-4 whitespace-normal">Courses</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {!lecturers ? (
               <TableSkeleton columns={['', '']} />
             ) : lecturers.length === 0 ? (
-              <TableEmpty columns={2} icon={ChartColumnIcon} title="No lecturers" description="The semester has no offerings." />
+              <TableEmpty columns={2} icon={ChartColumnIcon} title="No lecturers this semester" />
             ) : (
               lecturers.map((taught) => {
                 const [first] = taught
@@ -419,7 +433,7 @@ function LecturersView({ semester }: { semester: ReportSemester }) {
                               </Link>
                               {row.offering.coordinator && <Badge variant="secondary">{column.role.value(row)}</Badge>}
                             </span>
-                            <SectionNumbers sections={row.offering.missing_sections} none="Nothing missing" />
+                            <SectionNumbers sections={row.offering.missing_sections} />
                           </li>
                         ))}
                       </ul>

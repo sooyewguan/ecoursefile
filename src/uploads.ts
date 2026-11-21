@@ -86,8 +86,8 @@ async function storedBytes(slot: Slot | SharedSlot, file: File): Promise<Blob> {
   const problem = uploadProblem(bytes)
   if (problem === 'too_large' && perSheet) {
     // A merged section takes parts, such as Lecture Notes by chapter. A merged slot takes whole scripts.
-    const advice = 'slot' in slot && slot.slot ? 'Scan the script at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
-    throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. ${advice}`)
+    const advice = 'slot' in slot && slot.slot ? 'Scan it at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
+    throw new FileActionError(problem, `${file.name} is still over 20 MB at ${perSheet} pages per sheet. ${advice}`)
   }
   if (problem) throw new FileActionError(problem, UPLOAD_PROBLEM_MESSAGES[problem])
   // The compile reads every stored PDF with the PDF engine, so a PDF the engine cannot read is refused here.
@@ -112,8 +112,8 @@ function unreadable(file: File, isProtected: boolean) {
   return new FileActionError(
     'unreadable_pdf',
     isProtected
-      ? `${file.name} is protected by a password or by limits on printing or editing, so the compiled course file cannot include it. Upload a copy without protection.`
-      : `${file.name} could not be read as a PDF. Save or export it as a PDF again and upload that.`,
+      ? `${file.name} is protected by a password or by limits on printing or editing. Upload a copy without protection.`
+      : `${file.name} could not be read as a PDF. Export it as a PDF again and retry.`,
   )
 }
 
@@ -130,7 +130,7 @@ export async function sendChunks(uploadUrl: string, bytes: Blob, onProgress?: (f
       headers: { 'Content-Range': `bytes ${start}-${end - 1}/${bytes.size}` },
       body: bytes.slice(start, end),
     })
-    if (!response.ok) throw new FileActionError('upload_failed', `The upload stopped with HTTP ${response.status}.`, response.status)
+    if (!response.ok) throw new FileActionError('upload_failed', 'The upload stopped. Try again.', response.status)
     onProgress?.(end / bytes.size)
   }
 }

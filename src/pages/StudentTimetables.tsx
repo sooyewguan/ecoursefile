@@ -2,7 +2,7 @@ import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
@@ -96,23 +96,7 @@ export function StudentTimetables() {
   )
 
   if (data && !data.offering) {
-    return (
-      <div className="grid gap-6">
-        <PageHeader title={SECTION.title} description="Open a section from its course file." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FileTextIcon}
-                title="Section not found"
-                description="It does not exist, or you do not have access to its course file."
-              />
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-    )
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
   }
 
   const offering = data?.offering
@@ -143,14 +127,11 @@ export function StudentTimetables() {
         action={backLink}
       />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {data?.status && <SectionStatusBadge status={data.status} />}
-        <span>
-          {canTick ? 'Tick' : 'The coordinator and lecturers tick'} each program code whose students take this course, and its student timetable shows
-          here. The list holds the codes that have a timetable for {offering?.semester.code ?? 'the semester'}, which the admin uploads. This section is
-          Missing until a code is ticked, and while a ticked code has no timetable.
-        </span>
-      </div>
+      {data?.status && (
+        <div>
+          <SectionStatusBadge status={data.status} />
+        </div>
+      )}
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
       {loadFailed && (
         <Card className="py-0">
@@ -174,12 +155,7 @@ export function StudentTimetables() {
             {!offering ? (
               <TableSkeleton columns={COLUMNS} />
             ) : codes.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={FileTextIcon}
-                title="No student timetables yet"
-                description={`The admin uploads a timetable for each program code on the page of semester ${offering.semester.code}. Codes show here once they have one.`}
-              />
+              <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title={`No student timetables for ${offering.semester.code} yet`} />
             ) : (
               codes.map((programCode) => {
                 const isTicked = ticked.has(programCode.id)
@@ -215,10 +191,10 @@ export function StudentTimetables() {
                       ) : isTicked ? (
                         <div className="grid justify-items-start gap-1">
                           <SectionStatusBadge status="missing" />
-                          <span className="text-muted-foreground text-xs">The admin deleted this timetable. Untick the code, or ask the admin to upload it again.</span>
+                          <span className="text-muted-foreground text-xs">Timetable removed</span>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">Not linked</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>

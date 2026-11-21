@@ -4,7 +4,8 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
-import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,11 +59,11 @@ type PageData = {
 /** Where an upload goes: a semester file's section, or the student timetable of a program code. */
 type UploadTarget = { section: Section; programCode: ProgramCode | null }
 
-/** The dialog that is open, and the offering or shared file it acts on. subject names the shared file in a sentence. */
+/** The dialog that is open, and the offering or shared file it acts on. title names the shared file. */
 type OpenDialog =
   | { kind: 'add' }
   | { kind: 'edit'; offering: Offering }
-  | { kind: 'delete-shared'; file: SharedFile; section: Section; subject: string }
+  | { kind: 'delete-shared'; file: SharedFile; title: string }
 
 const STUDENT_TIMETABLE = PROGRAM_CODE_FILE_SECTION
 
@@ -142,18 +143,7 @@ export function Semester() {
   )
 
   if (data && !data.semester) {
-    return (
-      <div className="grid gap-6">
-        <PageHeader title="Semester" description="Semesters are listed on the Semesters page." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty columns={1} icon={CalendarRangeIcon} title="Semester not found" description="No semester has this address." />
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-    )
+    return <NotFound icon={CalendarRangeIcon} title="Semester not found" backTo="/semesters" backLabel="All semesters" />
   }
 
   const people = data?.people ?? []
@@ -204,32 +194,30 @@ export function Semester() {
     setUploading(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })} disabled={!data}>
+      <PlusIcon />
+      Add offering
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
       <PageHeader
         title={data ? `Semester ${data.semester!.code}` : 'Semester'}
-        description="Offer catalog courses in this semester. Each offering has one coordinator, who also counts as a lecturer."
         action={
           <div className="flex flex-wrap gap-2">
             {backLink}
-            <Button onClick={() => setDialog({ kind: 'add' })} disabled={!data}>
-              <PlusIcon />
-              Add offering
-            </Button>
+            {addButton}
           </div>
         }
       />
       {loadFailed && <LoadError title="Couldn't load this semester" onRetry={reload} />}
 
       <section aria-labelledby="shared-files-heading" className="grid gap-3">
-        <div className="grid gap-1">
-          <h2 id="shared-files-heading" className="text-lg font-semibold tracking-tight">
-            Shared files
-          </h2>
-          <p className="text-muted-foreground text-sm">
-            Every course file of this semester links these files. Upload one PDF of up to 20 MB for each. To replace one, delete it first.
-          </p>
-        </div>
+        <h2 id="shared-files-heading" className="text-lg font-semibold tracking-tight">
+          Shared files
+        </h2>
         <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
         <Card className="gap-0 overflow-hidden py-0">
           <Table aria-label="Shared files">
@@ -263,7 +251,9 @@ export function Semester() {
                           {file ? (
                             <span>{file.name}</span>
                           ) : (
-                            <span className="text-muted-foreground">Not uploaded. Section {section.number} is missing in every course file.</span>
+                            <span>
+                              <SectionStatusBadge status="missing" />
+                            </span>
                           )}
                           {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
                         </div>
@@ -274,7 +264,7 @@ export function Semester() {
                           <RowActions label={`Actions for ${section.title}`}>
                             <DropdownMenuItem
                               variant="destructive"
-                              onSelect={() => setDialog({ kind: 'delete-shared', file, section, subject: `The ${section.title} of ${data.semester!.code}` })}
+                              onSelect={() => setDialog({ kind: 'delete-shared', file, title: section.title })}
                             >
                               <Trash2Icon />
                               Delete
@@ -297,15 +287,9 @@ export function Semester() {
       </section>
 
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
-        <div className="grid gap-1">
-          <h2 id="student-timetables-heading" className="text-lg font-semibold tracking-tight">
-            Student timetables
-          </h2>
-          <p className="text-muted-foreground text-sm">
-            Upload one PDF of up to 20 MB for each program code with students this semester. Staff tick the codes that take each course in its section{' '}
-            {STUDENT_TIMETABLE.number}, which links their timetables. To replace one, delete it first.
-          </p>
-        </div>
+        <h2 id="student-timetables-heading" className="text-lg font-semibold tracking-tight">
+          Student timetables
+        </h2>
         {(data?.programCodes.length ?? 0) > 0 && (
           <Input
             type="search"
@@ -334,11 +318,17 @@ export function Semester() {
                 <TableEmpty
                   columns={SHARED_COLUMNS.length}
                   icon={TagsIcon}
-                  title={data.programCodes.length === 0 ? 'No program codes yet' : 'No program code matches'}
-                  description={
-                    data.programCodes.length === 0
-                      ? 'Add program codes on the Program codes page, then upload their timetables here.'
-                      : 'Change the filter to see other program codes.'
+                  title={data.programCodes.length === 0 ? 'No program codes yet' : 'No matching program codes'}
+                  action={
+                    data.programCodes.length === 0 ? (
+                      <Button asChild variant="outline">
+                        <Link to="/program-codes">Go to Program codes</Link>
+                      </Button>
+                    ) : (
+                      <Button variant="outline" onClick={() => setCodeFilter('')}>
+                        Clear filter
+                      </Button>
+                    )
                   }
                 />
               ) : (
@@ -357,7 +347,7 @@ export function Semester() {
                             {file ? (
                               <span>{file.name}</span>
                             ) : (
-                              <span className="text-muted-foreground">Not uploaded. Staff cannot tick this code yet.</span>
+                              <span className="text-muted-foreground">Not uploaded</span>
                             )}
                             {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
                           </div>
@@ -369,12 +359,7 @@ export function Semester() {
                               <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={() =>
-                                  setDialog({
-                                    kind: 'delete-shared',
-                                    file,
-                                    section: STUDENT_TIMETABLE,
-                                    subject: `The student timetable of ${programCode.code} for ${data.semester!.code}`,
-                                  })
+                                  setDialog({ kind: 'delete-shared', file, title: `the student timetable of ${programCode.code}` })
                                 }
                               >
                                 <Trash2Icon />
@@ -418,12 +403,7 @@ export function Semester() {
             {!data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.offerings.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={BookOpenIcon}
-                title="No offerings yet"
-                description="Add an offering for each catalog course that runs this semester."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={BookOpenIcon} title="No offerings yet" action={addButton} />
             ) : (
               data.offerings.map((offering) => {
                 const coordinator = nameOf.get(offering.coordinator_id)
@@ -445,7 +425,7 @@ export function Semester() {
                     </TableCell>
                     <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{coordinator}</TableCell>
                     <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
-                      {others || <span className="text-muted-foreground">None</span>}
+                      {others || <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className="px-4 py-2 text-right">
                       <RowActions label={`Actions for ${offering.course.code}`}>
@@ -472,7 +452,6 @@ export function Semester() {
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add an offering"
-          description="The offering's sections 10 to 16 start as its course type sets them now. Later changes to the type do not affect it."
           submitLabel="Add offering"
           submitDisabled={unofferedCourses.length === 0}
           onClose={close}
@@ -509,7 +488,6 @@ export function Semester() {
       {dialog?.kind === 'edit' && (
         <FormDialog
           title={`Edit lecturers of ${dialog.offering.course.code}`}
-          description="Choose the coordinator and the other lecturers who teach this offering."
           submitLabel="Save"
           onClose={close}
           onSubmit={(form) =>
@@ -530,8 +508,7 @@ export function Semester() {
       {dialog?.kind === 'delete-shared' && (
         <DeleteSharedFileDialog
           file={dialog.file}
-          section={dialog.section}
-          subject={dialog.subject}
+          title={dialog.title}
           onClose={close}
           onDeleted={async () => {
             await reload()
@@ -587,7 +564,6 @@ function StaffFields({ people, offering }: { people: Person[]; offering?: Offeri
             </NativeSelectOption>
           ))}
         </NativeSelect>
-        <p className="text-muted-foreground text-sm">Only active users with the lecturer role are listed.</p>
       </div>
       <fieldset className="grid gap-2">
         <legend className="mb-2 text-sm font-medium">Lecturers</legend>

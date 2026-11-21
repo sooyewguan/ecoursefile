@@ -148,7 +148,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
                 <h3 className="font-semibold">{request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}</h3>
                 <p className="text-muted-foreground text-sm">
                   {request.state === 'draft'
-                    ? `${plural(request.items.length, 'section')} marked Needs fix. Staff see it, and get one email that lists them, once you send it.`
+                    ? `${plural(request.items.length, 'section')} · Not sent yet`
                     : <>Sent <Time value={request.sent_at!} /></>}
                 </p>
               </div>
@@ -203,7 +203,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {sending && (
         <ConfirmDialog
           title="Send this audit request?"
-          description={`The coordinator and lecturers get one email that lists ${sending.items.length === 1 ? 'this section' : `these ${sending.items.length} sections`} with your comments. A Needs fix you mark after this goes into a new request.`}
+          description="The coordinator and lecturers get an email with your comments."
           confirmLabel="Send to staff"
           onClose={() => setSending(null)}
           onConfirm={() => step(() => sendAuditRequest(supabase, sending.id), 'Sent to staff')}
@@ -213,7 +213,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {replying && (
         <FormDialog
           title="Reply to the auditor"
-          description={`${replying.auditor_name} gets an email with your message and how each section was answered.`}
+          description={`${replying.auditor_name} gets an email with your reply.`}
           submitLabel="Send reply"
           onClose={() => setReplying(null)}
           onSubmit={(form) => step(() => replyToAuditRequest(supabase, replying.id, String(form.get('message'))), 'Reply sent')}
@@ -228,7 +228,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {commenting && (
         <FormDialog
           title={`Comment on ${sectionName(commenting.item.section)}`}
-          description="Say why this section cannot be fixed. The auditor sees your comment, and the item counts as answered."
+          description="Say why this section can't be fixed."
           submitLabel="Save comment"
           onClose={() => setCommenting(null)}
           onSubmit={async (form) => {

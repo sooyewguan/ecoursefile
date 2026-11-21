@@ -53,18 +53,16 @@ export function CourseTypes() {
     setDialog(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })}>
+      <PlusIcon />
+      Add course type
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Course types"
-        description="Each type sets which of sections 10 to 16 are on by default for its courses."
-        action={
-          <Button onClick={() => setDialog({ kind: 'add' })}>
-            <PlusIcon />
-            Add course type
-          </Button>
-        }
-      />
+      <PageHeader title="Course types" action={addButton} />
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -83,12 +81,7 @@ export function CourseTypes() {
             ) : !courseTypes ? (
               <TableSkeleton columns={COLUMNS} />
             ) : courseTypes.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={LayersIcon}
-                title="No course types yet"
-                description="Add a course type so that you can add courses of that type."
-              />
+              <TableEmpty columns={COLUMNS.length} icon={LayersIcon} title="No course types yet" action={addButton} />
             ) : (
               courseTypes.map((courseType) => (
                 <TableRow key={courseType.id}>
@@ -114,7 +107,6 @@ export function CourseTypes() {
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add a course type"
-          description="Choose the sections that are on by default for courses of this type."
           submitLabel="Add course type"
           onClose={close}
           onSubmit={(form) => {

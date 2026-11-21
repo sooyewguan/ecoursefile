@@ -557,7 +557,7 @@ The API returns at most 1,000 rows for one request (`max_rows` in `supabase/conf
 
 ### Export
 
-Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel (.xlsx)** and **CSV (.csv)**. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
+Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel**, which saves an .xlsx file, and **CSV**, which saves a .csv file. A failed export says "Couldn't export. Try again." in a toast. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
 
 `src/report-tables.ts` describes each view as a table: its name and, for each column, the header, the kind of value and how to read it from a report row. The pages take their headers and values from these descriptions, and `exportReport` in `src/report-export.ts` writes their columns, so a file holds what the screen shows. A screen cell that shows two values is two columns in the file, so that a spreadsheet can sort and filter each one.
 
@@ -572,7 +572,7 @@ Each of the five views of the **Reports** page, and the **My completeness** page
 - Statuses are the text the screen shows, such as `Needs fix`. Missing sections are their numbers, such as `4, 5, 10`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.
 - Last upload is the day the screen shows, in the user's time zone. An .xlsx holds it as a date in the format `yyyy-mm-dd`, and a .csv as text such as `2026-11-20`.
-- Where the screen shows a placeholder for no value, such as a dash, Never, None or Nothing missing, the cell is empty.
+- Where the screen shows a placeholder for no value, such as a dash, No uploads yet or None missing, the cell is empty.
 
 A .csv follows RFC 4180: commas between fields, a field in double quotes when it holds a comma, a quote or a line break, a quote inside one doubled, and CRLF after each row. It starts with a UTF-8 byte order mark, so that Excel reads names outside ASCII correctly. Names, titles and department names are typed by users, so a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return starts with `'` in a .csv, and a spreadsheet shows it as text rather than run it as a formula.
 

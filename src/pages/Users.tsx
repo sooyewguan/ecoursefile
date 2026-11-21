@@ -121,11 +121,6 @@ export function Users() {
     <div className="grid gap-6">
       <PageHeader
         title="Users"
-        description={
-          choosesDepartment
-            ? 'Add staff, set their department and roles, and manage their access.'
-            : 'Add admins, and grant or revoke the admin role.'
-        }
         action={
           assignable.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -164,7 +159,7 @@ export function Users() {
             ) : !data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.users.length === 0 ? (
-              <TableEmpty columns={COLUMNS.length} icon={UsersIcon} title="No users yet" description="Add the first user." />
+              <TableEmpty columns={COLUMNS.length} icon={UsersIcon} title="No users yet" />
             ) : (
               data.users.map((user) => {
                 const roles = user.user_roles.map((r) => r.role)
@@ -190,7 +185,7 @@ export function Users() {
                       </div>
                     </TableCell>
                     <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
-                      {department ?? <span className="text-muted-foreground">No department</span>}
+                      {department ?? <span className="text-muted-foreground">—</span>}
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>
                       <RoleBadges roles={roles} className="min-w-32" />
@@ -237,7 +232,6 @@ export function Users() {
       {dialog?.kind === 'create' && (
         <FormDialog
           title="Add a user"
-          description="They sign in with the temporary password and must change it at their first sign-in."
           submitLabel="Add user"
           onClose={close}
           onSubmit={(form) => {
@@ -299,8 +293,8 @@ export function Users() {
 
       {dialog?.kind === 'reset-password' && (
         <FormDialog
-          title={`Reset the password of ${dialog.user.display_name}`}
-          description={`Give ${dialog.user.email} a temporary password. They must change it at their next sign-in.`}
+          title="Reset password"
+          description={`${dialog.user.display_name} will choose a new password at next sign-in.`}
           submitLabel="Reset password"
           onClose={close}
           onSubmit={(form) =>
@@ -337,8 +331,8 @@ export function Users() {
           title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.display_name}?`}
           description={
             dialog.user.active
-              ? `${dialog.user.email} can no longer sign in. Their profile stays, and you can reactivate them later.`
-              : `${dialog.user.email} can sign in again with their current password.`
+              ? "They won't be able to sign in. You can reactivate them later."
+              : 'They can sign in again with their current password.'
           }
           confirmLabel={dialog.user.active ? 'Deactivate' : 'Reactivate'}
           destructive={dialog.user.active}
@@ -389,14 +383,17 @@ function RoleCheckboxes({
   roles,
   checked,
   onCheckedChange,
+  hint,
 }: {
   idPrefix: string
   roles: GlobalRole[]
   checked?: GlobalRole[]
   onCheckedChange?: (role: GlobalRole, checked: boolean) => void
+  /** A line under the boxes. */
+  hint?: string
 }) {
   return (
-    <fieldset className="grid gap-3">
+    <fieldset className="grid gap-3" aria-describedby={hint && `${idPrefix}-hint`}>
       <legend className="mb-2 text-sm font-medium">Roles</legend>
       <div className="grid grid-cols-2 gap-2">
         {roles.map((role) => (
@@ -416,6 +413,11 @@ function RoleCheckboxes({
           </Label>
         ))}
       </div>
+      {hint && (
+        <p id={`${idPrefix}-hint`} className="text-muted-foreground text-sm">
+          {hint}
+        </p>
+      )}
     </fieldset>
   )
 }
@@ -504,7 +506,7 @@ function EditUserDialog({
   return (
     <FormDialog
       title={`Edit ${user.display_name}`}
-      description={`${user.email}. Role changes take effect at their next sign-in, or within an hour.`}
+      description={user.email}
       submitLabel="Save"
       submitDisabled={!changed}
       onClose={onClose}
@@ -528,6 +530,7 @@ function EditUserDialog({
         onCheckedChange={(role, checked) =>
           setRoles((current) => (checked ? [...current, role] : current.filter((r) => r !== role)))
         }
+        hint="Applies at their next sign-in."
       />
     </FormDialog>
   )
