@@ -80,7 +80,7 @@ export function Combobox({
       }}
     >
       <PopoverTrigger asChild>
-        <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className="w-full justify-between px-3 font-normal">
+        <Button id={id} type="button" variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className="w-full min-w-0 justify-between px-3 font-normal">
           <span className={cn('truncate', !value && 'text-muted-foreground')}>{value?.label ?? placeholder}</span>
           <ChevronsUpDownIcon className="opacity-50" />
         </Button>
