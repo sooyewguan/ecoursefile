@@ -156,15 +156,15 @@ A second import of the same file adds nobody. Every row whose user was added is 
 
 A user who forgot their password asks for a reset link, and sets a new password with it. Supabase Auth sends no email through SMTP. Its Send Email Hook hands each email to the `send-email` Edge Function, which sends it through the mail adapter. See [Email](#email).
 
-1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
+1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`. It then replaces the form with the same words for every email: "If an account exists for <email>, we sent a reset link. It expires in 1 hour."
 2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers a first request with `{}` and HTTP 200 for an active user, a deactivated user and an email with no account alike.
 3. The email greets the user by their display name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
-4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
+4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app. A link with no `token_hash` shows "This link doesn't work", and a used or expired one shows "This link has expired", each with **Request a new link**.
 5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
 
 Two things in Supabase Auth's answer still differ. A repeat request for an email with an account, within `max_frequency` in `[auth.email]` of the last one, gets HTTP 429 and "you can only request this after N seconds", while an email with no account gets HTTP 200 again. And a request for an email with an account takes longer, because Supabase Auth calls the hook. The page shows its usual text for a 429 too, so the page tells nobody which it was, but someone who calls the Supabase Auth API directly can tell from the status or the time.
 
-A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
+A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it. Every new password field, and the temporary password fields of the **Users** page, says "At least 6 characters" and refuses a shorter one before it reaches Supabase Auth, which sets that minimum with `minimum_password_length` in `supabase/config.toml`.
 
 ### My profile
 

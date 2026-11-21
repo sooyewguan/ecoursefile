@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
+import { PasswordHint } from '@/components/password-fields'
 import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ImportResults, ImportUsersDialog } from '@/components/user-import'
 import { cn } from '@/lib/utils'
 import { MAX_TITLE_LENGTH, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
+import { MIN_PASSWORD_LENGTH } from '../auth.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { friendlyError, UserFacingError } from '../errors.ts'
 import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
@@ -263,7 +265,17 @@ export function Users() {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="create-temporary-password">Temporary password</Label>
-            <Input id="create-temporary-password" name="temporaryPassword" type="text" autoComplete="off" required />
+            <Input
+              id="create-temporary-password"
+              name="temporaryPassword"
+              type="text"
+              autoComplete="off"
+              minLength={MIN_PASSWORD_LENGTH}
+              aria-describedby="create-temporary-password-hint"
+              required
+            />
+            <PasswordHint id="create-temporary-password-hint" />
+            <FieldError name="temporaryPassword" />
           </div>
           {choosesDepartment && (
             <DepartmentSelect id="create-department" name="departmentId" departments={departments} defaultValue="" />
@@ -305,7 +317,17 @@ export function Users() {
         >
           <div className="grid gap-2">
             <Label htmlFor="reset-temporary-password">Temporary password</Label>
-            <Input id="reset-temporary-password" name="temporaryPassword" type="text" autoComplete="off" required />
+            <Input
+              id="reset-temporary-password"
+              name="temporaryPassword"
+              type="text"
+              autoComplete="off"
+              minLength={MIN_PASSWORD_LENGTH}
+              aria-describedby="reset-temporary-password-hint"
+              required
+            />
+            <PasswordHint id="reset-temporary-password-hint" />
+            <FieldError name="temporaryPassword" />
           </div>
         </FormDialog>
       )}

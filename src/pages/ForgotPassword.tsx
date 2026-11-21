@@ -1,15 +1,24 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { AuthLayout } from '@/components/auth-layout'
-import { NoticeAlert, type Notice } from '@/components/notice'
+import { ErrorAlert } from '@/components/notice'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
+import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 
+const backToSignIn = (
+  <Link to="/sign-in" className="underline underline-offset-4">
+    Back to sign in
+  </Link>
+)
+
 export function ForgotPassword() {
-  const [notice, setNotice] = useState<Notice | null>(null)
+  /** The email the link went to, once it has gone. */
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -20,30 +29,29 @@ export function ForgotPassword() {
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
     setBusy(false)
     // Supabase Auth refuses a repeat request for an email with an account with HTTP 429, and answers
-    // one with no account as before, so a 429 gets the same text as success, which says no more.
-    setNotice(
-      error && error.status !== 429
-        ? { tone: 'error', text: error.message }
-        : { tone: 'success', text: `If ${email} belongs to an active account, it will get a link to set a new password. The link works once, within one hour.` },
+    // one with no account as before, so a 429 reads as sent, which says no more.
+    if (error && error.status !== 429) setError(friendlyError(error))
+    else setSentTo(email)
+  }
+
+  if (sentTo) {
+    return (
+      <AuthLayout title="Check your email" footer={backToSignIn}>
+        <p className="text-muted-foreground text-center text-sm">
+          If an account exists for <span className="text-foreground font-medium break-all">{sentTo}</span>, we sent a reset link. It expires in 1 hour.
+        </p>
+      </AuthLayout>
     )
   }
 
   return (
-    <AuthLayout
-      title="Reset your password"
-      description="Enter your staff email, and we will email you a link to set a new password."
-      footer={
-        <Link to="/sign-in" className="underline underline-offset-4">
-          Back to sign in
-        </Link>
-      }
-    >
+    <AuthLayout title="Reset your password" description="We'll email you a link to reset it." footer={backToSignIn}>
       <form onSubmit={onSubmit} className="grid gap-5">
         <div className="grid gap-2">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" autoComplete="username" required />
+          <Input id="email" name="email" type="email" autoComplete="username" autoFocus required />
         </div>
-        {notice && <NoticeAlert notice={notice} />}
+        {error && <ErrorAlert>{error}</ErrorAlert>}
         <Button type="submit" disabled={busy} className="w-full">
           {busy && <Spinner />}
           Email me a link

@@ -1,3 +1,5 @@
+import { MIN_PASSWORD_LENGTH } from './auth.ts'
+
 /**
  * An error whose message the app wrote for the person using it, such as a refused upload. The
  * files, audit-requests and accounts functions answer with { code, message }, and the browser
@@ -19,7 +21,7 @@ export const OFFLINE_MESSAGE = "Can't reach the server. Check your connection an
 /** Messages for error codes whose own message is not fit to show. */
 const CODE_MESSAGES: Record<string, string> = {
   invalid_credentials: 'Incorrect email or password.',
-  weak_password: 'Use at least 6 characters.',
+  weak_password: `Use at least ${MIN_PASSWORD_LENGTH} characters.`,
   same_password: "Choose a password you haven't used here before.",
   otp_expired: 'This link has expired.',
   email_exists: 'An account with this email already exists.',

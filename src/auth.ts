@@ -30,6 +30,9 @@ export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
   return !page || page.roles.some((role) => roles.includes(role))
 }
 
+/** The shortest password Supabase Auth takes, as minimum_password_length in supabase/config.toml sets it. */
+export const MIN_PASSWORD_LENGTH = 6
+
 /** The pages for signed-out visitors, which a signed-in user is sent away from. */
 const SIGNED_OUT_PAGES = ['/sign-in', '/forgot-password']
 
