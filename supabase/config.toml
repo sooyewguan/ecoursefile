@@ -417,8 +417,12 @@ FAKE_STORAGE_URL = "http://127.0.0.1:54321/functions/v1/fake-storage"
 MAIL_ADAPTER = "fake"
 SEND_EMAIL_HOOK_SECRET = "v1,whsec_1RynRfnDEXU8HKWWz87vTJVqhK66Ncrt8kfBjHoLAQM="
 
-# The fake's upload URLs, like Graph's, take no Authorization header.
+# The fake's upload and download URLs, like Drive's upload URLs, take no Authorization header.
 [functions.fake-storage]
+verify_jwt = false
+
+# The drive adapter's download URLs take no Authorization header. The function checks their signature.
+[functions.drive-download]
 verify_jwt = false
 
 # Supabase Auth calls the Send Email Hook without a JWT. The function checks the hook's signature.

@@ -1,5 +1,6 @@
-// Microsoft Graph as the Entra app, with an app-only token from its client credentials. The storage
-// and mail adapters share it.
+// Microsoft Graph as the Entra app, with an app-only token from its client credentials. The mail
+// adapter uses it.
+import { firstBytes } from './http.ts'
 
 export type GraphCredentials = { tenantId: string; clientId: string; clientSecret: string }
 
@@ -42,20 +43,4 @@ export function graphClient(credentials: GraphCredentials) {
 export async function graphFailure(response: Response, what: string) {
   const body = new TextDecoder().decode(await firstBytes(response, 500))
   return new Error(`Graph ${what} failed with ${response.status}: ${body}`)
-}
-
-/** The first length bytes of the body, or all of them when it is shorter. The rest is never read. */
-export async function firstBytes(response: Response, length: number) {
-  const bytes = new Uint8Array(length)
-  let received = 0
-  const reader = response.body?.getReader()
-  while (reader && received < length) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const part = value.subarray(0, length - received)
-    bytes.set(part, received)
-    received += part.length
-  }
-  await reader?.cancel()
-  return bytes.slice(0, received)
 }
