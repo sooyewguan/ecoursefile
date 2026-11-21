@@ -22,14 +22,15 @@ type AuditRequest = { id: string; state: 'draft' | Step }
 
 type AuditRequestsRequest = { action: 'send'; requestId: string } | { action: 'reply'; requestId: string; message: string | null }
 
-type Person = { full_name: string; email: string; active: boolean }
+/** display_name is how the emails name a person, and full_name how they sort people. */
+type Person = { full_name: string; display_name: string; email: string; active: boolean }
 
 /** A request as the emails need it, read with the service role. EMAIL_SELECT selects it. */
 type EmailSource = {
   state: Step
   reply_message: string | null
   auditor: Person
-  replier: { full_name: string } | null
+  replier: { display_name: string } | null
   offering: {
     coordinator_id: string
     semester: { code: string }
@@ -42,9 +43,9 @@ type EmailSource = {
 const EMAIL_SELECT = [
   'state',
   'reply_message',
-  'auditor:profiles!audit_requests_auditor_id_fkey(full_name,email,active)',
-  'replier:profiles!audit_requests_replied_by_fkey(full_name)',
-  'offering:offerings(coordinator_id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,full_name,email,active)))',
+  'auditor:profiles!audit_requests_auditor_id_fkey(full_name,display_name,email,active)',
+  'replier:profiles!audit_requests_replied_by_fkey(display_name)',
+  'offering:offerings(coordinator_id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,full_name,display_name,email,active)))',
   'items:audit_request_items(section,ticked,comment,verdict:section_verdicts(comment))',
 ].join(',')
 
@@ -140,7 +141,7 @@ function requestEmail({ auditor, offering, items }: EmailSource): Mail {
     subject: `Audit request for ${courseOf(offering)}`,
     html: [
       '<p>Hello,</p>',
-      `<p>${escapeHtml(auditor.full_name)} audited the course file of ${escapeHtml(courseOf(offering))} and asks you to fix ${flagged.length === 1 ? 'this section' : `these ${flagged.length} sections`}:</p>`,
+      `<p>${escapeHtml(auditor.display_name)} audited the course file of ${escapeHtml(courseOf(offering))} and asks you to fix ${flagged.length === 1 ? 'this section' : `these ${flagged.length} sections`}:</p>`,
       `<ul>${flagged.map((item) => `<li><strong>${sectionName(item.section)}</strong>: ${paragraph(item.verdict.comment)}</li>`).join('')}</ul>`,
       '<p>Open the course file in eCourseFile to work through the checklist. A section ticks itself when it gets a new file. Comment on any section you cannot fix. Once every section is ticked or commented, any of you can reply to the auditor.</p>',
     ].join('\n'),
@@ -153,8 +154,8 @@ function replyEmail({ auditor, replier, reply_message, offering, items }: EmailS
     to: auditor.active ? [auditor.email] : [],
     subject: `Reply to your audit request for ${courseOf(offering)}`,
     html: [
-      `<p>Hello ${escapeHtml(auditor.full_name)},</p>`,
-      `<p>${escapeHtml(replier!.full_name)} replied to your audit request for ${escapeHtml(courseOf(offering))}.</p>`,
+      `<p>Hello ${escapeHtml(auditor.display_name)},</p>`,
+      `<p>${escapeHtml(replier!.display_name)} replied to your audit request for ${escapeHtml(courseOf(offering))}.</p>`,
       ...(reply_message ? [`<blockquote>${paragraph(reply_message)}</blockquote>`] : []),
       `<ul>${sorted(items)
         .map((item) => {

@@ -1,5 +1,6 @@
 import { ConfirmDialog } from '@/components/action-dialogs'
-import type { Section } from '../sections.ts'
+import { plural } from '@/lib/utils'
+import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 import { deleteSharedFile } from '../uploads.ts'
 
@@ -12,42 +13,37 @@ export type LinkedSharedFile = {
 
 /**
  * Confirms the delete of a shared file. It lists the offerings whose course files link the file,
- * because the section becomes Missing in each of them. subject names the file in a sentence, such
- * as "The Academic Calendar of 2026/2027-1".
+ * because its section becomes Missing in each of them. title names the file, such as "Academic
+ * Calendar" or "your timetable".
  */
 export function DeleteSharedFileDialog({
   file,
-  section,
-  subject,
+  title,
   onClose,
   onDeleted,
 }: {
   file: LinkedSharedFile
-  section: Section
-  subject: string
+  title: string
   onClose: () => void
   onDeleted: () => Promise<void>
 }) {
   const linked = file.linked_offerings.toSorted((a, b) => a.course.code.localeCompare(b.course.code))
-  const sectionName = `section ${section.number} ${section.title}`
   return (
     <ConfirmDialog
-      title={`Delete ${file.name}?`}
+      title={`Delete ${title}?`}
       description={
         linked.length === 0
-          ? `${subject} is deleted for good, from SharePoint. No course file links it yet.`
-          : `${subject} is deleted for good, from SharePoint and from the course files that link it. ${
-              linked.length === 1 ? `This offering loses it, and ${sectionName} becomes Missing:` : `These ${linked.length} offerings lose it, and ${sectionName} becomes Missing in each:`
-            }`
+          ? `${file.name} will be permanently deleted.`
+          : `${plural(linked.length, 'course file')} will show it as Missing:`
       }
-      confirmLabel="Delete file"
+      confirmLabel="Delete"
       destructive
       onClose={onClose}
       onConfirm={async () => {
         try {
           await deleteSharedFile(supabase, file.id)
         } catch (error) {
-          return error instanceof Error ? error.message : String(error)
+          return friendlyError(error)
         }
         await onDeleted()
         return null
