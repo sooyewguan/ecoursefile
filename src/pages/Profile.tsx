@@ -1,6 +1,9 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { toast } from 'sonner'
+import { editsErrorField, FieldError, FormErrors, type ActionError } from '@/components/form-errors'
 import { Initials, RoleBadges } from '@/components/identity'
-import { NoticeAlert, type Notice } from '@/components/notice'
+import { PageHeader } from '@/components/page'
+import { confirmationError, NewPasswordFields, newPasswordError } from '@/components/password-fields'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -10,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { MAX_TITLE_LENGTH } from '../../supabase/functions/_shared/user-import.ts'
 import type { Profile as SignedInProfile } from '../auth.ts'
 import { useAuth, useReloadAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import type { GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
 
@@ -25,7 +29,7 @@ export function Profile() {
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">My profile</h1>
+      <PageHeader title="My profile" />
       <div className="grid items-start gap-6 lg:grid-cols-[20rem_1fr]">
         <AccountCard profile={state.profile} roles={state.roles} />
         <div className="grid gap-6">
@@ -39,9 +43,8 @@ export function Profile() {
 
 /** Who the user is, and the parts of their account that only an admin changes. */
 function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: GlobalRole[] }) {
-  // undefined while loading, null when the user has no department.
-  const [department, setDepartment] = useState<Department | null | undefined>(undefined)
-  const [departmentError, setDepartmentError] = useState<string | null>(null)
+  // undefined while loading, null when the user has no department, and 'failed' when it did not load.
+  const [department, setDepartment] = useState<Department | null | 'failed' | undefined>(undefined)
 
   useEffect(() => {
     let current = true
@@ -52,9 +55,7 @@ function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: Glob
       .single()
       .overrideTypes<{ department: Department | null }, { merge: false }>()
       .then(({ data, error }) => {
-        if (!current) return
-        if (error) setDepartmentError(error.message)
-        setDepartment(error ? null : data.department)
+        if (current) setDepartment(error ? 'failed' : data.department)
       })
     return () => {
       current = false
@@ -65,7 +66,7 @@ function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: Glob
     <Card className="lg:sticky lg:top-20">
       <CardContent className="grid gap-5">
         <div className="flex items-center gap-4 lg:flex-col lg:items-start">
-          <Initials name={profile.fullName} className="bg-primary text-primary-foreground size-16 text-xl font-semibold" />
+          <Initials name={profile.fullName} className="size-16 text-xl font-semibold" />
           <p className="min-w-0 text-lg font-semibold break-words">{profile.displayName}</p>
         </div>
         <dl className="grid gap-3 text-sm">
@@ -75,12 +76,12 @@ function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: Glob
           <Fact label="Department">
             {department === undefined ? (
               <Skeleton className="h-5 w-40" />
-            ) : departmentError ? (
-              <span className="text-destructive">Could not read your department: {departmentError}</span>
+            ) : department === 'failed' ? (
+              <span className="text-muted-foreground">Couldn't load</span>
             ) : department ? (
               `${department.code} ${department.name}`
             ) : (
-              'None'
+              <span className="text-muted-foreground">—</span>
             )}
           </Fact>
           <Fact label="Roles">
@@ -101,33 +102,46 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** A card that holds one form, with its button in the footer. */
+/**
+ * A card that holds one form, with its button in the footer. onSubmit resolves to why it failed,
+ * which shows under its field or after the fields, or to null when it succeeded.
+ */
 function FormCard({
   title,
   onSubmit,
-  notice,
   action,
   children,
 }: {
   title: string
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void
-  notice: Notice | null
-  action: ReactNode
+  onSubmit: (form: HTMLFormElement) => Promise<ActionError | null>
+  action: (busy: boolean) => ReactNode
   children: ReactNode
 }) {
+  const form = useRef<HTMLFormElement>(null)
+  const [error, setError] = useState<ActionError | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError(await onSubmit(event.currentTarget))
+    setBusy(false)
+  }
+
   return (
     <Card className="gap-0 py-0">
-      <form onSubmit={onSubmit} aria-label={title}>
-        <CardHeader className="border-b py-5">
+      <form ref={form} onSubmit={submit} onInput={(event) => editsErrorField(error, event.target) && setError(null)} aria-label={title}>
+        <CardHeader className="grid-rows-none border-b py-4 [.border-b]:pb-4">
           <CardTitle className="text-base">
             <h2>{title}</h2>
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 py-5">
-          {children}
-          {notice && <NoticeAlert notice={notice} />}
+          <FormErrors form={form} error={error}>
+            {children}
+          </FormErrors>
         </CardContent>
-        <CardFooter className="bg-muted/40 justify-end rounded-b-xl border-t py-3">{action}</CardFooter>
+        <CardFooter className="bg-muted/40 justify-end rounded-b-xl border-t py-3">{action(busy)}</CardFooter>
       </form>
     </Card>
   )
@@ -138,36 +152,29 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
   const reloadAuth = useReloadAuth()
   const [title, setTitle] = useState(profile.title ?? '')
   const [fullName, setFullName] = useState(profile.fullName)
-  const [notice, setNotice] = useState<Notice | null>(null)
-  const [busy, setBusy] = useState(false)
   const changed = fullName.trim() !== profile.fullName || (title.trim() || null) !== profile.title
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setBusy(true)
+  async function save(): Promise<ActionError | null> {
     const { error } = await supabase.rpc('update_my_profile', { full_name: fullName, title })
-    if (!error) await reloadAuth()
-    setBusy(false)
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    // The SQL function refuses a blank name with 23514.
+    if (error) return error.code === '23514' ? { field: 'fullName', message: friendlyError(error) } : friendlyError(error)
+    await reloadAuth()
     setTitle(title.trim())
     setFullName(fullName.trim())
-    setNotice({ tone: 'success', text: 'Saved.' })
+    toast.success('Saved')
+    return null
   }
 
   return (
     <FormCard
       title="Name and title"
-      onSubmit={onSubmit}
-      notice={notice}
-      action={
+      onSubmit={save}
+      action={(busy) => (
         <Button type="submit" size="sm" disabled={busy || !changed}>
           {busy && <Spinner />}
           Save
         </Button>
-      }
+      )}
     >
       <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
         <div className="grid content-start gap-2">
@@ -178,10 +185,7 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
             id="title"
             name="title"
             value={title}
-            onChange={(event) => {
-              setTitle(event.target.value)
-              setNotice(null)
-            }}
+            onChange={(event) => setTitle(event.target.value)}
             placeholder="Dr., Ts."
             maxLength={MAX_TITLE_LENGTH}
             autoComplete="honorific-prefix"
@@ -193,13 +197,11 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
             id="full-name"
             name="fullName"
             value={fullName}
-            onChange={(event) => {
-              setFullName(event.target.value)
-              setNotice(null)
-            }}
+            onChange={(event) => setFullName(event.target.value)}
             autoComplete="name"
             required
           />
+          <FieldError name="fullName" />
         </div>
       </div>
     </FormCard>
@@ -211,65 +213,40 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
  * signed-in screen cannot take over the account. Signing in with the current password checks it.
  */
 function PasswordCard({ email }: { email: string }) {
-  const [notice, setNotice] = useState<Notice | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const formElement = event.currentTarget
+  async function change(formElement: HTMLFormElement): Promise<ActionError | null> {
     const form = new FormData(formElement)
     const current = String(form.get('current'))
     const password = String(form.get('password'))
-    if (password !== String(form.get('confirm'))) {
-      setNotice({ tone: 'error', text: 'The two new passwords do not match.' })
-      return
-    }
-    if (password === current) {
-      setNotice({ tone: 'error', text: 'The new password must differ from the current one.' })
-      return
-    }
-    setBusy(true)
+    const mismatch = confirmationError(form)
+    if (mismatch) return mismatch
+    if (password === current) return { field: 'password', message: 'Must differ from your current password.' }
     const check = await supabase.auth.signInWithPassword({ email, password: current })
-    if (check.error) {
-      setBusy(false)
-      setNotice({ tone: 'error', text: check.error.code === 'invalid_credentials' ? 'Your current password is wrong.' : check.error.message })
-      return
-    }
+    if (check.error) return check.error.code === 'invalid_credentials' ? { field: 'current', message: 'Incorrect password.' } : friendlyError(check.error)
     const { error } = await supabase.auth.updateUser({ password })
-    setBusy(false)
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    if (error) return newPasswordError(error)
     formElement.reset()
-    setNotice({ tone: 'success', text: 'Password changed.' })
+    toast.success('Password changed')
+    return null
   }
 
   return (
     <FormCard
       title="Password"
-      onSubmit={onSubmit}
-      notice={notice}
-      action={
+      onSubmit={change}
+      action={(busy) => (
         <Button type="submit" size="sm" disabled={busy}>
           {busy && <Spinner />}
           Change password
         </Button>
-      }
+      )}
     >
       <div className="grid gap-2">
         <Label htmlFor="current">Current password</Label>
         <Input id="current" name="current" type="password" autoComplete="current-password" required />
+        <FieldError name="current" />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="password">New password</Label>
-          <Input id="password" name="password" type="password" autoComplete="new-password" required />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="confirm">Confirm new password</Label>
-          <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-        </div>
+      <div className="grid items-start gap-4 sm:grid-cols-2">
+        <NewPasswordFields />
       </div>
     </FormCard>
   )
