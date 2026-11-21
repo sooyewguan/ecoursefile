@@ -15,6 +15,31 @@ $$;
 
 revoke execute on function public.is_root from anon, public;
 
+-- may_grant and can_manage read the target's roles as the caller. An admin no longer sees a root
+-- user's roles, so both ask is_root instead, or an admin could change root's roles or password.
+create or replace function public.may_grant(target uuid, granted public.global_role)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select granted = any(public.assignable_roles())
+    and target is distinct from (select auth.uid())
+    and not public.is_root(target)
+$$;
+
+create or replace function public.can_manage(target uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select 'admin' = any(public.jwt_roles())
+    and target is distinct from (select auth.uid())
+    and not public.is_root(target)
+    and not exists (select 1 from public.user_roles r where r.user_id = target and r.role = 'admin')
+$$;
+
 drop policy "Root and admins read every profile" on public.profiles;
 drop policy "Root and admins read every role" on public.user_roles;
 

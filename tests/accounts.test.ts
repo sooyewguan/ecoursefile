@@ -152,12 +152,13 @@ test('root cannot reset a password', async () => {
   await signIn(user.email, user.password)
 })
 
-test('admin cannot reset the password of another admin or their own', async () => {
+test('admin cannot reset the password of root, another admin or their own', async () => {
   const otherAdmin = await createUser({ roles: ['admin'] })
 
-  for (const userId of [otherAdmin.id, await userIdOf(admin)]) {
+  for (const userId of [await userIdOf(root), otherAdmin.id, await userIdOf(admin)]) {
     const result = await callAccounts(admin, { action: 'reset-password', userId, temporaryPassword: 'admin-chose-this' })
     expect(result).toMatchObject({ status: 403, body: { code: 'forbidden' } })
   }
   await signIn(otherAdmin.email, otherAdmin.password)
+  await signInAs('root')
 })
