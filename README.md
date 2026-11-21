@@ -100,7 +100,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user except root users. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
