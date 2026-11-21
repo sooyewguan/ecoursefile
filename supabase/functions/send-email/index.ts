@@ -30,15 +30,15 @@ Deno.serve(async (req) => {
   if (email.type !== 'recovery') return refuse(403, 'eCourseFile sends only password reset emails.')
 
   try {
-    const [profile] = await rest<{ full_name: string; active: boolean }[]>(
+    const [profile] = await rest<{ display_name: string; active: boolean }[]>(
       'GET',
-      `/profiles?select=full_name,active&id=eq.${email.userId}`,
+      `/profiles?select=display_name,active&id=eq.${email.userId}`,
       undefined,
       SERVICE,
     )
     // A deactivated user gets no link. Supabase Auth answers the request as it does for an email
     // with no account, so the answer does not tell them apart.
-    if (profile?.active) await mailer.send(resetEmail(email, profile.full_name))
+    if (profile?.active) await mailer.send(resetEmail(email, profile.display_name))
     return Response.json({})
   } catch (error) {
     console.error(error)
@@ -81,14 +81,14 @@ function parseHookEmail(body: string): HookEmail | null {
  * The reset email. Its link opens the reset page at the origin of redirect_to, which Supabase Auth
  * has already checked against the site URL and the allowed redirect URLs.
  */
-function resetEmail(email: HookEmail, fullName: string): Mail {
+function resetEmail(email: HookEmail, name: string): Mail {
   const link = new URL(RESET_PAGE, email.redirectTo)
   link.search = new URLSearchParams({ token_hash: email.tokenHash }).toString()
   return {
     to: [email.to],
     subject: 'Reset your eCourseFile password',
     html: [
-      `<p>Hello ${escapeHtml(fullName)},</p>`,
+      `<p>Hello ${escapeHtml(name)},</p>`,
       `<p>We received a request to reset the password of the eCourseFile account ${escapeHtml(email.to)}. To set a new password, open this link. It works once, within one hour.</p>`,
       `<p><a href="${escapeHtml(link.href)}">Set a new password</a></p>`,
       '<p>If you did not ask for this, ignore this email, and your password stays as it is.</p>',

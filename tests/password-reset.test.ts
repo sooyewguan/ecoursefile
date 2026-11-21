@@ -117,6 +117,16 @@ test("the reset email escapes HTML in the user's name", async () => {
   expect(html).not.toContain('<img')
 })
 
+test('the reset email greets the user by their title and name', async () => {
+  const user = await createUser({ fullName: 'Aisyah Reset' })
+  const own = await signIn(user.email, user.password)
+  expect((await own.rpc('update_my_profile', { full_name: 'Aisyah Reset', title: 'Dr.' })).error).toBeNull()
+
+  expect((await requestReset(user.email)).error).toBeNull()
+
+  expect((await resetEmail(user.email)).html).toContain('<p>Hello Dr. Aisyah Reset,</p>')
+})
+
 test('a sign-in link is refused, and no email is sent', async () => {
   const user = await createUser()
 
