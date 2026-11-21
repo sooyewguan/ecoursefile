@@ -1,6 +1,9 @@
+import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { TableLoadError, TableSkeleton } from '@/components/page'
+import { TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager } from '@/components/paged-list'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { TableBody } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
@@ -10,6 +13,8 @@ type PagedList<Row> = {
   total: number | null
   loading: boolean
   failed: boolean
+  query: string
+  setQuery: (query: string) => void
   search: string
   page: number
   setPage: (page: number) => void
@@ -59,6 +64,50 @@ export function PagedTableBody<Row>({
  */
 export function isEmptyList(list: PagedList<unknown>) {
   return !list.loading && !list.failed && list.search === '' && list.total === 0
+}
+
+/** The search box above a paged table, such as "Search departments". */
+export function ListSearch({ list, label, className = 'sm:max-w-xs' }: { list: PagedList<unknown>; label: string; className?: string }) {
+  return (
+    <Input
+      type="search"
+      aria-label={label}
+      placeholder={label}
+      className={className}
+      value={list.query}
+      onChange={(event) => list.setQuery(event.target.value)}
+    />
+  )
+}
+
+/** A searched list with no rows: "No matching departments" with Clear search, or "No departments yet" with the Add button. */
+export function ListEmpty({
+  list,
+  columns,
+  icon,
+  noun,
+  addButton,
+}: {
+  list: PagedList<unknown>
+  columns: number
+  icon: LucideIcon
+  /** What the list holds, in the plural, such as "departments". */
+  noun: string
+  addButton: ReactNode
+}) {
+  if (!list.search) return <TableEmpty columns={columns} icon={icon} title={`No ${noun} yet`} action={addButton} />
+  return (
+    <TableEmpty
+      columns={columns}
+      icon={icon}
+      title={`No matching ${noun}`}
+      action={
+        <Button variant="outline" onClick={() => list.setQuery('')}>
+          Clear search
+        </Button>
+      }
+    />
+  )
 }
 
 /** The pager under a paged table. A new page starts at the top of the page. */

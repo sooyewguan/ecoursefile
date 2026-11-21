@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader, RowActions, TableEmpty } from '@/components/page'
+import { PageHeader, RowActions } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -73,16 +73,7 @@ export function Departments() {
       <PageHeader title="Departments" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && (
-          <Input
-            type="search"
-            aria-label="Search departments"
-            placeholder="Search departments"
-            className="sm:max-w-xs"
-            value={list.query}
-            onChange={(event) => list.setQuery(event.target.value)}
-          />
-        )}
+        {!empty && <ListSearch list={list} label="Search departments" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
             <TableHeader className="bg-muted/50 max-md:hidden">
@@ -98,22 +89,7 @@ export function Departments() {
               list={list}
               columns={COLUMNS}
               loadError="Couldn't load departments"
-              empty={
-                list.search ? (
-                  <TableEmpty
-                    columns={COLUMNS.length}
-                    icon={Building2Icon}
-                    title="No matching departments"
-                    action={
-                      <Button variant="outline" onClick={() => list.setQuery('')}>
-                        Clear search
-                      </Button>
-                    }
-                  />
-                ) : (
-                  <TableEmpty columns={COLUMNS.length} icon={Building2Icon} title="No departments yet" action={addButton} />
-                )
-              }
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={Building2Icon} noun="departments" addButton={addButton} />}
             >
               {(department) => (
                 <TableRow key={department.id}>

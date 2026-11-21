@@ -4,9 +4,9 @@ import { toast } from 'sonner'
 import { FormDialog, type Action } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader, TableEmpty } from '@/components/page'
+import { PageHeader } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -82,16 +82,7 @@ export function Courses() {
       <PageHeader title="Courses" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && (
-          <Input
-            type="search"
-            aria-label="Search courses"
-            placeholder="Search courses"
-            className="sm:max-w-xs"
-            value={list.query}
-            onChange={(event) => list.setQuery(event.target.value)}
-          />
-        )}
+        {!empty && <ListSearch list={list} label="Search courses" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
             <TableHeader className="bg-muted/50 max-md:hidden">
@@ -108,22 +99,7 @@ export function Courses() {
               list={list}
               columns={COLUMNS}
               loadError="Couldn't load courses"
-              empty={
-                list.search ? (
-                  <TableEmpty
-                    columns={COLUMNS.length}
-                    icon={BookOpenIcon}
-                    title="No matching courses"
-                    action={
-                      <Button variant="outline" onClick={() => list.setQuery('')}>
-                        Clear search
-                      </Button>
-                    }
-                  />
-                ) : (
-                  <TableEmpty columns={COLUMNS.length} icon={BookOpenIcon} title="No courses yet" action={addButton} />
-                )
-              }
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={BookOpenIcon} noun="courses" addButton={addButton} />}
             >
               {(course) => (
                 <TableRow key={course.id}>

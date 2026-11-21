@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader, TableEmpty } from '@/components/page'
+import { PageHeader } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -58,16 +58,7 @@ export function ProgramCodes() {
       <PageHeader title="Program codes" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && (
-          <Input
-            type="search"
-            aria-label="Search program codes"
-            placeholder="Search program codes"
-            className="sm:max-w-xs"
-            value={list.query}
-            onChange={(event) => list.setQuery(event.target.value)}
-          />
-        )}
+        {!empty && <ListSearch list={list} label="Search program codes" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
             <TableHeader className="bg-muted/50 max-md:hidden">
@@ -82,22 +73,7 @@ export function ProgramCodes() {
               list={list}
               columns={COLUMNS}
               loadError="Couldn't load program codes"
-              empty={
-                list.search ? (
-                  <TableEmpty
-                    columns={COLUMNS.length}
-                    icon={TagsIcon}
-                    title="No matching program codes"
-                    action={
-                      <Button variant="outline" onClick={() => list.setQuery('')}>
-                        Clear search
-                      </Button>
-                    }
-                  />
-                ) : (
-                  <TableEmpty columns={COLUMNS.length} icon={TagsIcon} title="No program codes yet" action={addButton} />
-                )
-              }
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={TagsIcon} noun="program codes" addButton={addButton} />}
             >
               {(programCode) => (
                 <TableRow key={programCode.id}>

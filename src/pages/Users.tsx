@@ -9,7 +9,7 @@ import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
 import { PageHeader, RowActions, TableEmpty } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { PagedTableBody, TablePager } from '@/components/paged-table'
+import { ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -192,14 +192,7 @@ export function Users() {
 
       <div className="grid gap-3">
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          <Input
-            type="search"
-            aria-label="Search users"
-            placeholder="Search users"
-            className="col-span-2 sm:w-64"
-            value={list.query}
-            onChange={(event) => list.setQuery(event.target.value)}
-          />
+          <ListSearch list={list} label="Search users" className="col-span-2 sm:w-64" />
           <div className="col-span-2 min-w-0 sm:w-64">
             <Label htmlFor="users-department" className="sr-only">
               Department
