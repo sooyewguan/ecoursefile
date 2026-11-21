@@ -1,11 +1,11 @@
 import { ArrowLeftIcon, FileDownIcon, FolderOpenIcon, PowerIcon, PowerOffIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
+import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
-import { ErrorAlert, NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
@@ -61,8 +62,7 @@ export function CourseFile() {
   const tab = searchParams.get('tab') === 'activity' ? 'activity' : 'sections'
   const auth = useAuth()
   const [data, setData] = useState<PageData | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [switching, setSwitching] = useState<Switching | null>(null)
   const [compiling, setCompiling] = useState<Compiling | null>(null)
 
@@ -78,8 +78,8 @@ export function CourseFile() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    if (offering.error || statuses.error) setError((offering.error ?? statuses.error)!.message)
-    else setData({ offering: offering.data, statuses: statuses.data })
+    setLoadFailed(Boolean(offering.error || statuses.error))
+    if (!offering.error && !statuses.error) setData({ offering: offering.data, statuses: statuses.data })
   }, [offeringId])
 
   useEffect(() => {
@@ -95,11 +95,13 @@ export function CourseFile() {
     </Button>
   )
 
-  if (error) {
+  if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title="Course file" description="This course file could not be loaded." action={backLink} />
-        <ErrorAlert>{error}</ErrorAlert>
+        <PageHeader title="Course file" action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load this course file" onRetry={reload} />
+        </Card>
       </div>
     )
   }
@@ -140,8 +142,9 @@ export function CourseFile() {
       reason,
     })
     await reload()
-    if (!error) setNotice({ tone: 'success', text: `Switched ${target.title} ${target.isOn ? 'on' : 'off'}.` })
-    return error?.message ?? null
+    if (error) return friendlyError(error)
+    toast.success(`Switched ${target.title} ${target.isOn ? 'on' : 'off'}`)
+    return null
   }
 
   /**
@@ -149,7 +152,6 @@ export function CourseFile() {
    * only now. The files download one at a time as the PDF takes them, and the status line counts them.
    */
   async function downloadCompiledPdf(fileName: string) {
-    setNotice(null)
     setCompiling({ files: null })
     try {
       const [manifest, { compile }] = await Promise.all([compileManifest(supabase, offeringId!), import('../pdf/compile.ts')])
@@ -168,8 +170,8 @@ export function CourseFile() {
       link.download = fileName
       link.click()
       setTimeout(() => URL.revokeObjectURL(link.href), 60_000)
-    } catch (error) {
-      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'The PDF could not be compiled.' })
+    } catch {
+      toast.error("Couldn't compile the PDF. Try again.")
     } finally {
       setCompiling(null)
     }
@@ -197,7 +199,6 @@ export function CourseFile() {
           <Skeleton className="h-5 w-56 max-w-full" />
         </div>
       )}
-      {notice && <NoticeAlert notice={notice} />}
       {compiling && (
         <p role="status" className="text-sm">
           {compiling.files

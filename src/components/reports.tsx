@@ -1,7 +1,8 @@
 import { ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { TableEmpty, TableSkeleton } from '@/components/page'
+import { toast } from 'sonner'
+import { LoadError, TableEmpty, TableSkeleton } from '@/components/page'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
@@ -35,21 +36,35 @@ export function SemesterSelect({ semesters, value, onChange }: { semesters: Seme
   )
 }
 
-/** Every row of a report RPC for the semester: null while they load, or the error message. */
+/**
+ * Every row of a report RPC for the semester: null while they load, or failed when they did not
+ * load, with retry to load them again.
+ */
 export function useReport<Row>(rpc: ReportRpc, semesterId: string) {
-  const [result, setResult] = useState<{ key: string; rows?: Row[]; error?: string } | null>(null)
-  const key = `${rpc} ${semesterId}`
+  const [result, setResult] = useState<{ key: string; rows?: Row[]; failed?: true } | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const key = `${rpc} ${semesterId} ${attempt}`
+  const retry = useCallback(() => setAttempt((count) => count + 1), [])
   useEffect(() => {
     let current = true
     fetchReport<Row>(supabase, rpc, semesterId).then(
       (rows) => current && setResult({ key, rows }),
-      (error: Error) => current && setResult({ key, error: error.message }),
+      () => current && setResult({ key, failed: true }),
     )
     return () => {
       current = false
     }
   }, [rpc, semesterId, key])
-  return result?.key === key ? result : null
+  return result?.key === key ? { ...result, retry } : null
+}
+
+/** A report view whose rows failed to load. */
+export function ReportLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Card className="py-0">
+      <LoadError title="Couldn't load this report" onRetry={onRetry} />
+    </Card>
+  )
 }
 
 /** Section numbers as small badges, each named in full for screen readers and on hover. */
@@ -78,9 +93,7 @@ export function SectionNumbers({ sections, none }: { sections: number[]; none: s
  * export code loads on the first export, as its own chunk.
  */
 export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTable<Row>; rows: Row[] | null; semesterCode: string | null }) {
-  const [error, setError] = useState<string | null>(null)
   async function save(format: ExportFormat) {
-    setError(null)
     try {
       const { exportReport } = await import('../report-export.ts')
       const file = await exportReport(table, rows!, semesterCode!, format)
@@ -89,17 +102,12 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
       link.download = file.name
       link.click()
       setTimeout(() => URL.revokeObjectURL(link.href), 60_000)
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'The file could not be made.')
+    } catch {
+      toast.error("Couldn't export. Try again.")
     }
   }
   return (
     <div className="flex items-center justify-end gap-3">
-      {error && (
-        <p role="alert" className="text-destructive text-sm">
-          {error}
-        </p>
-      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" aria-label={`Export ${table.view.toLowerCase()}`} disabled={!rows?.length || !semesterCode}>

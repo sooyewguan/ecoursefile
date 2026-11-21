@@ -1,8 +1,10 @@
 import { CircleCheckIcon, CircleIcon, MailWarningIcon, MessageSquareIcon, ReplyIcon, SendIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { ErrorAlert } from '@/components/notice'
+import { LoadError } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { cn, plural } from '@/lib/utils'
 import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState } from '../audit-requests.ts'
+import { friendlyError } from '../errors.ts'
 import { sectionName, SECTIONS_WITH_PAGES, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -54,6 +57,8 @@ type Commenting = { request: AuditRequest; item: RequestItem }
 export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offeringId: string; userId: string | null; isStaff: boolean; statuses: Map<number, SectionStatus> }) {
   /** Null while they load. */
   const [requests, setRequests] = useState<AuditRequest[] | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  /** Why the last email failed to go, shown above the requests, where the request offers to send it again. */
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState<AuditRequest | null>(null)
   const [replying, setReplying] = useState<AuditRequest | null>(null)
@@ -67,7 +72,8 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       .eq('offering_id', offeringId)
       .order('sent_at', { ascending: false, nullsFirst: true })
       .overrideTypes<AuditRequest[], { merge: false }>()
-    setError(error?.message ?? null)
+    setLoadFailed(error !== null)
+    setError(null)
     // A draft has no send time, so the user's draft comes first, then the latest sent.
     if (data) setRequests(data.map((request) => ({ ...request, items: request.items.toSorted((a, b) => a.section - b.section) })))
   }, [offeringId])
@@ -81,7 +87,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
     setRetrying(request.id)
     const failure = await (request.state === 'sent' ? sendAuditRequest(supabase, request.id) : replyToAuditRequest(supabase, request.id)).then(
       () => null,
-      (failure: unknown) => (failure instanceof Error ? failure.message : String(failure)),
+      (failure: unknown) => friendlyError(failure),
     )
     // load clears the error, so the failure shows once the list is fresh.
     await load()
@@ -94,17 +100,25 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
    * whose email failed is made all the same, so its dialog closes, and the error shows above the
    * requests, where the request offers to send the email again.
    */
-  async function step(run: () => Promise<unknown>) {
+  async function step(run: () => Promise<unknown>, success: string) {
     const failure = await run().then(
       () => null,
       (failure: unknown) => failure,
     )
     await load()
     if (failure instanceof AuditRequestError && failure.code === 'mail_failed') setError(failure.message)
-    else if (failure) return failure instanceof Error ? failure.message : String(failure)
+    else if (failure) return friendlyError(failure)
+    else toast.success(success)
     return null
   }
 
+  if (loadFailed) {
+    return (
+      <Card className="py-0">
+        <LoadError title="Couldn't load the audit requests" onRetry={load} />
+      </Card>
+    )
+  }
   if (!error && (!requests || requests.length === 0)) return null
 
   return (
@@ -192,7 +206,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
           description={`The coordinator and lecturers get one email that lists ${sending.items.length === 1 ? 'this section' : `these ${sending.items.length} sections`} with your comments. A Needs fix you mark after this goes into a new request.`}
           confirmLabel="Send to staff"
           onClose={() => setSending(null)}
-          onConfirm={() => step(() => sendAuditRequest(supabase, sending.id))}
+          onConfirm={() => step(() => sendAuditRequest(supabase, sending.id), 'Sent to staff')}
         />
       )}
 
@@ -202,7 +216,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
           description={`${replying.auditor_name} gets an email with your message and how each section was answered.`}
           submitLabel="Send reply"
           onClose={() => setReplying(null)}
-          onSubmit={(form) => step(() => replyToAuditRequest(supabase, replying.id, String(form.get('message'))))}
+          onSubmit={(form) => step(() => replyToAuditRequest(supabase, replying.id, String(form.get('message'))), 'Reply sent')}
         >
           <div className="grid gap-2">
             <Label htmlFor="reply-message">Message (optional)</Label>
@@ -224,7 +238,9 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
               comment: String(form.get('comment')),
             })
             await load()
-            return error?.message ?? null
+            if (error) return friendlyError(error)
+            toast.success('Comment saved')
+            return null
           }}
         >
           <div className="grid gap-2">

@@ -1,8 +1,9 @@
 import { BookOpenIcon, PencilIcon, PlusIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FieldError } from '@/components/form-errors'
+import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -11,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type Course = { id: string; code: string; title: string; department_id: string; course_type_id: string }
@@ -32,7 +34,7 @@ const COLUMNS = ['', WIDE, WIDE, '']
 
 export function Courses() {
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
 
   const reload = useCallback(async () => {
@@ -41,10 +43,8 @@ export function Courses() {
       supabase.from('departments').select('id, code, name').order('code'),
       supabase.from('course_types').select('id, name').order('name'),
     ])
-    if (courses.error || departments.error || courseTypes.error) {
-      setNotice({ tone: 'error', text: (courses.error ?? departments.error ?? courseTypes.error)!.message })
-      return
-    }
+    setLoadFailed(Boolean(courses.error || departments.error || courseTypes.error))
+    if (courses.error || departments.error || courseTypes.error) return
     setData({ courses: courses.data, departments: departments.data, courseTypes: courseTypes.data })
   }, [])
 
@@ -57,13 +57,14 @@ export function Courses() {
   const departmentName = new Map(departments.map((d) => [d.id, `${d.code} ${d.name}`]))
   const courseTypeName = new Map(courseTypes.map((t) => [t.id, t.name]))
 
-  /** Runs one write, reloads the page data, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { code: string; message: string } | null }>, code: string, success: string) {
+  /** Runs one write, reloads the page data, and returns why it failed or null. */
+  async function write(request: PromiseLike<{ error: { code: string } | null }>, code: string, success: string) {
     const { error } = await request
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    if (error?.code === UNIQUE_VIOLATION) return `A course with the code ${code} already exists.`
-    return error?.message ?? null
+    if (error?.code === UNIQUE_VIOLATION) return { field: 'code', message: `A course with the code ${code} already exists.` }
+    if (error) return friendlyError(error)
+    toast.success(success)
+    return null
   }
 
   function close() {
@@ -82,7 +83,6 @@ export function Courses() {
           </Button>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -97,7 +97,9 @@ export function Courses() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!data ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load courses" onRetry={reload} />
+            ) : !data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.courses.length === 0 ? (
               <TableEmpty
@@ -148,7 +150,7 @@ export function Courses() {
           onClose={close}
           onSubmit={(form) => {
             const values = courseValues(form)
-            return write(supabase.from('courses').insert(values), values.code, `Added ${values.code} ${values.title}.`)
+            return write(supabase.from('courses').insert(values), values.code, `Added ${values.code}`)
           }}
         >
           <CourseFields departments={departments} courseTypes={courseTypes} />
@@ -166,7 +168,7 @@ export function Courses() {
             return write(
               supabase.from('courses').update(values).eq('id', dialog.course.id),
               values.code,
-              `Saved ${values.code} ${values.title}.`,
+              `Saved ${values.code}`,
             )
           }}
         >
@@ -200,6 +202,7 @@ function CourseFields({
       <div className="grid gap-2">
         <Label htmlFor="course-code">Code</Label>
         <Input id="course-code" name="code" defaultValue={course?.code} autoComplete="off" required />
+        <FieldError name="code" />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="course-title">Title</Label>

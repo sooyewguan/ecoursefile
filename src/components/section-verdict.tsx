@@ -1,7 +1,8 @@
 import { CircleAlertIcon, CircleCheckIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { ErrorAlert } from '@/components/notice'
+import { LoadError } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import type { SectionStatus, Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -39,7 +41,7 @@ export function SectionVerdict({
   const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
   /** Undefined while it loads, and null when the section has no verdict. */
   const [latest, setLatest] = useState<LatestVerdict | null | undefined>(undefined)
-  const [error, setError] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [recording, setRecording] = useState<Verdict | null>(null)
 
   const load = useCallback(async () => {
@@ -52,7 +54,7 @@ export function SectionVerdict({
       .limit(1)
       .maybeSingle()
       .overrideTypes<LatestVerdict | null, { merge: false }>()
-    setError(error?.message ?? null)
+    setLoadFailed(error !== null)
     setLatest(error ? null : data)
   }, [offeringId, section])
 
@@ -62,12 +64,13 @@ export function SectionVerdict({
 
   async function record(verdict: Verdict, comment: string) {
     const { error } = await supabase.rpc('record_verdict', { offering_id: offeringId, section, verdict, comment })
-    if (error) return error.message
+    if (error) return friendlyError(error)
     await Promise.all([load(), onRecorded()])
+    toast.success(verdict === 'verified' ? 'Marked verified' : 'Marked needs fix')
     return null
   }
 
-  if (!isAuditor && !latest && !error) return null
+  if (!isAuditor && !latest && !loadFailed) return null
 
   return (
     <Card aria-label="Auditor verdict" className="gap-3 px-4 py-4 md:px-6">
@@ -88,7 +91,7 @@ export function SectionVerdict({
               {latest.comment && <p className="text-sm whitespace-pre-wrap">{latest.comment}</p>}
             </>
           ) : (
-            !error && <p className="text-muted-foreground text-sm">No verdict yet.</p>
+            !loadFailed && <p className="text-muted-foreground text-sm">No verdict yet.</p>
           )}
         </div>
         {isAuditor && (
@@ -104,7 +107,7 @@ export function SectionVerdict({
           </div>
         )}
       </div>
-      {error && <ErrorAlert>{error}</ErrorAlert>}
+      {loadFailed && <LoadError title="Couldn't load the verdict" onRetry={load} />}
 
       {recording && (
         <FormDialog

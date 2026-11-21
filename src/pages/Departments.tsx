@@ -1,15 +1,17 @@
 import { Building2Icon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FieldError } from '@/components/form-errors'
+import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { supabase } from '../supabase.ts'
+import { friendlyError } from '../errors.ts'
+import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type Department = { id: string; code: string; name: string }
 
@@ -24,25 +26,27 @@ const COLUMNS = ['', '', '']
 
 export function Departments() {
   const [departments, setDepartments] = useState<Department[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
 
   const reload = useCallback(async () => {
     const { data, error } = await supabase.from('departments').select('id, code, name').order('code')
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setDepartments(data)
+    setLoadFailed(error !== null)
+    if (data) setDepartments(data)
   }, [])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  /** Runs one write, reloads the list, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { message: string } | null }>, success: string) {
+  /** Saves a department's code and name, reloads the list, and returns why it failed or null. */
+  async function save(request: PromiseLike<{ error: { code: string } | null }>, code: string, success: string) {
     const { error } = await request
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    return error?.message ?? null
+    if (error?.code === UNIQUE_VIOLATION) return { field: 'code', message: `A department with the code ${code} already exists.` }
+    if (error) return friendlyError(error)
+    toast.success(success)
+    return null
   }
 
   function close() {
@@ -61,7 +65,6 @@ export function Departments() {
           </Button>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -75,7 +78,9 @@ export function Departments() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!departments ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load departments" onRetry={reload} />
+            ) : !departments ? (
               <TableSkeleton columns={COLUMNS} />
             ) : departments.length === 0 ? (
               <TableEmpty
@@ -117,7 +122,7 @@ export function Departments() {
           onClose={close}
           onSubmit={(form) => {
             const values = departmentValues(form)
-            return write(supabase.from('departments').insert(values), `Added ${values.code} ${values.name}.`)
+            return save(supabase.from('departments').insert(values), values.code, `Added ${values.code}`)
           }}
         >
           <DepartmentFields />
@@ -132,10 +137,7 @@ export function Departments() {
           onClose={close}
           onSubmit={(form) => {
             const values = departmentValues(form)
-            return write(
-              supabase.from('departments').update(values).eq('id', dialog.department.id),
-              `Saved ${values.code} ${values.name}.`,
-            )
+            return save(supabase.from('departments').update(values).eq('id', dialog.department.id), values.code, `Saved ${values.code}`)
           }}
         >
           <DepartmentFields department={dialog.department} />
@@ -149,12 +151,14 @@ export function Departments() {
           confirmLabel="Delete"
           destructive
           onClose={close}
-          onConfirm={() =>
-            write(
-              supabase.from('departments').delete().eq('id', dialog.department.id),
-              `Deleted ${dialog.department.code} ${dialog.department.name}.`,
-            )
-          }
+          onConfirm={async () => {
+            const { code } = dialog.department
+            const { error } = await supabase.from('departments').delete().eq('id', dialog.department.id)
+            await reload()
+            if (error) return friendlyError(error, { codes: { '23503': `${code} still has courses or staff. Move them to another department first.` } })
+            toast.success(`Deleted ${code}`)
+            return null
+          }}
         />
       )}
     </div>
@@ -171,6 +175,7 @@ function DepartmentFields({ department }: { department?: Department }) {
       <div className="grid gap-2">
         <Label htmlFor="department-code">Code</Label>
         <Input id="department-code" name="code" defaultValue={department?.code} autoComplete="off" required />
+        <FieldError name="code" />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="department-name">Name</Label>

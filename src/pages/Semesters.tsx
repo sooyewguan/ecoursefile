@@ -1,15 +1,16 @@
 import { CalendarRangeIcon, PlusIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { PageHeader, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type Semester = { id: string; code: string; offerings: { count: number }[] }
@@ -19,7 +20,7 @@ const COLUMNS = ['', '']
 
 export function Semesters() {
   const [semesters, setSemesters] = useState<Semester[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [adding, setAdding] = useState(false)
 
   const reload = useCallback(async () => {
@@ -28,8 +29,8 @@ export function Semesters() {
       .select('id, code, offerings(count)')
       .order('start_year', { ascending: false })
       .order('number', { ascending: false })
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setSemesters(data)
+    setLoadFailed(error !== null)
+    if (data) setSemesters(data)
   }, [])
 
   useEffect(() => {
@@ -43,9 +44,8 @@ export function Semesters() {
       .select('code')
       .single()
     await reload()
-    if (error?.code === UNIQUE_VIOLATION) return 'That semester already exists.'
-    if (error) return error.message
-    setNotice({ tone: 'success', text: `Added ${data.code}.` })
+    if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'That semester already exists.' } })
+    toast.success(`Added ${data.code}`)
     return null
   }
 
@@ -61,7 +61,6 @@ export function Semesters() {
           </Button>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -72,7 +71,9 @@ export function Semesters() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!semesters ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load semesters" onRetry={reload} />
+            ) : !semesters ? (
               <TableSkeleton columns={COLUMNS} />
             ) : semesters.length === 0 ? (
               <TableEmpty

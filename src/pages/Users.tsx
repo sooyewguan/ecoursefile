@@ -1,10 +1,11 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { FileUpIcon, KeyRoundIcon, PencilIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ComponentProps } from 'react'
+import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
+import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -18,6 +19,7 @@ import { ImportResults, ImportUsersDialog } from '@/components/user-import'
 import { cn } from '@/lib/utils'
 import { MAX_TITLE_LENGTH, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError, UserFacingError } from '../errors.ts'
 import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
 
@@ -62,7 +64,7 @@ const COLUMNS = ['', WIDE, WIDE, WIDE, '']
 export function Users() {
   const state = useAuth()
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   /** What the last import did with each row of its file. */
   const [imported, setImported] = useState<ImportedRow[] | null>(null)
@@ -76,10 +78,8 @@ export function Users() {
       supabase.from('departments').select('id, code, name').order('code'),
       supabase.rpc('assignable_roles'),
     ])
-    if (users.error || departments.error || assignable.error) {
-      setNotice({ tone: 'error', text: (users.error ?? departments.error ?? assignable.error)!.message })
-      return
-    }
+    setLoadFailed(Boolean(users.error || departments.error || assignable.error))
+    if (users.error || departments.error || assignable.error) return
     setData({ users: users.data, departments: departments.data, assignable: assignable.data })
   }, [])
 
@@ -95,11 +95,11 @@ export function Users() {
   const assignable = data?.assignable ?? []
   const departmentName = new Map(departments.map((d) => [d.id, `${d.code} ${d.name}`]))
 
-  /** Runs an action, reloads the page data, and returns the action's error message or null. */
-  async function perform(action: () => Promise<string | null>, success: string) {
+  /** Runs an action, reloads the page data, and returns why it failed, or shows success and returns null. */
+  async function perform<E extends ActionError>(action: () => Promise<E | null>, success: string) {
     const error = await action()
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
+    if (!error) toast.success(success)
     return error
   }
 
@@ -109,8 +109,7 @@ export function Users() {
 
   async function importUsers(csv: string) {
     const { data, error } = await supabase.functions.invoke('accounts', { body: { action: 'import-users', csv } })
-    if (error) return errorMessage(error)
-    setNotice(null)
+    if (error) return friendlyError(await refusalOf(error))
     setImported(data.rows)
     await reload()
     return null
@@ -142,7 +141,6 @@ export function Users() {
           )
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
       {imported && <ImportResults rows={imported} onDismiss={() => setImported(null)} />}
 
       <Card className="gap-0 overflow-hidden py-0">
@@ -159,7 +157,9 @@ export function Users() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!data ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load users" onRetry={reload} />
+            ) : !data ? (
               <TableSkeleton columns={COLUMNS} />
             ) : data.users.length === 0 ? (
               <TableEmpty columns={COLUMNS.length} icon={UsersIcon} title="No users yet" description="Add the first user." />
@@ -239,19 +239,19 @@ export function Users() {
           submitLabel="Add user"
           onClose={close}
           onSubmit={(form) => {
-            const email = String(form.get('email'))
+            const name = `${String(form.get('title')).trim()} ${String(form.get('fullName')).trim()}`.trim()
             return perform(
               () =>
                 callAccounts({
                   action: 'create-user',
-                  email,
+                  email: String(form.get('email')),
                   fullName: String(form.get('fullName')),
                   title: String(form.get('title')),
                   departmentId: String(form.get('departmentId') ?? '') || null,
                   roles: form.getAll('roles').map(String),
                   temporaryPassword: String(form.get('temporaryPassword')),
                 }),
-              `Created ${email}. They must change the temporary password at first sign-in.`,
+              `Added ${name}`,
             )
           }}
         >
@@ -259,6 +259,7 @@ export function Users() {
           <div className="grid gap-2">
             <Label htmlFor="create-email">Email</Label>
             <Input id="create-email" name="email" type="email" autoComplete="off" required />
+            <FieldError name="email" />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="create-temporary-password">Temporary password</Label>
@@ -280,7 +281,7 @@ export function Users() {
           editsName={dialog.user.manageable}
           departments={choosesDepartment && dialog.user.manageable ? departments : null}
           onClose={close}
-          onSave={(changes) => perform(() => saveUser(dialog.user, changes), `Saved the changes to ${dialog.user.email}.`)}
+          onSave={(changes) => perform(() => saveUser(dialog.user, changes), `Saved ${dialog.user.display_name}`)}
         />
       )}
 
@@ -298,7 +299,7 @@ export function Users() {
                   userId: dialog.user.id,
                   temporaryPassword: String(form.get('temporaryPassword')),
                 }),
-              `Reset the password of ${dialog.user.email}. They must change it at their next sign-in.`,
+              `Password reset for ${dialog.user.display_name}`,
             )
           }
         >
@@ -323,7 +324,7 @@ export function Users() {
           onConfirm={() =>
             perform(
               () => updateProfile(dialog.user, { active: !dialog.user.active }),
-              `${dialog.user.active ? 'Deactivated' : 'Reactivated'} ${dialog.user.email}.`,
+              `${dialog.user.active ? 'Deactivated' : 'Reactivated'} ${dialog.user.display_name}`,
             )
           }
         />
@@ -437,6 +438,7 @@ function NameFields({
           autoComplete="off"
           required
         />
+        <FieldError name="fullName" />
       </div>
     </div>
   )
@@ -484,7 +486,7 @@ function EditUserDialog({
       submitLabel="Save"
       submitDisabled={!changed}
       onClose={onClose}
-      onSubmit={async () => (fullName.trim() === '' ? "Give the user's full name." : onSave(changes))}
+      onSubmit={async () => (fullName.trim() === '' ? { field: 'fullName', message: 'Enter a full name.' } : onSave(changes))}
     >
       {editsName && (
         <NameFields idPrefix="edit" title={title} fullName={fullName} onTitleChange={setTitle} onFullNameChange={setFullName} />
@@ -516,7 +518,7 @@ function EditUserDialog({
 async function saveUser(user: UserRow, changes: UserChanges): Promise<string | null> {
   for (const role of changes.revoke) {
     const { error } = await supabase.from('user_roles').delete().match({ user_id: user.id, role })
-    if (error) return error.message
+    if (error) return friendlyError(error)
   }
   if (Object.keys(changes.profile).length > 0) {
     const error = await updateProfile(user, changes.profile)
@@ -524,27 +526,28 @@ async function saveUser(user: UserRow, changes: UserChanges): Promise<string | n
   }
   for (const role of changes.grant) {
     const { error } = await supabase.from('user_roles').insert({ user_id: user.id, role })
-    if (error) return error.message
+    if (error) return friendlyError(error)
   }
   return null
 }
 
 async function updateProfile(user: UserRow, changes: ProfileChanges) {
   const { error } = await supabase.from('profiles').update(changes).eq('id', user.id)
-  return error?.message ?? null
+  return error && friendlyError(error)
 }
 
-/** Calls the accounts Edge Function and returns its error message, or null when it succeeded. */
-async function callAccounts(body: Record<string, unknown>): Promise<string | null> {
+/** Calls the accounts Edge Function, and returns why it failed, or null when it succeeded. */
+async function callAccounts(body: Record<string, unknown>): Promise<ActionError | null> {
   const { error } = await supabase.functions.invoke('accounts', { body })
-  return error ? errorMessage(error) : null
+  if (!error) return null
+  const refusal = await refusalOf(error)
+  if (refusal instanceof UserFacingError && refusal.code === 'email_exists') return { field: 'email', message: friendlyError(refusal) }
+  return friendlyError(refusal)
 }
 
-/** The message of an Edge Function's error: the function's own, when it answered with one. */
-async function errorMessage(error: Error) {
-  if (error instanceof FunctionsHttpError) {
-    const payload: { message?: string } | null = await error.context.json().catch(() => null)
-    return payload?.message ?? error.message
-  }
-  return error.message
+/** An Edge Function's error as the function gave it, or the error itself when the function never answered. */
+async function refusalOf(error: Error) {
+  if (!(error instanceof FunctionsHttpError)) return error
+  const payload: { code?: string; message?: string } | null = await error.context.json().catch(() => null)
+  return new UserFacingError(payload?.code ?? 'internal_error', payload?.message ?? '', error.context.status)
 }

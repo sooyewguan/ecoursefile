@@ -1,9 +1,9 @@
 import { ArrowLeftIcon, FileTextIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
+import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import { LECTURER_FILE_SECTION, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
@@ -55,7 +56,7 @@ export function LecturerTimetables() {
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState<Timetable | null>(null)
   const picker = useRef<HTMLInputElement>(null)
@@ -73,11 +74,9 @@ export function LecturerTimetables() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? statuses.error
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    const failed = Boolean(offering.error ?? statuses.error)
+    setLoadFailed(failed)
+    if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
   }, [offeringId])
@@ -130,14 +129,13 @@ export function LecturerTimetables() {
     event.target.value = ''
     if (!file || !offering) return
     setUploading(true)
-    setNotice(null)
     try {
       await uploadFile(supabase, { semesterId: offering.semester_id, section: SECTION.number }, file)
       await reload()
-      setNotice({ tone: 'success', text: `Uploaded ${file.name} as your timetable for ${offering.semester.code}.` })
+      toast.success('Uploaded your timetable')
     } catch (error) {
       await reload()
-      setNotice({ tone: 'error', text: `${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}` })
+      toast.error(friendlyError(error))
     }
     setUploading(false)
   }
@@ -171,7 +169,11 @@ export function LecturerTimetables() {
         </span>
       </div>
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {notice && <NoticeAlert notice={notice} />}
+      {loadFailed && (
+        <Card className="py-0">
+          <LoadError title="Couldn't load the timetables" onRetry={reload} />
+        </Card>
+      )}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Lecturer timetables">
@@ -240,7 +242,7 @@ export function LecturerTimetables() {
           onClose={() => setDeleting(null)}
           onDeleted={async () => {
             await reload()
-            setNotice({ tone: 'success', text: `Deleted ${deleting.name}.` })
+            toast.success(`Deleted ${deleting.name}`)
           }}
         />
       )}

@@ -1,9 +1,9 @@
 import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
+import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -26,6 +26,7 @@ import {
   type SectionSlot,
   type SectionStatus,
 } from '../sections.ts'
+import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, deleteItem, uploadFile } from '../uploads.ts'
 
@@ -91,7 +92,7 @@ export function CourseFileSection() {
   /** How many pages the browser puts on each page of an answer script, in a section with script slots. */
   const scriptsPerSheet = slots?.find((slot) => slot.perSheet)?.perSheet
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [adding, setAdding] = useState(false)
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
@@ -129,11 +130,9 @@ export function CourseFileSection() {
       supabase.rpc('can_upload', { offering_id: offeringId, section: section.number }),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? items.error ?? files.error ?? canUpload.error ?? statuses.error
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    const failed = Boolean(offering.error ?? items.error ?? files.error ?? canUpload.error ?? statuses.error)
+    setLoadFailed(failed)
+    if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === section.number)
     // The admin deletes a shared file on the semester page, which first lists the offerings that link it.
     const linkedFiles = (offering.data?.linked_files ?? []).map((file) => ({ ...file, deletable: false }))
@@ -201,21 +200,34 @@ export function CourseFileSection() {
     if (picked.length === 0) return
     const place = picking.current
     const target = { offeringId, section: section!.number, item: place.item ?? undefined, slot: place.slot ?? undefined }
-    setNotice(null)
+    /** Why each refused file was refused, naming the file. */
     const refused: string[] = []
     for (const [index, file] of picked.entries()) {
       setProgress({ ...place, name: file.name, index, count: picked.length, fraction: null })
       try {
         await uploadFile(supabase, target, file, (fraction) => setProgress({ ...place, name: file.name, index, count: picked.length, fraction }))
       } catch (error) {
-        refused.push(`${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}`)
+        const reason = friendlyError(error)
+        refused.push(reason.includes(file.name) ? reason : `${file.name}: ${reason}`)
       }
     }
     setProgress(null)
     await reload()
     const uploaded = picked.length - refused.length
-    if (refused.length === 0) setNotice({ tone: 'success', text: `Uploaded ${plural(uploaded, 'file')}.` })
-    else setNotice({ tone: 'error', text: `Uploaded ${plural(uploaded, 'file')}. ${refused.join(' ')}` })
+    if (refused.length === 0) toast.success(picked.length === 1 ? `Uploaded ${picked[0].name}` : `Uploaded ${plural(uploaded, 'file')}`)
+    else if (picked.length === 1) toast.error(refused[0])
+    else {
+      toast.error(uploaded === 0 ? `Couldn't upload ${plural(picked.length, 'file')}` : `Uploaded ${uploaded} of ${plural(picked.length, 'file')}`, {
+        description: (
+          <ul className="grid gap-1">
+            {refused.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        ),
+        duration: 10_000,
+      })
+    }
   }
 
   /** Puts one list's files in a new order, shows it at once, and saves it. */
@@ -224,19 +236,18 @@ export function CourseFileSection() {
     setData({ ...data!, files: [...files.filter((file) => file.item !== item || file.slot !== slot), ...reordered] })
     const { error } = await supabase.rpc('reorder_files', { file_ids: reordered.map((file) => file.id) })
     if (error) {
-      setNotice({ tone: 'error', text: error.message })
+      toast.error(friendlyError(error))
       await reload()
     }
   }
 
   async function addItem() {
     setAdding(true)
-    setNotice(null)
     const { data: added, error } = await supabase.rpc('add_item', { offering_id: offeringId, section: section!.number })
-    if (error) setNotice({ tone: 'error', text: error.message })
+    if (error) toast.error(friendlyError(error))
     else {
       await reload()
-      setNotice({ tone: 'success', text: `Added ${itemName(section!.number, added)}.` })
+      toast.success(`Added ${itemName(section!.number, added)}`)
     }
     setAdding(false)
   }
@@ -401,7 +412,11 @@ export function CourseFileSection() {
             : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
         </p>
       )}
-      {notice && <NoticeAlert notice={notice} />}
+      {loadFailed && (
+        <Card className="py-0">
+          <LoadError title="Couldn't load this section" onRetry={reload} />
+        </Card>
+      )}
 
       {section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files')}
 
@@ -416,10 +431,10 @@ export function CourseFileSection() {
             try {
               await deleteFile(supabase, deleting.id)
             } catch (error) {
-              return error instanceof Error ? error.message : String(error)
+              return friendlyError(error)
             }
             await reload()
-            setNotice({ tone: 'success', text: `Deleted ${deleting.name}.` })
+            toast.success(`Deleted ${deleting.name}`)
             return null
           }}
         />
@@ -433,7 +448,7 @@ export function CourseFileSection() {
           onClose={() => setReusingInto(null)}
           onReused={async (file) => {
             await reload()
-            setNotice({ tone: 'success', text: `Copied ${file.name} from ${file.semester_code}.` })
+            toast.success(`Copied ${file.name} from ${file.semester_code}`)
           }}
         />
       )}
@@ -453,10 +468,10 @@ export function CourseFileSection() {
             try {
               await deleteItem(supabase, { offeringId, section: section.number, item: deletingItem.number })
             } catch (error) {
-              return error instanceof Error ? error.message : String(error)
+              return friendlyError(error)
             }
             await reload()
-            setNotice({ tone: 'success', text: `Deleted ${deletingItemName}.` })
+            toast.success(`Deleted ${deletingItemName}`)
             return null
           }}
         />

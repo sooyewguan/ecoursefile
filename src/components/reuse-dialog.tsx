@@ -7,6 +7,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatSize } from '@/lib/utils'
+import { friendlyError } from '../errors.ts'
 import { itemName } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { listReusableFiles, reuseFile, type ReusableFile, type Slot } from '../uploads.ts'
@@ -43,7 +44,7 @@ export function ReuseDialog({
   useEffect(() => {
     listReusableFiles(supabase, { offeringId, section, item, slot: slotName }).then(setFiles, (failure: unknown) => {
       setFiles([])
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(friendlyError(failure))
     })
   }, [offeringId, section, item, slotName])
 
@@ -53,7 +54,7 @@ export function ReuseDialog({
     try {
       await reuseFile(supabase, slot, file.id)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(friendlyError(failure))
       setReusing(null)
       return
     }

@@ -1,8 +1,9 @@
 import { LayersIcon, PencilIcon, PlusIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FieldError } from '@/components/form-errors'
+import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -12,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { SWITCHABLE_SECTIONS } from '../sections.ts'
+import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type CourseType = { id: string; name: string; sections_on: number[] }
@@ -24,26 +26,27 @@ const COLUMNS = ['', '', '']
 
 export function CourseTypes() {
   const [courseTypes, setCourseTypes] = useState<CourseType[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
 
   const reload = useCallback(async () => {
     const { data, error } = await supabase.from('course_types').select('id, name, sections_on').order('name')
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setCourseTypes(data)
+    setLoadFailed(error !== null)
+    if (data) setCourseTypes(data)
   }, [])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  /** Runs one write, reloads the list, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { code: string; message: string } | null }>, name: string, success: string) {
+  /** Runs one write, reloads the list, and returns why it failed or null. */
+  async function write(request: PromiseLike<{ error: { code: string } | null }>, name: string, success: string) {
     const { error } = await request
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    if (error?.code === UNIQUE_VIOLATION) return `A course type named ${name} already exists.`
-    return error?.message ?? null
+    if (error?.code === UNIQUE_VIOLATION) return { field: 'name', message: `A course type named ${name} already exists.` }
+    if (error) return friendlyError(error)
+    toast.success(success)
+    return null
   }
 
   function close() {
@@ -62,7 +65,6 @@ export function CourseTypes() {
           </Button>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -76,7 +78,9 @@ export function CourseTypes() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!courseTypes ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load course types" onRetry={reload} />
+            ) : !courseTypes ? (
               <TableSkeleton columns={COLUMNS} />
             ) : courseTypes.length === 0 ? (
               <TableEmpty
@@ -115,7 +119,7 @@ export function CourseTypes() {
           onClose={close}
           onSubmit={(form) => {
             const values = courseTypeValues(form)
-            return write(supabase.from('course_types').insert(values), values.name, `Added ${values.name}.`)
+            return write(supabase.from('course_types').insert(values), values.name, `Added ${values.name}`)
           }}
         >
           <CourseTypeFields />
@@ -133,7 +137,7 @@ export function CourseTypes() {
             return write(
               supabase.from('course_types').update(values).eq('id', dialog.courseType.id),
               values.name,
-              `Saved ${values.name}.`,
+              `Saved ${values.name}`,
             )
           }}
         >
@@ -171,6 +175,7 @@ function CourseTypeFields({ courseType }: { courseType?: CourseType }) {
       <div className="grid gap-2">
         <Label htmlFor="course-type-name">Name</Label>
         <Input id="course-type-name" name="name" defaultValue={courseType?.name} autoComplete="off" required />
+        <FieldError name="name" />
       </div>
       <fieldset className="grid gap-3">
         <legend className="mb-2 text-sm font-medium">On by default</legend>

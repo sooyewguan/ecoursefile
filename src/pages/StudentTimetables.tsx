@@ -1,8 +1,8 @@
 import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { toast } from 'sonner'
+import { LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import { PROGRAM_CODE_FILE_SECTION, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -57,7 +58,7 @@ export function StudentTimetables() {
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   /** The program code whose tick is being saved. */
   const [saving, setSaving] = useState<string | null>(null)
 
@@ -74,11 +75,9 @@ export function StudentTimetables() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? statuses.error
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    const failed = Boolean(offering.error ?? statuses.error)
+    setLoadFailed(failed)
+    if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
   }, [offeringId])
@@ -125,13 +124,12 @@ export function StudentTimetables() {
   /** Whether the user teaches the offering, and so may tick its codes. */
   const canTick = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
 
-  /** Ticks or unticks the code, then reports the outcome. */
+  /** Ticks or unticks the code. The box shows the outcome, and a refusal shows in a toast. */
   async function setTicked(programCode: ProgramCode, isTicked: boolean) {
     setSaving(programCode.id)
-    setNotice(null)
     const { error } = await supabase.rpc('tick_program_code', { offering_id: offeringId, program_code_id: programCode.id, ticked: isTicked })
     await reload()
-    setNotice(error ? { tone: 'error', text: error.message } : { tone: 'success', text: `${isTicked ? 'Ticked' : 'Unticked'} ${programCode.code}.` })
+    if (error) toast.error(friendlyError(error))
     setSaving(null)
   }
 
@@ -154,7 +152,11 @@ export function StudentTimetables() {
         </span>
       </div>
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {notice && <NoticeAlert notice={notice} />}
+      {loadFailed && (
+        <Card className="py-0">
+          <LoadError title="Couldn't load the student timetables" onRetry={reload} />
+        </Card>
+      )}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Program codes">

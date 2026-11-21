@@ -1,10 +1,10 @@
 import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FolderOpenIcon, PlusIcon, TagsIcon, Trash2Icon, UploadIcon, UsersIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { friendlyError } from '../errors.ts'
 import type { GlobalRole } from '../roles.ts'
 import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
@@ -83,7 +84,7 @@ const SHARED_COLUMNS = ['', WIDE, '']
 export function Semester() {
   const { semesterId } = useParams()
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   /** Where the running upload goes. */
   const [uploading, setUploading] = useState<UploadTarget | null>(null)
@@ -113,10 +114,10 @@ export function Semester() {
       supabase.from('profiles').select('id, display_name, email, active, user_roles(role)').order('full_name'),
     ])
     if (semester.error || offerings.error || sharedFiles.error || programCodes.error || courses.error || people.error) {
-      const error = semester.error ?? offerings.error ?? sharedFiles.error ?? programCodes.error ?? courses.error ?? people.error
-      setNotice({ tone: 'error', text: error!.message })
+      setLoadFailed(true)
       return
     }
+    setLoadFailed(false)
     setData({
       semester: semester.data,
       offerings: offerings.data.toSorted((a, b) => a.course.code.localeCompare(b.course.code)),
@@ -161,13 +162,13 @@ export function Semester() {
   const unofferedCourses = (data?.courses ?? []).filter((course) => !offeredCourseIds.has(course.id))
   const shownCodes = (data?.programCodes ?? []).filter((programCode) => programCode.code.toLowerCase().includes(codeFilter.trim().toLowerCase()))
 
-  /** Runs one write, reloads the page data, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { code: string; message: string } | null }>, success: string) {
+  /** Runs one write, reloads the page data, and returns why it failed, or shows success and returns null. */
+  async function write(request: PromiseLike<{ error: unknown }>, success: string) {
     const { error } = await request
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    if (error?.code === UNIQUE_VIOLATION) return 'This course is already offered in this semester.'
-    return error?.message ?? null
+    if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'This course is already offered in this semester.' } })
+    toast.success(success)
+    return null
   }
 
   function close() {
@@ -192,17 +193,13 @@ export function Semester() {
     if (!file || !target) return
     const { section, programCode } = target
     setUploading(target)
-    setNotice(null)
     try {
       await uploadFile(supabase, { semesterId: semesterId!, section: section.number, ...(programCode && { programCodeId: programCode.id }) }, file)
       await reload()
-      setNotice({
-        tone: 'success',
-        text: programCode ? `Uploaded ${file.name} as the student timetable of ${programCode.code}.` : `Uploaded ${file.name} as the ${section.title}.`,
-      })
+      toast.success(`Uploaded ${file.name}`)
     } catch (error) {
       await reload()
-      setNotice({ tone: 'error', text: `${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}` })
+      toast.error(friendlyError(error))
     }
     setUploading(null)
   }
@@ -222,7 +219,7 @@ export function Semester() {
           </div>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
+      {loadFailed && <LoadError title="Couldn't load this semester" onRetry={reload} />}
 
       <section aria-labelledby="shared-files-heading" className="grid gap-3">
         <div className="grid gap-1">
@@ -488,7 +485,7 @@ export function Semester() {
                 coordinator_id: form.get('coordinator_id'),
                 lecturer_ids: form.getAll('lecturer_ids'),
               }),
-              `Offered ${course?.code} ${course?.title}.`,
+              `Added ${course?.code}`,
             )
           }}
         >
@@ -522,7 +519,7 @@ export function Semester() {
                 coordinator_id: form.get('coordinator_id'),
                 lecturer_ids: form.getAll('lecturer_ids'),
               }),
-              `Saved the lecturers of ${dialog.offering.course.code}.`,
+              `Saved ${dialog.offering.course.code}`,
             )
           }
         >
@@ -538,7 +535,7 @@ export function Semester() {
           onClose={close}
           onDeleted={async () => {
             await reload()
-            setNotice({ tone: 'success', text: `Deleted ${dialog.file.name}.` })
+            toast.success(`Deleted ${dialog.file.name}`)
           }}
         />
       )}

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ErrorAlert } from '@/components/notice'
-import { PageHeader } from '@/components/page'
-import { ExportMenu, OfferingsTable, SemesterSelect, useReport } from '@/components/reports'
+import { LoadError, PageHeader } from '@/components/page'
+import { ExportMenu, OfferingsTable, ReportLoadError, SemesterSelect, useReport } from '@/components/reports'
+import { Card } from '@/components/ui/card'
 import { useAuth } from '../auth-provider.tsx'
 import { MY_COMPLETENESS_TABLE } from '../report-tables.ts'
 import type { OfferingRow } from '../reports.ts'
@@ -21,27 +21,29 @@ type Taught = { offeringIds: ReadonlySet<string>; semesters: Semester[] }
 export function Completeness() {
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const [taught, setTaught] = useState<Taught | { error: string } | null>(null)
+  const [taught, setTaught] = useState<Taught | 'failed' | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!userId) return
-    void supabase
+    const { data, error } = await supabase
       .from('offering_lecturers')
       .select('offering:offerings!offering_lecturers_offering_id_fkey!inner(id, semester:semesters!inner(id, code, start_year, number))')
       .eq('lecturer_id', userId)
       .overrideTypes<{ offering: { id: string; semester: Semester } }[], { merge: false }>()
-      .then(({ data, error }) => {
-        if (error) return setTaught({ error: error.message })
-        const semesters = new Map(data.map(({ offering }) => [offering.semester.id, offering.semester]))
-        setTaught({
-          offeringIds: new Set(data.map(({ offering }) => offering.id)),
-          semesters: [...semesters.values()].toSorted((a, b) => b.start_year - a.start_year || b.number - a.number),
-        })
-      })
+    if (error) return setTaught('failed')
+    const semesters = new Map(data.map(({ offering }) => [offering.semester.id, offering.semester]))
+    setTaught({
+      offeringIds: new Set(data.map(({ offering }) => offering.id)),
+      semesters: [...semesters.values()].toSorted((a, b) => b.start_year - a.start_year || b.number - a.number),
+    })
   }, [userId])
 
-  const own = taught && 'semesters' in taught ? taught : null
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const own = taught === 'failed' ? null : taught
   const semesterId = searchParams.get('semester') ?? own?.semesters[0]?.id ?? null
 
   return (
@@ -57,7 +59,11 @@ export function Completeness() {
           )
         }
       />
-      {taught && 'error' in taught && <ErrorAlert>{taught.error}</ErrorAlert>}
+      {taught === 'failed' && (
+        <Card className="py-0">
+          <LoadError title="Couldn't load your course files" onRetry={load} />
+        </Card>
+      )}
       {own?.semesters.length === 0 && (
         <OfferingsTable rows={[]} emptyDescription="Your course files appear here once the admin assigns you to an offering." />
       )}
@@ -74,7 +80,7 @@ export function Completeness() {
 
 function OwnOfferings({ semesterId, semesterCode, offeringIds }: { semesterId: string; semesterCode: string | null; offeringIds: ReadonlySet<string> }) {
   const report = useReport<OfferingRow>('report_offerings', semesterId)
-  if (report?.error) return <ErrorAlert>{report.error}</ErrorAlert>
+  if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   const rows = report?.rows?.filter((row) => offeringIds.has(row.offering_id)) ?? null
   return (
     <div className="grid gap-4">

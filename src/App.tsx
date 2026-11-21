@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { AppShell } from '@/components/app-shell'
+import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { redirectFor, RESET_PASSWORD_PAGE } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
@@ -28,6 +29,7 @@ import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 export function App() {
   return (
     <AuthProvider>
+      <Toaster />
       <BrowserRouter>
         <Routes>
           <Route element={<Guard />}>

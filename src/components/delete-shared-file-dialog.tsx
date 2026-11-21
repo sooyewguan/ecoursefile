@@ -1,4 +1,5 @@
 import { ConfirmDialog } from '@/components/action-dialogs'
+import { friendlyError } from '../errors.ts'
 import type { Section } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { deleteSharedFile } from '../uploads.ts'
@@ -47,7 +48,7 @@ export function DeleteSharedFileDialog({
         try {
           await deleteSharedFile(supabase, file.id)
         } catch (error) {
-          return error instanceof Error ? error.message : String(error)
+          return friendlyError(error)
         }
         await onDeleted()
         return null

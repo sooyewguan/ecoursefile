@@ -1,8 +1,7 @@
 import { FolderOpenIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -32,29 +31,34 @@ const COLUMNS = ['', WIDE]
 export function CourseFiles() {
   const state = useAuth()
   const [groups, setGroups] = useState<SemesterGroup[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
 
-  useEffect(() => {
-    void supabase
+  const load = useCallback(async () => {
+    const { data, error } = await supabase
       .from('offerings')
       .select(
         'id, coordinator_id, semester:semesters(id, code, start_year, number), course:courses(code, title, department:departments(code, name))',
       )
       .overrideTypes<Offering[], { merge: false }>()
-      .then(({ data, error }) => {
-        if (error) setNotice({ tone: 'error', text: error.message })
-        else setGroups(groupBySemester(data))
-      })
+    setLoadFailed(error !== null)
+    if (data) setGroups(groupBySemester(data))
   }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   if (state.kind !== 'ready') return null
 
   return (
     <div className="grid gap-6">
       <PageHeader title="Course files" description="Open a course file to see the status of its 19 sections." />
-      {notice && <NoticeAlert notice={notice} />}
 
-      {!groups ? (
+      {loadFailed ? (
+        <Card className="py-0">
+          <LoadError title="Couldn't load course files" onRetry={load} />
+        </Card>
+      ) : !groups ? (
         <OfferingsTable title="Loading" offerings={null} userId={state.profile.id} />
       ) : groups.length === 0 ? (
         <Card className="gap-0 overflow-hidden py-0">

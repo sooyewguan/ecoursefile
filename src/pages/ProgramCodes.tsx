@@ -1,14 +1,16 @@
 import { PencilIcon, PlusIcon, TagsIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FieldError } from '@/components/form-errors'
+import { PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type ProgramCode = { id: string; code: string }
@@ -21,26 +23,27 @@ const COLUMNS = ['', '']
 
 export function ProgramCodes() {
   const [programCodes, setProgramCodes] = useState<ProgramCode[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
 
   const reload = useCallback(async () => {
     const { data, error } = await supabase.from('program_codes').select('id, code').order('code')
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setProgramCodes(data)
+    setLoadFailed(error !== null)
+    if (data) setProgramCodes(data)
   }, [])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
-  /** Runs one write, reloads the list, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { code: string; message: string } | null }>, code: string, success: string) {
+  /** Runs one write, reloads the list, and returns why it failed or null. */
+  async function write(request: PromiseLike<{ error: { code: string } | null }>, code: string, success: string) {
     const { error } = await request
     await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    if (error?.code === UNIQUE_VIOLATION) return `The program code ${code} already exists.`
-    return error?.message ?? null
+    if (error?.code === UNIQUE_VIOLATION) return { field: 'code', message: `The program code ${code} already exists.` }
+    if (error) return friendlyError(error)
+    toast.success(success)
+    return null
   }
 
   function close() {
@@ -59,7 +62,6 @@ export function ProgramCodes() {
           </Button>
         }
       />
-      {notice && <NoticeAlert notice={notice} />}
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
@@ -72,7 +74,9 @@ export function ProgramCodes() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {!programCodes ? (
+            {loadFailed ? (
+              <TableLoadError columns={COLUMNS.length} title="Couldn't load program codes" onRetry={reload} />
+            ) : !programCodes ? (
               <TableSkeleton columns={COLUMNS} />
             ) : programCodes.length === 0 ? (
               <TableEmpty
@@ -108,7 +112,7 @@ export function ProgramCodes() {
           onClose={close}
           onSubmit={(form) => {
             const code = String(form.get('code'))
-            return write(supabase.from('program_codes').insert({ code }), code, `Added ${code}.`)
+            return write(supabase.from('program_codes').insert({ code }), code, `Added ${code}`)
           }}
         >
           <ProgramCodeField />
@@ -126,7 +130,7 @@ export function ProgramCodes() {
             return write(
               supabase.from('program_codes').update({ code }).eq('id', dialog.programCode.id),
               code,
-              `Saved ${code}.`,
+              `Saved ${code}`,
             )
           }}
         >
@@ -149,6 +153,7 @@ function ProgramCodeField({ programCode }: { programCode?: ProgramCode }) {
         autoComplete="off"
         required
       />
+      <FieldError name="code" />
     </div>
   )
 }
