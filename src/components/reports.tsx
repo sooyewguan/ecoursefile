@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { TableEmpty, TableSkeleton } from '@/components/page'
 import { OfferingStatusBadge } from '@/components/section-status'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -69,10 +70,6 @@ export function SectionNumbers({ sections, none }: { sections: number[]; none: s
       })}
     </ul>
   )
-}
-
-export function formatDate(timestamp: string | null) {
-  return timestamp ? new Date(timestamp).toLocaleDateString() : 'Never'
 }
 
 /**
@@ -181,7 +178,13 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                     <div className="mt-1 grid gap-1 text-xs lg:hidden">
                       <SectionNumbers sections={row.missing_sections} none="Nothing missing" />
                       <span className="text-muted-foreground">
-                        {column.lastUpload.header} {formatDate(column.lastUpload.value(row))}
+                        {row.last_upload_at ? (
+                          <>
+                            {column.lastUpload.header} <Time value={row.last_upload_at} dateOnly />
+                          </>
+                        ) : (
+                          'No uploads yet'
+                        )}
                       </span>
                     </div>
                   </div>
@@ -197,7 +200,9 @@ export function OfferingsTable({ rows, emptyDescription }: { rows: OfferingRow[]
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
                   <SectionNumbers sections={row.missing_sections} none="None" />
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 align-top', LARGE)}>{formatDate(column.lastUpload.value(row))}</TableCell>
+                <TableCell className={cn('px-4 py-3 align-top', LARGE)}>
+                  {row.last_upload_at ? <Time value={row.last_upload_at} dateOnly /> : <span className="text-muted-foreground">—</span>}
+                </TableCell>
               </TableRow>
             ))
           )}

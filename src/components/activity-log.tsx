@@ -1,6 +1,7 @@
 import { HistoryIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { ErrorAlert } from '@/components/notice'
+import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -100,7 +101,7 @@ function ActivityItem({ entry }: { entry: ActivityEntry }) {
         <p className="text-sm font-medium">{describeActivity(entry)}</p>
         {note && <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap">{note}</p>}
         <p className="text-muted-foreground text-xs">
-          {entry.actor_name} · <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time>
+          {entry.actor_name} · <Time value={entry.created_at} />
         </p>
       </div>
     </li>

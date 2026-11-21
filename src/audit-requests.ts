@@ -1,18 +1,11 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
+import { UserFacingError } from './errors.ts'
 
 /** An audit request's state, in the order it goes through them. */
 export type AuditRequestState = 'draft' | 'sent' | 'replied'
 
 /** A refused send or reply: the audit-requests function's error code, message and HTTP status. */
-export class AuditRequestError extends Error {
-  code: string
-  status: number
-  constructor(code: string, message: string, status: number) {
-    super(message)
-    this.code = code
-    this.status = status
-  }
-}
+export class AuditRequestError extends UserFacingError {}
 
 /**
  * Sends the caller's draft request, which emails the offering's coordinator and lecturers. Sending

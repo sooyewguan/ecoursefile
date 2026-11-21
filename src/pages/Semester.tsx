@@ -5,6 +5,7 @@ import { FormDialog } from '@/components/action-dialogs'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -250,7 +251,11 @@ export function Semester() {
               ) : (
                 SEMESTER_FILE_SECTIONS.map((section) => {
                   const file = data.sharedFiles.find((shared) => shared.section === section.number)
-                  const uploaded = file && `${file.uploader_name}, ${new Date(file.uploaded_at).toLocaleString()}`
+                  const uploaded = file && (
+                    <>
+                      {file.uploader_name}, <Time value={file.uploaded_at} />
+                    </>
+                  )
                   return (
                     <TableRow key={section.number}>
                       <TableCell className="px-4 py-3 whitespace-normal">
@@ -342,7 +347,11 @@ export function Semester() {
               ) : (
                 shownCodes.map((programCode) => {
                     const file = data.sharedFiles.find((shared) => shared.program_code_id === programCode.id)
-                    const uploaded = file && `${file.uploader_name}, ${new Date(file.uploaded_at).toLocaleString()}`
+                    const uploaded = file && (
+                    <>
+                      {file.uploader_name}, <Time value={file.uploaded_at} />
+                    </>
+                  )
                     return (
                       <TableRow key={programCode.id}>
                         <TableCell className="px-4 py-3 whitespace-normal">

@@ -1,6 +1,7 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
 import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
+import { UserFacingError } from './errors.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 import { pagesPerSheet } from './sections.ts'
 
@@ -52,15 +53,7 @@ export type UploadSession = { uploadUrl: string; expiresAt: string; storedName: 
  * A refused file action. code is not_pdf, too_large or unreadable_pdf when the browser refuses a
  * file, and the files function's error code when it refuses the request, with its HTTP status.
  */
-export class FileActionError extends Error {
-  code: string
-  status: number | null
-  constructor(code: string, message: string, status: number | null = null) {
-    super(message)
-    this.code = code
-    this.status = status
-  }
-}
+export class FileActionError extends UserFacingError {}
 
 /** Chunks are 5 MiB, a multiple of the 320 KiB that Graph requires. */
 const CHUNK_BYTES = 16 * 320 * 1024

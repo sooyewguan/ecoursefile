@@ -6,6 +6,7 @@ import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -190,7 +191,7 @@ export function LecturerTimetables() {
             ) : (
               lecturers.map((lecturer) => {
                 const timetable = offering.linked_files.find((file) => file.lecturer_id === lecturer.lecturer_id)
-                const uploadedAt = timetable && new Date(timetable.uploaded_at).toLocaleString()
+                const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const isOwn = lecturer.lecturer_id === userId
                 return (
                   <TableRow key={lecturer.lecturer_id}>

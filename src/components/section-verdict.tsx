@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { FormDialog } from '@/components/action-dialogs'
 import { ErrorAlert } from '@/components/notice'
 import { SectionStatusBadge } from '@/components/section-status'
+import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -80,7 +81,7 @@ export function SectionVerdict({
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                 <SectionStatusBadge status={latest.verdict} />
                 <span>
-                  {latest.auditor_name}, {new Date(latest.created_at).toLocaleString()}
+                  {latest.auditor_name}, <Time value={latest.created_at} />
                 </span>
                 {status && status !== latest.verdict && status !== 'missing' && <span>Given before the latest change to this section</span>}
               </div>

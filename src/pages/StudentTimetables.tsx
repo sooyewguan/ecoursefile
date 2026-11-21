@@ -5,6 +5,7 @@ import { NoticeAlert, type Notice } from '@/components/notice'
 import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
+import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -181,7 +182,7 @@ export function StudentTimetables() {
               codes.map((programCode) => {
                 const isTicked = ticked.has(programCode.id)
                 const timetable = offering.linked_files.find((file) => file.program_code_id === programCode.id)
-                const uploadedAt = timetable && new Date(timetable.uploaded_at).toLocaleString()
+                const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const checkboxId = `program-code-${programCode.id}`
                 return (
                   <TableRow key={programCode.id}>

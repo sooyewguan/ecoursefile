@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { ErrorAlert } from '@/components/notice'
 import { SectionStatusBadge } from '@/components/section-status'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -134,7 +135,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
                 <p className="text-muted-foreground text-sm">
                   {request.state === 'draft'
                     ? `${plural(request.items.length, 'section')} marked Needs fix. Staff see it, and get one email that lists them, once you send it.`
-                    : `Sent ${new Date(request.sent_at!).toLocaleString()}`}
+                    : <>Sent <Time value={request.sent_at!} /></>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -176,7 +177,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
             {request.state === 'replied' && (
               <div className="bg-muted/50 grid gap-1 rounded-lg border px-3 py-2 text-sm">
                 <span className="text-muted-foreground">
-                  Reply from {request.replier_name}, {new Date(request.replied_at!).toLocaleString()}
+                  Reply from {request.replier_name}, <Time value={request.replied_at!} />
                 </span>
                 <p className="whitespace-pre-wrap">{request.reply_message ?? 'No message.'}</p>
               </div>

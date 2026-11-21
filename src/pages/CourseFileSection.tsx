@@ -7,6 +7,7 @@ import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -524,7 +525,7 @@ function FileTable({
             <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title="No files yet" description={emptyDescription} />
           ) : (
             files.map((file, index) => {
-              const uploadedAt = new Date(file.uploaded_at).toLocaleString()
+              const uploadedAt = <Time value={file.uploaded_at} />
               return (
                 <TableRow
                   key={file.id}
