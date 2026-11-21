@@ -188,6 +188,15 @@ export function compileManifest(client: SupabaseClient, offeringId: string) {
   return callFiles<CompileManifest>(client, { action: 'compile-manifest', offeringId })
 }
 
+/**
+ * The file's name and a short-lived URL that gets its bytes without an Authorization header. The
+ * files function gives it to a user who may read the file, and refuses others with not_found. A
+ * file of a past offering that the user may only reuse needs the slot it would be reused into.
+ */
+export function fileUrl(client: SupabaseClient, fileId: string, reuseInto?: Slot) {
+  return callFiles<{ name: string; url: string }>(client, { action: 'file-url', fileId, ...reuseInto })
+}
+
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.functions.invoke('files', { body })
   if (!error) return data

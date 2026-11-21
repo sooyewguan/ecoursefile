@@ -1,6 +1,6 @@
 // Uploads and deletes the files of course file sections and shared files, deletes items with their
-// files, reuses files from past offerings, and gives the manifest that the browser compiles a course
-// file's PDF from. The browser asks for an upload session, PUTs the
+// files, reuses files from past offerings, gives a short-lived URL that opens one file, and gives
+// the manifest that the browser compiles a course file's PDF from. The browser asks for an upload session, PUTs the
 // file's chunks straight to the session's URL, and then asks to finalize. The SQL functions
 // can_upload, can_upload_shared_file and deletable decide who may do what, asked as the caller. The
 // add_file, remove_file and reuse_file RPCs write the file records and the activity log with the
@@ -52,6 +52,7 @@ type FilesRequest =
   | { action: 'list-reusable-files'; target: CourseFileTarget }
   | { action: 'reuse-file'; target: CourseFileTarget; fileId: string }
   | { action: 'compile-manifest'; offeringId: string }
+  | { action: 'file-url'; fileId: string; reuseTarget: CourseFileTarget | null }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
 const STORED_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_([^/]+)$/
@@ -75,6 +76,8 @@ serveJson(async (body, caller) => {
       return reuseFile(request.target, request.fileId, caller)
     case 'compile-manifest':
       return compileManifest(request.offeringId, caller)
+    case 'file-url':
+      return fileUrl(request.fileId, request.reuseTarget, caller)
   }
 })
 
@@ -128,9 +131,18 @@ async function parseRequest(body: unknown, caller: string): Promise<FilesRequest
       if (!isUuid(offeringId)) throw invalid('compile-manifest needs offeringId.')
       return { action: 'compile-manifest', offeringId }
     }
+    case 'file-url': {
+      // A file of a past offering that the caller may only reuse comes with the place it would go.
+      const { fileId } = input
+      const reuseTarget = input.offeringId === undefined ? null : await parseReuseTarget(input, caller)
+      if (!isUuid(fileId) || (input.offeringId !== undefined && !reuseTarget)) {
+        throw invalid(`file-url needs fileId, and for a file to reuse ${REUSE_TARGET_FIELDS}.`)
+      }
+      return { action: 'file-url', fileId, reuseTarget }
+    }
     default:
       throw invalid(
-        'action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files, reuse-file or compile-manifest.',
+        'action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files, reuse-file, compile-manifest or file-url.',
       )
   }
 }
@@ -404,6 +416,26 @@ async function compileManifest(offeringId: string, caller: string) {
   const [offering] = await rest<ManifestSource[]>('GET', `/offerings?id=eq.${offeringId}&select=${MANIFEST_SELECT}`, undefined, SERVICE)
   if (!offering) throw new Refusal(404, 'not_found', 'This course file does not exist.')
   return buildManifest(offering, (id) => storage.downloadUrl(id))
+}
+
+// A reader opens a file that the files table lets them read: a file of a course file they read, or
+// a shared file it links. Staff may also open a past offering's file from the place that reuse-file
+// would copy it into. The URL works for about an hour, like a manifest's.
+async function fileUrl(fileId: string, reuseTarget: CourseFileTarget | null, caller: string) {
+  const select = `id=eq.${fileId}&select=name,storage_item_id`
+  const [readable] = await rest<StoredFile[]>('GET', `/files?${select}`, undefined, caller)
+  const file = readable ?? (reuseTarget ? await reusableFile(reuseTarget, select, caller) : undefined)
+  if (!file) throw new Refusal(404, 'not_found', 'This file does not exist, or you cannot see it.')
+  return { name: file.name, url: await storage.downloadUrl(file.storage_item_id) }
+}
+
+type StoredFile = { name: string; storage_item_id: string }
+
+/** The past offering's file that select picks, among those the caller may reuse into the target. */
+async function reusableFile(target: CourseFileTarget, select: string, caller: string) {
+  await checkUpload(target, caller)
+  const [file] = await rest<StoredFile[]>('POST', `/rpc/reusable_files?${select}`, placeOf(target), SERVICE)
+  return file
 }
 
 /**
