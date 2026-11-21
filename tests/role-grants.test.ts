@@ -109,7 +109,18 @@ test('admin cannot change the roles of a root user', async () => {
   const { error } = await admin.from('user_roles').insert({ user_id: rootId, role: 'lecturer' })
 
   expect(error?.code).toBe(RLS_VIOLATION)
-  expect(await rolesOf(admin, rootId)).toEqual(['root'])
+  expect(await rolesOf(root, rootId)).toEqual(['root'])
+})
+
+test('admin reads every user but root', async () => {
+  const staff = await createUser({ roles: ['lecturer'] })
+  const rootId = await userIdOf(root)
+
+  const { data: profiles } = await admin.from('profiles').select('id').in('id', [rootId, staff.id])
+  const { data: roles } = await admin.from('user_roles').select('user_id').in('user_id', [rootId, staff.id])
+
+  expect(profiles).toEqual([{ id: staff.id }])
+  expect(roles).toEqual([{ user_id: staff.id }])
 })
 
 test.each(GLOBAL_ROLES)('the %s user cannot grant root', async (role) => {
