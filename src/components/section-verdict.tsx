@@ -110,7 +110,7 @@ export function SectionVerdict({
           </div>
         )}
       </div>
-      {loadFailed && <LoadError title="Couldn't load the verdict" onRetry={load} />}
+      {loadFailed && <LoadError title="Couldn't load the review" onRetry={load} />}
 
       {recording && (
         <FormDialog
