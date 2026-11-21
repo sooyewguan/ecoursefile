@@ -170,8 +170,8 @@ A new password clears the must-change-password flag, whether the user sets it on
 
 Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`. The page splits what an admin sets from what the user sets.
 
-- The card on the left shows the user's initials, their name with its title, and their email, department and roles. It has no inputs, and a note says that an admin sets these three.
-- **Name and title** is a form for the title, which is optional, and the full name. As the user types, the form shows the name that others will see. **Save** calls `update_my_profile`. The page then reads the profile again with `useReloadAuth` from `src/auth-provider.tsx`, so the header shows the new name at once. The page shows the database's message for a value it refuses, such as an empty name. See [Names and titles](#names-and-titles).
+- The card on the left shows the user's initials, their name with its title, and their email, department and roles. It has no inputs.
+- **Name and title** is a form for the title, which is optional, and the full name. **Save** calls `update_my_profile`. The page then reads the profile again with `useReloadAuth` from `src/auth-provider.tsx`, so the header shows the new name at once. The page shows the database's message for a value it refuses, such as an empty name. See [Names and titles](#names-and-titles).
 - **Password** asks for the current password and the new one twice. The page checks the current password with `supabase.auth.signInWithPassword`, so a person at an unlocked screen who does not know it cannot take over the account. It then calls `supabase.auth.updateUser({ password })`. The user stays signed in. This check runs in the browser only. A caller with the session's access token can still call Supabase Auth directly.
 
 Initials skip words that link a given name to a parent's name, such as "bin", "binti" and "a/l", so "Aisyah binti Rahman" shows as AR. The rule is `initialsOf` in `src/names.ts`.

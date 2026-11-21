@@ -1,9 +1,8 @@
-import { LockIcon } from 'lucide-react'
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Initials, RoleBadges } from '@/components/identity'
 import { NoticeAlert, type Notice } from '@/components/notice'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,9 +16,8 @@ import { supabase } from '../supabase.ts'
 type Department = { code: string; name: string }
 
 /**
- * The signed-in user's own account. The card on the left holds what an admin sets: email,
- * department and roles. The forms on the right hold what the user sets: their title and name, and
- * their password.
+ * The signed-in user's own account. The card on the left shows what an admin sets, with no inputs.
+ * The forms on the right change the user's title and name, and their password.
  */
 export function Profile() {
   const state = useAuth()
@@ -89,10 +87,6 @@ function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: Glob
             <RoleBadges roles={roles} />
           </Fact>
         </dl>
-        <p className="text-muted-foreground flex items-start gap-2 text-xs">
-          <LockIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          Your email, department and roles are set by an admin.
-        </p>
       </CardContent>
     </Card>
   )
@@ -110,14 +104,12 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 /** A card that holds one form, with its button in the footer. */
 function FormCard({
   title,
-  description,
   onSubmit,
   notice,
   action,
   children,
 }: {
   title: string
-  description: string
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   notice: Notice | null
   action: ReactNode
@@ -130,7 +122,6 @@ function FormCard({
           <CardTitle className="text-base">
             <h2>{title}</h2>
           </CardTitle>
-          <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 py-5">
           {children}
@@ -140,11 +131,6 @@ function FormCard({
       </form>
     </Card>
   )
-}
-
-/** How the app names a person: the title and the full name, as the profiles table's display_name joins them. */
-function displayNameOf(title: string, fullName: string) {
-  return [title.trim(), fullName.trim()].filter(Boolean).join(' ')
 }
 
 /** The user's title and full name, saved with update_my_profile. Every page shows the new name once it is saved. */
@@ -168,13 +154,12 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
     }
     setTitle(title.trim())
     setFullName(fullName.trim())
-    setNotice({ tone: 'success', text: `Saved. Others now see you as ${displayNameOf(title, fullName)}.` })
+    setNotice({ tone: 'success', text: 'Saved.' })
   }
 
   return (
     <FormCard
       title="Name and title"
-      description="How eCourseFile names you to others."
       onSubmit={onSubmit}
       notice={notice}
       action={
@@ -217,12 +202,6 @@ function NameCard({ profile }: { profile: SignedInProfile }) {
           />
         </div>
       </div>
-      {fullName.trim() && (
-        <p className="text-muted-foreground text-xs" aria-live="polite">
-          Shown on course file covers, emails and reports as{' '}
-          <span className="text-foreground font-medium break-words">{displayNameOf(title, fullName)}</span>.
-        </p>
-      )}
     </FormCard>
   )
 }
@@ -263,13 +242,12 @@ function PasswordCard({ email }: { email: string }) {
       return
     }
     formElement.reset()
-    setNotice({ tone: 'success', text: 'Your password is changed. Use it the next time you sign in.' })
+    setNotice({ tone: 'success', text: 'Password changed.' })
   }
 
   return (
     <FormCard
       title="Password"
-      description="You stay signed in on this device."
       onSubmit={onSubmit}
       notice={notice}
       action={
