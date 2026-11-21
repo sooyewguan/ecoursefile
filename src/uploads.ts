@@ -197,6 +197,14 @@ export function fileUrl(client: SupabaseClient, fileId: string, reuseInto?: Slot
   return callFiles<{ name: string; url: string }>(client, { action: 'file-url', fileId, ...reuseInto })
 }
 
+/** The file's name and its bytes as a PDF, which the URL from fileUrl gets. */
+export async function fetchFile(client: SupabaseClient, fileId: string, reuseInto?: Slot) {
+  const { name, url } = await fileUrl(client, fileId, reuseInto)
+  const response = await fetch(url)
+  if (!response.ok) throw new FileActionError('download_failed', `Couldn't get ${name}. Try again.`, response.status)
+  return { name, blob: new Blob([await response.arrayBuffer()], { type: PDF_TYPE }) }
+}
+
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.functions.invoke('files', { body })
   if (!error) return data

@@ -12,6 +12,7 @@ import { CourseFileSection } from './pages/CourseFileSection.tsx'
 import { Courses } from './pages/Courses.tsx'
 import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
+import { FileViewer } from './pages/FileViewer.tsx'
 import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
@@ -37,6 +38,7 @@ export function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path={RESET_PASSWORD_PAGE} element={<ResetPassword />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/files/:fileId" element={<FileViewer />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Home />} />
               <Route path="/users" element={<Users />} />
