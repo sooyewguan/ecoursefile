@@ -3,7 +3,7 @@ import { SECTION_STATUS_LABELS, sectionName, SECTIONS } from './sections.ts'
 
 // The columns of each report view, which the Reports and My completeness pages show and export.
 // The pages read each header and value from here, so a file holds what the screen shows. A value
-// is null where the screen shows a placeholder, such as Never or a dash, and the file leaves the
+// is null where the screen shows a placeholder, such as No uploads yet or a dash, and the file leaves the
 // cell empty.
 
 /**
