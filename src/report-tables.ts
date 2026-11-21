@@ -39,16 +39,23 @@ const POOLED_COLUMNS = {
   needsFixPercent: { header: 'Needs fix', kind: 'percent', value: (row) => row.percent_needs_fix },
 } satisfies Columns<FacultySummary>
 
-export const FACULTY_SUMMARY_TABLE = { view: 'Faculty summary', columns: POOLED_COLUMNS } satisfies ReportTable<FacultySummary>
+/** A row of the summary: a department, or the faculty as a whole, whose department is null. */
+export type SummaryRow = FacultySummary & { department_code: string | null; department_name: string | null }
 
-export const DEPARTMENTS_TABLE = {
-  view: 'Departments',
+/** The summary: the department breakdown, then the faculty as All departments, so one file holds both. */
+export const SUMMARY_TABLE = {
+  view: 'Summary',
   columns: {
     departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.department_code },
-    departmentName: { header: 'Department', kind: 'text', value: (row) => row.department_name },
+    departmentName: { header: 'Department', kind: 'text', value: (row) => row.department_name ?? 'All departments' },
     ...POOLED_COLUMNS,
   },
-} satisfies ReportTable<DepartmentRow>
+} satisfies ReportTable<SummaryRow>
+
+/** The summary's rows: each department, then the faculty. */
+export function summaryRows(faculty: FacultySummary, departments: DepartmentRow[]): SummaryRow[] {
+  return [...departments, { ...faculty, department_code: null, department_name: null }]
+}
 
 /** The columns of the offering list, which My completeness shows too. */
 export const OFFERING_COLUMNS = {
@@ -65,7 +72,19 @@ export const OFFERING_COLUMNS = {
 
 export const OFFERINGS_TABLE = { view: 'Offerings', columns: OFFERING_COLUMNS } satisfies ReportTable<OfferingRow>
 
-export const MY_COMPLETENESS_TABLE = { view: 'My completeness', columns: OFFERING_COLUMNS } satisfies ReportTable<OfferingRow>
+/** My completeness: the offering list without the department, since a lecturer's own offerings need no breakdown. */
+export const MY_COMPLETENESS_TABLE = {
+  view: 'My completeness',
+  columns: {
+    courseCode: OFFERING_COLUMNS.courseCode,
+    courseTitle: OFFERING_COLUMNS.courseTitle,
+    coordinator: OFFERING_COLUMNS.coordinator,
+    status: OFFERING_COLUMNS.status,
+    complete: OFFERING_COLUMNS.complete,
+    missingSections: OFFERING_COLUMNS.missingSections,
+    lastUpload: OFFERING_COLUMNS.lastUpload,
+  },
+} satisfies ReportTable<OfferingRow>
 
 /** The offerings that the offering list shows: those of the department and with the status, where one is chosen. */
 export function filterOfferings(rows: OfferingRow[], filters: { departmentId: string | null; status: OfferingStatus | null }) {
@@ -86,6 +105,17 @@ export const HEATMAP_TABLE = {
     ),
   },
 } satisfies ReportTable<OfferingRow>
+
+/** Text as search compares it: lower case, with accents dropped, so that chloe finds Chloé. */
+function searchable(text: string) {
+  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+}
+
+/** The lecturers whose name holds the query, in the report's order. An empty query keeps every lecturer. */
+export function filterLecturers(rows: LecturerRow[], query: string) {
+  const wanted = searchable(query.trim())
+  return rows.filter((row) => searchable(row.lecturer_name).includes(wanted))
+}
 
 /** One offering of one lecturer: a row of the lecturer view, which the screen groups by lecturer. */
 export type LecturerOffering = { lecturer: LecturerRow; offering: LecturerRow['offerings'][number] }

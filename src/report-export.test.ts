@@ -5,14 +5,15 @@ import { describe, expect, test } from 'vitest'
 import { exportReport, type ExportFormat } from './report-export.ts'
 import { REPORT_FIXTURE } from './report-fixture.ts'
 import {
-  DEPARTMENTS_TABLE,
-  FACULTY_SUMMARY_TABLE,
+  filterLecturers,
   filterOfferings,
   HEATMAP_TABLE,
   LECTURERS_TABLE,
   lecturerOfferings,
   MY_COMPLETENESS_TABLE,
   OFFERINGS_TABLE,
+  SUMMARY_TABLE,
+  summaryRows,
 } from './report-tables.ts'
 import { OFFERING_STATUS_LABELS, type DepartmentRow, type FacultySummary, type LecturerRow, type OfferingRow } from './reports.ts'
 import { SECTION_STATUS_LABELS, SECTIONS } from './sections.ts'
@@ -76,6 +77,14 @@ function offering(row: OfferingRow): Expected[] {
   ]
 }
 
+const MY_COMPLETENESS_HEADERS = ['Course code', 'Course', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Last upload']
+
+/** An offering as My completeness exports it: the offering list without the department. */
+function ownOffering(row: OfferingRow): Expected[] {
+  const [code, title, , , ...rest] = offering(row)
+  return [code, title, ...rest]
+}
+
 function lecturer(row: LecturerRow): Expected[][] {
   return row.offerings.map((taught) => [
     row.lecturer_name,
@@ -92,16 +101,14 @@ function lecturer(row: LecturerRow): Expected[][] {
 /** Each view with the rows the page shows unfiltered, and the table a file of it must hold. */
 const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; headers: string[]; rows: Expected[][] }[] = [
   {
-    name: 'Faculty summary',
-    export: (format) => exportReport(FACULTY_SUMMARY_TABLE, REPORT_FIXTURE.facultySummary, REPORT_FIXTURE.semesterCode, format),
-    headers: POOLED_HEADERS,
-    rows: REPORT_FIXTURE.facultySummary.map(pooled),
-  },
-  {
-    name: 'Departments',
-    export: (format) => exportReport(DEPARTMENTS_TABLE, REPORT_FIXTURE.departments, REPORT_FIXTURE.semesterCode, format),
+    name: 'Summary',
+    export: (format) =>
+      exportReport(SUMMARY_TABLE, summaryRows(REPORT_FIXTURE.facultySummary[0], REPORT_FIXTURE.departments), REPORT_FIXTURE.semesterCode, format),
     headers: ['Department code', 'Department', ...POOLED_HEADERS],
-    rows: REPORT_FIXTURE.departments.map((row: DepartmentRow) => [row.department_code, row.department_name, ...pooled(row)]),
+    rows: [
+      ...REPORT_FIXTURE.departments.map((row: DepartmentRow) => [row.department_code, row.department_name, ...pooled(row)]),
+      [null, 'All departments', ...pooled(REPORT_FIXTURE.facultySummary[0])],
+    ],
   },
   {
     name: 'Offerings',
@@ -124,8 +131,8 @@ const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; he
   {
     name: 'My completeness',
     export: (format) => exportReport(MY_COMPLETENESS_TABLE, REPORT_FIXTURE.chloeOfferings, REPORT_FIXTURE.semesterCode, format),
-    headers: OFFERING_HEADERS,
-    rows: REPORT_FIXTURE.chloeOfferings.map(offering),
+    headers: MY_COMPLETENESS_HEADERS,
+    rows: REPORT_FIXTURE.chloeOfferings.map(ownOffering),
   },
 ]
 
@@ -189,7 +196,7 @@ test.each(FORMATS)('the offering list exports only the offerings that its depart
 
 test('My completeness exports the offerings that the lecturer teaches or coordinates', async () => {
   const [, ...rows] = await readBack(await exportReport(MY_COMPLETENESS_TABLE, REPORT_FIXTURE.chloeOfferings, REPORT_FIXTURE.semesterCode, 'csv'))
-  expect(rows.map((row) => [row[0], row[4]])).toEqual([
+  expect(rows.map((row) => [row[0], row[2]])).toEqual([
     [courseCode('BITP1113'), 'Aisyah Rahman'],
     [courseCode('BITS3343'), 'Chloé Lefèvre'],
   ])
@@ -205,6 +212,16 @@ test('the lecturer view exports one row for each offering of each lecturer', asy
   const chen = rows.find((row) => row[0] === '陈伟明')!
   expect(chen.slice(1, 4)).toEqual([null, null, 'Missing'])
   expect(chen[7]).toBe('4 Lecturer Timetable, 5 Student Timetable, 6 Attendance Record, 10 Lecture Notes, 17 Week 12 Marks, 18 Grade List, 19 LO/PO Analysis')
+})
+
+test('the lecturer search keeps the lecturers whose name holds it, in any case and with or without accents', () => {
+  const names = (query: string) => filterLecturers(REPORT_FIXTURE.lecturers, query).map((row) => row.lecturer_name)
+  expect(names('')).toEqual(REPORT_FIXTURE.lecturers.map((row) => row.lecturer_name))
+  expect(names('chloe')).toEqual(['Chloé Lefèvre'])
+  expect(names('  LEFÈVRE ')).toEqual(['Chloé Lefèvre'])
+  expect(names('陈')).toEqual(['陈伟明'])
+  expect(names('name')).toEqual(['\tTabbed Name', '\rReturned Name'])
+  expect(names('nobody')).toEqual([])
 })
 
 test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows a text that starts like a formula as text', async () => {

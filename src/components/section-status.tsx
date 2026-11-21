@@ -23,12 +23,15 @@ const STATUS_ICONS: Record<SectionStatus, LucideIcon | null> = {
   off: MinusIcon,
 }
 
-/** An offering's status shows in the colors of the section status it stands for. */
-const OFFERING_STATUS_STYLES: Record<OfferingStatus, SectionStatus> = {
-  incomplete: 'missing',
-  needs_fix: 'needs_fix',
-  pending_review: 'pending_review',
-  verified: 'verified',
+/**
+ * An offering's status in the colors of the section status it stands for. Incomplete stays plain,
+ * so that red marks only the offerings that an auditor sent back.
+ */
+const OFFERING_STATUS_STYLES: Record<OfferingStatus, string> = {
+  incomplete: 'text-foreground',
+  needs_fix: STATUS_STYLES.needs_fix,
+  pending_review: STATUS_STYLES.pending_review,
+  verified: STATUS_STYLES.verified,
 }
 
 export function SectionStatusBadge({ status }: { status: SectionStatus }) {
@@ -41,7 +44,7 @@ export function SectionStatusBadge({ status }: { status: SectionStatus }) {
 
 export function OfferingStatusBadge({ status }: { status: OfferingStatus }) {
   return (
-    <Badge variant="outline" className={STATUS_STYLES[OFFERING_STATUS_STYLES[status]]}>
+    <Badge variant="outline" className={OFFERING_STATUS_STYLES[status]}>
       {OFFERING_STATUS_LABELS[status]}
     </Badge>
   )
@@ -60,9 +63,9 @@ export function SectionStatusSquare({ section, status }: { section: number; stat
 }
 
 /** Every section status with its square, for the heatmap's legend. */
-export function SectionStatusLegend() {
+export function SectionStatusLegend({ className }: { className?: string }) {
   return (
-    <ul aria-label="Legend" className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-2 text-sm">
+    <ul aria-label="Legend" className={cn('text-muted-foreground flex flex-wrap gap-x-4 gap-y-2 text-sm', className)}>
       {(Object.keys(SECTION_STATUS_LABELS) as SectionStatus[]).map((status) => {
         const Icon = STATUS_ICONS[status]
         return (

@@ -2,11 +2,10 @@ import { ClipboardCheckIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { EmptyState, LoadError, PageHeader } from '@/components/page'
-import { ExportMenu, OfferingsTable, ReportLoadError, SemesterSelect, useReport } from '@/components/reports'
+import { ExportMenu, loadOfferings, OfferingsTable, ReportLoadError, SemesterSelect, useReport } from '@/components/reports'
 import { Card } from '@/components/ui/card'
 import { useAuth } from '../auth-provider.tsx'
 import { MY_COMPLETENESS_TABLE } from '../report-tables.ts'
-import type { OfferingRow } from '../reports.ts'
 import { supabase } from '../supabase.ts'
 
 type Semester = { id: string; code: string; start_year: number; number: number }
@@ -81,13 +80,19 @@ export function Completeness() {
 }
 
 function OwnOfferings({ semesterId, semesterCode, offeringIds }: { semesterId: string; semesterCode: string | null; offeringIds: ReadonlySet<string> }) {
-  const report = useReport<OfferingRow>('report_offerings', semesterId)
+  const report = useReport(semesterId, loadOfferings)
   if (report?.failed) return <ReportLoadError onRetry={report.retry} />
-  const rows = report?.rows?.filter((row) => offeringIds.has(row.offering_id)) ?? null
+  const rows = report?.data?.filter((row) => offeringIds.has(row.offering_id)) ?? null
   return (
     <div className="grid gap-4">
       <ExportMenu table={MY_COMPLETENESS_TABLE} rows={rows} semesterCode={semesterCode} />
-      <OfferingsTable rows={rows} empty={{ title: 'No course files this semester' }} />
+      {rows?.length === 0 ? (
+        <Card className="py-0">
+          <EmptyState icon={ClipboardCheckIcon} title="No course files this semester" />
+        </Card>
+      ) : (
+        <OfferingsTable rows={rows} />
+      )}
     </div>
   )
 }
