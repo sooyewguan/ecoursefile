@@ -515,14 +515,16 @@ The reports cover the offerings of the semester that `can_read_offering` lets th
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. On a phone, the department breakdown scrolls sideways inside its card, with the department column pinned.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
 - **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. On a phone, the table scrolls sideways inside its card, with the course column pinned. A course code wraps at 112 px, so the pinned column leaves room for the sections.
-- **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
+- **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
 
-The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
+The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. Choosing another semester drops the department. A semester, tab, status or department that the page cannot show gives way to what it shows, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
 
-The **My completeness** page shows lecturers the offering list for the offerings they teach or coordinate, in one semester. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
+Each tab loads its report once. A failed load shows "Couldn't load this report" with **Try again** under the tabs. A semester whose report has no offerings shows "No offerings in" and the semester code, in place of the tab's controls.
+
+The **My completeness** page shows lecturers each course file they teach or coordinate in one semester: its status, completeness, coordinator and last upload, and its missing sections and its sections marked Needs fix, by number and title, each linked to its section page. While the lecturer has no timetable for the semester, an alert links to the section 4 page of one of their course files, where they upload it. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
 
 ### What the numbers mean
 
@@ -553,23 +555,23 @@ Each `report_offerings` row also has the course, its department, the coordinator
 
 Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
 
-The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until it holds as many as the API counts. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
+The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which reads it with `readAll`: it asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until a page comes back with fewer than 1,000 rows. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. The **Reports** page reads its list of semesters, and **My completeness** the lecturer's offerings, the same way. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
 ### Export
 
-Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel**, which saves an .xlsx file, and **CSV**, which saves a .csv file. A failed export says "Couldn't export. Try again." in a toast. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
+Each tab of the **Reports** page has one **Export** menu, at the end of the tab's row of controls, and **My completeness** has one beside the semester. It offers **Excel**, which saves an .xlsx file, and **CSV**, which saves a .csv file. A failed export says "Couldn't export. Try again." in a toast. The browser builds the file from the rows on screen, with the offering list's filters and the lecturer search applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
 
 `src/report-tables.ts` describes each view as a table: its name and, for each column, the header, the kind of value and how to read it from a report row. The pages take their headers and values from these descriptions, and `exportReport` in `src/report-export.ts` writes their columns, so a file holds what the screen shows. A screen cell that shows two values is two columns in the file, so that a spreadsheet can sort and filter each one.
 
 | View | Columns |
 | --- | --- |
-| Faculty summary, one row | Offerings, Sections (that count), then Uploaded, Verified and Needs fix, each as a count of sections and as `(%)` |
-| Departments | Department (its code), Department name, and the columns of the faculty summary |
-| Offerings, My completeness | Course (its code), Course title, Department, Department name, Coordinator, Status, Complete (%), Missing sections, Last upload |
-| Heatmap | Course, Course title, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department, Department name, Timetable (`Missing` or `Uploaded`), Course, Course title, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
+| Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
+| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
-- Statuses are the text the screen shows, such as `Needs fix`. Missing sections are their numbers, such as `4, 5, 10`.
+- Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.
 - Last upload is the day the screen shows, in the user's time zone. An .xlsx holds it as a date in the format `yyyy-mm-dd`, and a .csv as text such as `2026-11-20`.
 - Where the screen shows a placeholder for no value, such as a dash, No uploads yet or None missing, the cell is empty.
@@ -583,7 +585,7 @@ An .xlsx has one sheet, named after the view, with the header row bold and froze
 The app is desktop first. These pages also work on a phone 360 px wide, with no sideways scroll: the course file page with its sections, audit requests and activity, each section page with its status and the auditor's verdict, the **Reports** page with its Export menus, and **My completeness**. An auditor records verdicts and sends an audit request from a phone, and the coordinator and lecturers comment on its checklist and reply.
 
 - A long word, such as a course code with a UUID or a name with no space, breaks anywhere rather than widen the page. `overflow-wrap: anywhere` on `body` in `src/index.css` does this for the whole app, so no element needs its own rule.
-- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, and the offering list's status and completeness. The department breakdown and the heatmap are too wide for that, so they scroll sideways inside their card, with the first column pinned.
+- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, the offering list's status and completeness, the department breakdown's offerings and percentages, and each lecturer's courses. The heatmap shows each offering's sections as numbered squares in its course cell, ten to a row.
 - On a touch screen, `pointer: coarse`, the app's controls are at least 44 by 44 px, as WCAG 2.2 success criterion 2.5.5 asks. Buttons, tabs, menu items, selects, inputs and the navigation links grow to 44 px. The checkbox and the close buttons of dialogs and of the navigation keep their size and take taps on a 44 px area around them. With a mouse, the controls keep their desktop size.
 - Uploading and the compiled PDF stay desktop first. They work on a phone without breaking the layout, but are not tuned for it.
 

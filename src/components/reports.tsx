@@ -1,8 +1,8 @@
-import { ChartColumnIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
-import { LoadError, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, TableSkeleton } from '@/components/page'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import type { ExportFormat } from '../report-export.ts'
 import { OFFERING_COLUMNS, type ReportTable } from '../report-tables.ts'
-import { fetchReport, formatPercent, type OfferingRow, type ReportRpc } from '../reports.ts'
+import { fetchReport, formatPercent, type OfferingRow } from '../reports.ts'
 import { SECTIONS } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -37,25 +37,42 @@ export function SemesterSelect({ semesters, value, onChange }: { semesters: Seme
 }
 
 /**
- * Every row of a report RPC for the semester: null while they load, or failed when they did not
- * load, with retry to load them again.
+ * The semester that a report page shows: the URL's, when it is one of the semesters, else the
+ * first, which is the newest. Null while the semesters load, and when there are none. A page whose
+ * URL names another semester replaces it with this one, so that the URL, the select and the data agree.
  */
-export function useReport<Row>(rpc: ReportRpc, semesterId: string) {
-  const [result, setResult] = useState<{ key: string; rows?: Row[]; failed?: true } | null>(null)
+export function pickSemester(semesters: { id: string }[] | null, param: string | null) {
+  if (!semesters) return null
+  return semesters.some((semester) => semester.id === param) ? param : (semesters[0]?.id ?? null)
+}
+
+/**
+ * What load gives for the semester: null while it loads, and while the semester is not known yet,
+ * then the data, or failed when it did not load, with retry to load it again. load keeps its
+ * identity from one render to the next.
+ */
+export function useReport<Data>(semesterId: string | null, load: (semesterId: string) => Promise<Data>) {
+  const [result, setResult] = useState<{ key: string; data?: Data; failed?: true } | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const key = `${rpc} ${semesterId} ${attempt}`
+  const key = `${semesterId} ${attempt}`
   const retry = useCallback(() => setAttempt((count) => count + 1), [])
   useEffect(() => {
+    if (!semesterId) return
     let current = true
-    fetchReport<Row>(supabase, rpc, semesterId).then(
-      (rows) => current && setResult({ key, rows }),
+    load(semesterId).then(
+      (data) => current && setResult({ key, data }),
       () => current && setResult({ key, failed: true }),
     )
     return () => {
       current = false
     }
-  }, [rpc, semesterId, key])
-  return result?.key === key ? { ...result, retry } : null
+  }, [semesterId, load, key])
+  return semesterId && result?.key === key ? { ...result, retry } : null
+}
+
+/** The offering list of the semester, for the Offerings and Heatmap tabs and My completeness. */
+export function loadOfferings(semesterId: string) {
+  return fetchReport<OfferingRow>(supabase, 'report_offerings', semesterId)
 }
 
 /** A report view whose rows failed to load. */
@@ -67,23 +84,29 @@ export function ReportLoadError({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-/** Section numbers as small badges, each named in full for screen readers and on hover. */
-export function SectionNumbers({ sections }: { sections: number[] }) {
+/**
+ * Missing sections as small badges of their numbers, each named in full for screen readers and on
+ * hover. labelled puts Missing before them, where no column header names them.
+ */
+export function SectionNumbers({ sections, labelled = false }: { sections: number[]; labelled?: boolean }) {
   if (sections.length === 0) return <span className="text-muted-foreground">None missing</span>
   return (
-    <ul className="flex flex-wrap gap-1">
-      {sections.map((section) => {
-        const title = SECTIONS.find((s) => s.number === section)!.title
-        return (
-          <li key={section}>
-            <Badge variant="outline" title={`${section} ${title}`} className="tabular-nums">
-              {section}
-              <span className="sr-only"> {title}</span>
-            </Badge>
-          </li>
-        )
-      })}
-    </ul>
+    <div className="flex items-baseline gap-2">
+      {labelled && <span className="text-muted-foreground shrink-0 text-xs">Missing</span>}
+      <ul className="flex min-w-0 flex-1 flex-wrap gap-1">
+        {sections.map((section) => {
+          const title = SECTIONS.find((s) => s.number === section)!.title
+          return (
+            <li key={section}>
+              <Badge variant="outline" title={`${section} ${title}`} className="tabular-nums">
+                {section}
+                <span className="sr-only"> {title}</span>
+              </Badge>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
@@ -107,64 +130,65 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
     }
   }
   return (
-    <div className="flex items-center justify-end gap-3">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" aria-label={`Export ${table.view.toLowerCase()}`} disabled={!rows?.length || !semesterCode}>
-            <DownloadIcon />
-            Export
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => void save('xlsx')}>
-            <FileSpreadsheetIcon />
-            Excel
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void save('csv')}>
-            <FileTextIcon />
-            CSV
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" aria-label={`Export ${table.view.toLowerCase()}`} disabled={!rows?.length || !semesterCode}>
+          <DownloadIcon />
+          Export
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => void save('xlsx')}>
+          <FileSpreadsheetIcon />
+          Excel
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void save('csv')}>
+          <FileTextIcon />
+          CSV
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
+/** A skeleton bar at the end of its cell, for a column of numbers. */
+export const NUMBER_SKELETON = '[&>*]:ml-auto'
+
 /**
- * Below sm the status and completeness, below md the department and coordinator, and below lg the
- * missing sections and last upload, move into the course cell.
+ * Below sm the status and completeness, below md the coordinator, below lg the department and the
+ * missing sections, and below xl the last upload move into the course cell. Every column but the
+ * course has a set width, so the columns keep their place when a filter changes the rows.
  */
 const SMALL = 'hidden sm:table-cell'
 const MEDIUM = 'hidden md:table-cell'
 const LARGE = 'hidden lg:table-cell'
-const OFFERING_SKELETON = ['', MEDIUM, MEDIUM, SMALL, SMALL, LARGE, LARGE]
+const XLARGE = 'hidden xl:table-cell'
+const OFFERING_SKELETON = ['', LARGE, MEDIUM, SMALL, cn(SMALL, NUMBER_SKELETON), LARGE, XLARGE]
 
 /**
- * The offering list: each offering with its coordinator, status, completeness, missing sections and
- * last upload. Its headers and values are OFFERING_COLUMNS, which its export writes, with the
- * course's code and title in one cell, and the department's code and name in another.
+ * The offering list: each offering with its department, coordinator, status, completeness, missing
+ * sections and last upload. Its headers and values are OFFERING_COLUMNS, which its export writes,
+ * with the course's code and title in one cell, and the department as its code, named on hover.
  */
-export function OfferingsTable({ rows, empty }: { rows: OfferingRow[] | null; empty: { title: string; action?: ReactNode } }) {
+export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
   const column = OFFERING_COLUMNS
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table aria-label="Offerings">
         <TableHeader className="bg-muted/50">
           <TableRow>
-            <TableHead className="px-4">{column.courseCode.header}</TableHead>
-            <TableHead className={cn('px-4', MEDIUM)}>{column.departmentCode.header}</TableHead>
-            <TableHead className={cn('px-4', MEDIUM)}>{column.coordinator.header}</TableHead>
-            <TableHead className={cn('px-4', SMALL)}>{column.status.header}</TableHead>
-            <TableHead className={cn('px-4 text-right', SMALL)}>{column.complete.header}</TableHead>
-            <TableHead className={cn('px-4', LARGE)}>{column.missingSections.header}</TableHead>
-            <TableHead className={cn('px-4', LARGE)}>{column.lastUpload.header}</TableHead>
+            <TableHead className="min-w-56 px-4">{column.courseTitle.header}</TableHead>
+            <TableHead className={cn('w-28 px-4', LARGE)}>{column.departmentName.header}</TableHead>
+            <TableHead className={cn('w-44 px-4', MEDIUM)}>{column.coordinator.header}</TableHead>
+            <TableHead className={cn('w-36 px-4', SMALL)}>{column.status.header}</TableHead>
+            <TableHead className={cn('w-24 px-4 text-right', SMALL)}>{column.complete.header}</TableHead>
+            <TableHead className={cn('w-48 px-4', LARGE)}>{column.missingSections.header}</TableHead>
+            <TableHead className={cn('w-32 px-4', XLARGE)}>{column.lastUpload.header}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {!rows ? (
             <TableSkeleton columns={OFFERING_SKELETON} />
-          ) : rows.length === 0 ? (
-            <TableEmpty columns={7} icon={ChartColumnIcon} title={empty.title} action={empty.action} />
           ) : (
             rows.map((row) => (
               <TableRow key={row.offering_id}>
@@ -180,25 +204,26 @@ export function OfferingsTable({ rows, empty }: { rows: OfferingRow[] | null; em
                         {formatPercent(column.complete.value(row))} {column.complete.header.toLowerCase()}
                       </span>
                     </div>
-                    <span className="text-muted-foreground mt-1 text-xs md:hidden">
-                      {column.departmentCode.value(row)} · {column.coordinator.value(row)}
-                    </span>
-                    <div className="mt-1 grid gap-1 text-xs lg:hidden">
-                      <SectionNumbers sections={row.missing_sections} />
-                      <span className="text-muted-foreground">
-                        {row.last_upload_at ? (
-                          <>
-                            {column.lastUpload.header} <Time value={row.last_upload_at} dateOnly />
-                          </>
-                        ) : (
-                          'No uploads yet'
-                        )}
-                      </span>
+                    <p className="text-muted-foreground mt-1 text-xs lg:hidden">
+                      <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
+                      <span className="md:hidden"> · {column.coordinator.value(row)}</span>
+                    </p>
+                    <div className="mt-1 text-xs lg:hidden">
+                      <SectionNumbers sections={row.missing_sections} labelled />
                     </div>
+                    <p className="text-muted-foreground mt-1 text-xs xl:hidden">
+                      {row.last_upload_at ? (
+                        <>
+                          {column.lastUpload.header} <Time value={row.last_upload_at} dateOnly />
+                        </>
+                      ) : (
+                        'No uploads yet'
+                      )}
+                    </p>
                   </div>
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>
-                  {column.departmentCode.value(row)} {column.departmentName.value(row)}
+                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
+                  <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>{column.coordinator.value(row)}</TableCell>
                 <TableCell className={cn('px-4 py-3 align-top', SMALL)}>
@@ -208,7 +233,7 @@ export function OfferingsTable({ rows, empty }: { rows: OfferingRow[] | null; em
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
                   <SectionNumbers sections={row.missing_sections} />
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 align-top', LARGE)}>
+                <TableCell className={cn('px-4 py-3 align-top', XLARGE)}>
                   {row.last_upload_at ? <Time value={row.last_upload_at} dateOnly /> : <span className="text-muted-foreground">—</span>}
                 </TableCell>
               </TableRow>
