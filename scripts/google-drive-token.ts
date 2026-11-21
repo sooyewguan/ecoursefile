@@ -34,7 +34,7 @@ const server = createServer(async (req, res) => {
     method: 'POST',
     body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: 'authorization_code' }),
   })
-  const body: { refresh_token?: string; error_description?: string } = await response.json()
+  const body = (await response.json()) as { refresh_token?: string; error_description?: string }
   if (!body.refresh_token) {
     res.writeHead(502).end('Google gave no refresh token. See the terminal.')
     console.error(`google-drive-token: Google gave no refresh token: ${body.error_description ?? response.status}`)
