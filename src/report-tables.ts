@@ -72,7 +72,15 @@ export const OFFERING_COLUMNS = {
 
 export const OFFERINGS_TABLE = { view: 'Offerings', columns: OFFERING_COLUMNS } satisfies ReportTable<OfferingRow>
 
-/** My completeness: the offering list without the department, since a lecturer's own offerings need no breakdown. */
+/** The sections of the offering whose status is Needs fix, in section order. */
+export function needsFixSections(row: OfferingRow) {
+  return row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))
+}
+
+/**
+ * My completeness: the offering list without the department, since a lecturer's own offerings need
+ * no breakdown, and with the sections to fix next to those missing, since both are theirs to act on.
+ */
 export const MY_COMPLETENESS_TABLE = {
   view: 'My completeness',
   columns: {
@@ -82,6 +90,7 @@ export const MY_COMPLETENESS_TABLE = {
     status: OFFERING_COLUMNS.status,
     complete: OFFERING_COLUMNS.complete,
     missingSections: OFFERING_COLUMNS.missingSections,
+    needsFixSections: { header: 'Sections needing fix', kind: 'text', value: (row) => sectionList(needsFixSections(row)) },
     lastUpload: OFFERING_COLUMNS.lastUpload,
   },
 } satisfies ReportTable<OfferingRow>

@@ -77,12 +77,13 @@ function offering(row: OfferingRow): Expected[] {
   ]
 }
 
-const MY_COMPLETENESS_HEADERS = ['Course code', 'Course', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Last upload']
+const MY_COMPLETENESS_HEADERS = ['Course code', 'Course', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Sections needing fix', 'Last upload']
 
-/** An offering as My completeness exports it: the offering list without the department. */
+/** An offering as My completeness exports it: the offering list without the department, and with its sections to fix. */
 function ownOffering(row: OfferingRow): Expected[] {
-  const [code, title, , , ...rest] = offering(row)
-  return [code, title, ...rest]
+  const [code, title, , , coordinator, status, complete, missing, lastUpload] = offering(row)
+  const needsFix = row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))
+  return [code, title, coordinator, status, complete, missing, sections(needsFix), lastUpload]
 }
 
 function lecturer(row: LecturerRow): Expected[][] {
@@ -196,9 +197,9 @@ test.each(FORMATS)('the offering list exports only the offerings that its depart
 
 test('My completeness exports the offerings that the lecturer teaches or coordinates', async () => {
   const [, ...rows] = await readBack(await exportReport(MY_COMPLETENESS_TABLE, REPORT_FIXTURE.chloeOfferings, REPORT_FIXTURE.semesterCode, 'csv'))
-  expect(rows.map((row) => [row[0], row[2]])).toEqual([
-    [courseCode('BITP1113'), 'Aisyah Rahman'],
-    [courseCode('BITS3343'), 'Chloé Lefèvre'],
+  expect(rows.map((row) => [row[0], row[2], row[6]])).toEqual([
+    [courseCode('BITP1113'), 'Aisyah Rahman', ''],
+    [courseCode('BITS3343'), 'Chloé Lefèvre', '6 Attendance Record'],
   ])
 })
 
