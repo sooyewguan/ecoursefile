@@ -1,4 +1,4 @@
-import { CircleCheckIcon, CircleIcon, MailWarningIcon, MessageSquareIcon, ReplyIcon, SendIcon } from 'lucide-react'
+import { CircleCheckIcon, CircleIcon, MailWarningIcon, MessageSquareIcon, ReplyIcon, SendIcon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
@@ -179,13 +179,19 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
 
             {canReply && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <Button disabled={!request.checklist_complete} onClick={() => setReplying(request)}>
+                {/* Until every section is answered the button stays focusable, and says why it does nothing. */}
+                <Button
+                  aria-disabled={!request.checklist_complete}
+                  aria-describedby={`answered-${request.id}`}
+                  className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                  onClick={() => request.checklist_complete && setReplying(request)}
+                >
                   <ReplyIcon />
                   Reply to auditor
                 </Button>
-                {!request.checklist_complete && (
-                  <span className="text-muted-foreground text-sm">A section ticks itself when it gets a new file. Comment on any you cannot fix, then reply.</span>
-                )}
+                <span id={`answered-${request.id}`} className="text-muted-foreground text-sm tabular-nums">
+                  {request.items.filter((item) => item.ticked || item.comment).length} of {request.items.length} answered
+                </span>
               </div>
             )}
             {request.state === 'replied' && (
@@ -276,7 +282,7 @@ function ChecklistItem({
       : [CircleIcon, 'Not answered yet', 'text-muted-foreground']
   return (
     <li className={cn('grid gap-x-3 gap-y-1', !draftStatus && 'grid-cols-[1.25rem_1fr]')}>
-      {!draftStatus && <Icon aria-label={label} className={cn('mt-0.5 size-5', tone)} />}
+      {!draftStatus && <Icon aria-hidden="true" className={cn('mt-0.5 size-5', tone)} />}
       <div className="grid min-w-0 gap-1">
         <div className="flex flex-wrap items-center gap-2">
           {SECTIONS_WITH_PAGES.has(item.section) ? (
@@ -295,7 +301,15 @@ function ChecklistItem({
           </p>
         )}
         {onComment && (
-          <div>
+          <div className="flex flex-wrap gap-2">
+            {!item.ticked && SECTIONS_WITH_PAGES.has(item.section) && (
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/course-files/${offeringId}/sections/${item.section}`}>
+                  <UploadIcon />
+                  Upload fix
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={onComment}>
               <MessageSquareIcon />
               {item.comment ? 'Edit comment' : 'Comment'}
