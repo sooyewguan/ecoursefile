@@ -100,8 +100,8 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
-| Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Everyone else | Read their own profile and roles, change their own title and name, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
@@ -109,11 +109,20 @@ Some limits apply to everyone:
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
-- Clients can update only `full_name`, `department_id` and `active` on a profile. The email and the must-change-password flag are not writable.
+- Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
+- A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
 
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+### Names and titles
+
+A profile has a `full_name` and an optional `title`, an honorific such as `Dr.`, `Prof. Madya` or `Ts.`. A title is trimmed, not empty, and at most 40 characters. `display_name` is a generated column that the database keeps up to date: the title, a space and the full name, or the full name alone. The migration is `supabase/migrations/20261121010000_profile_titles.sql`.
+
+The app names a person by `display_name` wherever it shows them: the header and the home page, the **Users** page, and the staff picker of a semester. The database columns and RPCs that name people read it too: `uploader_name`, the `lecturer_name` of `offering_lecturers` and of `report_lecturers`, `auditor_name`, `replier_name`, `commenter_name`, `actor_name` and `coordinator_name`. So do the PDF cover and the audit request and password reset emails. Lists of people sort by `full_name`, so that people with a title do not group together. The exceptions are the PDF cover and the lecturer timetable section of a course file. They list an offering's lecturers by `lecturer_name` after the coordinator, because lecturers cannot read other profiles.
+
+`update_my_profile(full_name, title)` sets the caller's own name and title, trimmed, and changes nothing else. An empty title clears the title. An empty name fails with Postgres error `23514`, and a name over 200 characters or a title over 40 fails with `22001`. Admins set a user's title and name on the **Users** page, as they set the department.
 
 ### Importing users from a CSV file
 
@@ -121,7 +130,8 @@ On the **Users** page, an admin clicks **Import CSV**, downloads the template, f
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
-- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`, and optionally `title`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- `title` is the user's title, such as `Dr.`, or empty for none. A file without a `title` column gives nobody a title. The template lists `title` last.
 - `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
@@ -137,7 +147,7 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
 | `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
@@ -148,7 +158,7 @@ A user who forgot their password asks for a reset link, and sets a new password 
 
 1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
 2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers a first request with `{}` and HTTP 200 for an active user, a deactivated user and an email with no account alike.
-3. The email greets the user by their profile's name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
+3. The email greets the user by their display name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
 4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
 5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
 
@@ -158,7 +168,11 @@ A new password clears the must-change-password flag, whether the user sets it on
 
 ### My profile
 
-Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`. The page shows their name, email, department and roles, and has a **Change password** form. The form asks for the new password twice and calls `supabase.auth.updateUser({ password })`. The user stays signed in. Only an admin changes a user's name, email, department or roles, so the page shows them read-only.
+Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`.
+
+- **Your details** has a form for the title, which is optional, and the full name. As the user types, the form shows the name that others will see. **Save** calls `update_my_profile`. The page then reads the profile again with `useReloadAuth` from `src/auth-provider.tsx`, so the header shows the new name at once. The page shows the database's message for a value it refuses, such as an empty name. See [Names and titles](#names-and-titles).
+- The same card shows the email, department and roles read-only. Only an admin changes them.
+- **Change password** asks for the new password twice and calls `supabase.auth.updateUser({ password })`. The user stays signed in.
 
 ## Catalog
 
@@ -493,7 +507,7 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_faculty_summary(semester_id)` | Faculty summary | The semester, so always one row |
 | `report_departments(semester_id)` | Department breakdown | Department with offerings in the semester, by department code |
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
-| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by name |
+| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by full name |
 
 The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
 
@@ -614,7 +628,7 @@ The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it does |
 | --- | --- | --- | --- |
-| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
+| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword`, and optionally `title` (a string or `null`) | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
@@ -622,7 +636,7 @@ On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": 
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
+| 400 | `invalid_request` | The body is not one of the actions above, the title is longer than 40 characters, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not do this. |
 | 409 | `email_exists` | A user with this email already exists. |
