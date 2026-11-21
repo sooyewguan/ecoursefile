@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { initialsOf } from '../names.ts'
 import { GLOBAL_ROLES, ROLE_LABELS, type GlobalRole } from '../roles.ts'
 
 /** A user's roles as badges, in the fixed role order. Root and admin stand out. */
@@ -16,14 +17,9 @@ export function RoleBadges({ roles, className }: { roles: readonly GlobalRole[];
   )
 }
 
-/** A circle with the first letters of the first two words of a name. */
+/** A circle with a name's initials. */
 export function Initials({ name, className }: { name: string; className?: string }) {
-  const letters = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]!.toUpperCase())
-    .join('')
+  const letters = initialsOf(name)
   return (
     <span
       aria-hidden="true"

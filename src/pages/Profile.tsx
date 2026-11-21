@@ -1,9 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { LockIcon } from 'lucide-react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Initials, RoleBadges } from '@/components/identity'
 import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader } from '@/components/page'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -11,82 +11,134 @@ import { Spinner } from '@/components/ui/spinner'
 import { MAX_TITLE_LENGTH } from '../../supabase/functions/_shared/user-import.ts'
 import type { Profile as SignedInProfile } from '../auth.ts'
 import { useAuth, useReloadAuth } from '../auth-provider.tsx'
+import type { GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
 
 type Department = { code: string; name: string }
 
-/** The signed-in user's own account: their title and name, their department and roles, and a new password. */
+/**
+ * The signed-in user's own account. The card on the left holds what an admin sets: email,
+ * department and roles. The forms on the right hold what the user sets: their title and name, and
+ * their password.
+ */
 export function Profile() {
   const state = useAuth()
-  const userId = state.kind === 'ready' ? state.profile.id : null
+  if (state.kind !== 'ready') return null
+
+  return (
+    <div className="grid gap-6">
+      <h1 className="text-2xl font-semibold tracking-tight">My profile</h1>
+      <div className="grid items-start gap-6 lg:grid-cols-[20rem_1fr]">
+        <AccountCard profile={state.profile} roles={state.roles} />
+        <div className="grid gap-6">
+          <NameCard profile={state.profile} />
+          <PasswordCard email={state.profile.email} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Who the user is, and the parts of their account that only an admin changes. */
+function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: GlobalRole[] }) {
   // undefined while loading, null when the user has no department.
   const [department, setDepartment] = useState<Department | null | undefined>(undefined)
   const [departmentError, setDepartmentError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!userId) return
     let current = true
     void supabase
       .from('profiles')
       .select('department:departments(code, name)')
-      .eq('id', userId)
+      .eq('id', profile.id)
       .single()
       .overrideTypes<{ department: Department | null }, { merge: false }>()
       .then(({ data, error }) => {
         if (!current) return
-        if (error) {
-          setDepartmentError(error.message)
-          setDepartment(null)
-          return
-        }
-        setDepartment(data.department)
+        if (error) setDepartmentError(error.message)
+        setDepartment(error ? null : data.department)
       })
     return () => {
       current = false
     }
-  }, [userId])
-
-  if (state.kind !== 'ready') return null
+  }, [profile.id])
 
   return (
-    <div className="grid max-w-2xl gap-6">
-      <PageHeader title="My profile" description="Your name as others see it, your account details and your password." />
+    <Card className="lg:sticky lg:top-20">
+      <CardContent className="grid gap-5">
+        <div className="flex items-center gap-4 lg:flex-col lg:items-start">
+          <Initials name={profile.fullName} className="bg-primary text-primary-foreground size-16 text-xl font-semibold" />
+          <p className="min-w-0 text-lg font-semibold break-words">{profile.displayName}</p>
+        </div>
+        <dl className="grid gap-3 text-sm">
+          <Fact label="Email">
+            <span className="break-all">{profile.email}</span>
+          </Fact>
+          <Fact label="Department">
+            {department === undefined ? (
+              <Skeleton className="h-5 w-40" />
+            ) : departmentError ? (
+              <span className="text-destructive">Could not read your department: {departmentError}</span>
+            ) : department ? (
+              `${department.code} ${department.name}`
+            ) : (
+              'None'
+            )}
+          </Fact>
+          <Fact label="Roles">
+            <RoleBadges roles={roles} />
+          </Fact>
+        </dl>
+        <p className="text-muted-foreground flex items-start gap-2 text-xs">
+          <LockIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          Your email, department and roles are set by an admin.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">
-            <h2>Your details</h2>
-          </CardTitle>
-          <CardDescription>eCourseFile shows your title and name wherever it names you to others.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-6">
-          <DetailsForm profile={state.profile} />
-          <div className="grid gap-4 border-t pt-6">
-            <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr] sm:gap-y-4">
-              <dt className="text-muted-foreground">Email</dt>
-              <dd className="mb-2 break-all sm:mb-0">{state.profile.email}</dd>
-              <dt className="text-muted-foreground">Department</dt>
-              <dd className="mb-2 sm:mb-0">
-                {department === undefined ? (
-                  <Skeleton className="h-5 w-40" />
-                ) : departmentError ? (
-                  <span className="text-destructive">Could not read your department: {departmentError}</span>
-                ) : department ? (
-                  `${department.code} ${department.name}`
-                ) : (
-                  'None'
-                )}
-              </dd>
-              <dt className="text-muted-foreground">Roles</dt>
-              <dd>{state.roles.length > 0 ? <RoleBadges roles={state.roles} /> : 'None'}</dd>
-            </dl>
-            <p className="text-muted-foreground text-sm">An admin changes your email, department and roles.</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <PasswordCard />
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-1">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd>{children}</dd>
     </div>
+  )
+}
+
+/** A card that holds one form, with its button in the footer. */
+function FormCard({
+  title,
+  description,
+  onSubmit,
+  notice,
+  action,
+  children,
+}: {
+  title: string
+  description: string
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  notice: Notice | null
+  action: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <Card className="gap-0 py-0">
+      <form onSubmit={onSubmit} aria-label={title}>
+        <CardHeader className="border-b py-5">
+          <CardTitle className="text-base">
+            <h2>{title}</h2>
+          </CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 py-5">
+          {children}
+          {notice && <NoticeAlert notice={notice} />}
+        </CardContent>
+        <CardFooter className="bg-muted/40 justify-end rounded-b-xl border-t py-3">{action}</CardFooter>
+      </form>
+    </Card>
   )
 }
 
@@ -96,7 +148,7 @@ function displayNameOf(title: string, fullName: string) {
 }
 
 /** The user's title and full name, saved with update_my_profile. Every page shows the new name once it is saved. */
-function DetailsForm({ profile }: { profile: SignedInProfile }) {
+function NameCard({ profile }: { profile: SignedInProfile }) {
   const reloadAuth = useReloadAuth()
   const [title, setTitle] = useState(profile.title ?? '')
   const [fullName, setFullName] = useState(profile.fullName)
@@ -120,8 +172,19 @@ function DetailsForm({ profile }: { profile: SignedInProfile }) {
   }
 
   return (
-    <form onSubmit={onSubmit} aria-label="Your details" className="grid gap-5">
-      <div className="grid gap-5 sm:grid-cols-[10rem_1fr]">
+    <FormCard
+      title="Name and title"
+      description="How eCourseFile names you to others."
+      onSubmit={onSubmit}
+      notice={notice}
+      action={
+        <Button type="submit" size="sm" disabled={busy || !changed}>
+          {busy && <Spinner />}
+          Save
+        </Button>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-[9rem_1fr]">
         <div className="grid content-start gap-2">
           <Label htmlFor="title">
             Title <span className="text-muted-foreground font-normal">(optional)</span>
@@ -134,7 +197,7 @@ function DetailsForm({ profile }: { profile: SignedInProfile }) {
               setTitle(event.target.value)
               setNotice(null)
             }}
-            placeholder="Dr., Prof. Madya, Ts."
+            placeholder="Dr., Ts."
             maxLength={MAX_TITLE_LENGTH}
             autoComplete="honorific-prefix"
           />
@@ -155,24 +218,20 @@ function DetailsForm({ profile }: { profile: SignedInProfile }) {
         </div>
       </div>
       {fullName.trim() && (
-        <div className="bg-muted/50 flex items-center gap-3 rounded-lg border px-3 py-2.5" aria-live="polite">
-          <Initials name={fullName} className="bg-background" />
-          <p className="min-w-0 text-sm">
-            <span className="text-muted-foreground">Shown to others as </span>
-            <span className="font-medium break-words">{displayNameOf(title, fullName)}</span>
-          </p>
-        </div>
+        <p className="text-muted-foreground text-xs" aria-live="polite">
+          Shown on course file covers, emails and reports as{' '}
+          <span className="text-foreground font-medium break-words">{displayNameOf(title, fullName)}</span>.
+        </p>
       )}
-      {notice && <NoticeAlert notice={notice} />}
-      <Button type="submit" disabled={busy || !changed} className="justify-self-start">
-        {busy && <Spinner />}
-        Save
-      </Button>
-    </form>
+    </FormCard>
   )
 }
 
-function PasswordCard() {
+/**
+ * A new password, set only after the current one is confirmed, so that someone at an unlocked,
+ * signed-in screen cannot take over the account. Signing in with the current password checks it.
+ */
+function PasswordCard({ email }: { email: string }) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -180,12 +239,23 @@ function PasswordCard() {
     event.preventDefault()
     const formElement = event.currentTarget
     const form = new FormData(formElement)
+    const current = String(form.get('current'))
     const password = String(form.get('password'))
     if (password !== String(form.get('confirm'))) {
-      setNotice({ tone: 'error', text: 'The two passwords do not match.' })
+      setNotice({ tone: 'error', text: 'The two new passwords do not match.' })
+      return
+    }
+    if (password === current) {
+      setNotice({ tone: 'error', text: 'The new password must differ from the current one.' })
       return
     }
     setBusy(true)
+    const check = await supabase.auth.signInWithPassword({ email, password: current })
+    if (check.error) {
+      setBusy(false)
+      setNotice({ tone: 'error', text: check.error.code === 'invalid_credentials' ? 'Your current password is wrong.' : check.error.message })
+      return
+    }
     const { error } = await supabase.auth.updateUser({ password })
     setBusy(false)
     if (error) {
@@ -197,30 +267,32 @@ function PasswordCard() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">
-          <h2>Change password</h2>
-        </CardTitle>
-        <CardDescription>You stay signed in on this device.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={onSubmit} className="grid gap-5">
-          <div className="grid gap-2">
-            <Label htmlFor="password">New password</Label>
-            <Input id="password" name="password" type="password" autoComplete="new-password" required />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="confirm">Confirm new password</Label>
-            <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-          </div>
-          {notice && <NoticeAlert notice={notice} />}
-          <Button type="submit" disabled={busy} className="justify-self-start">
-            {busy && <Spinner />}
-            Change password
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <FormCard
+      title="Password"
+      description="You stay signed in on this device."
+      onSubmit={onSubmit}
+      notice={notice}
+      action={
+        <Button type="submit" size="sm" disabled={busy}>
+          {busy && <Spinner />}
+          Change password
+        </Button>
+      }
+    >
+      <div className="grid gap-2">
+        <Label htmlFor="current">Current password</Label>
+        <Input id="current" name="current" type="password" autoComplete="current-password" required />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="password">New password</Label>
+          <Input id="password" name="password" type="password" autoComplete="new-password" required />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="confirm">Confirm new password</Label>
+          <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
+        </div>
+      </div>
+    </FormCard>
   )
 }
