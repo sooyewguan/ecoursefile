@@ -6,12 +6,16 @@ import type { SectionStatus } from './sections.ts'
 
 export type ReportRpc = 'report_faculty_summary' | 'report_departments' | 'report_offerings' | 'report_lecturers'
 
-/** The columns that each report RPC sorts its rows by, so that one page follows on from the last. */
+/**
+ * The columns that each report RPC sorts its rows by, so that one page follows on from the last.
+ * report_lecturers sorts by the lecturers' full names, which it does not return, since
+ * lecturer_name starts with any title. Its pages keep the order the RPC gives.
+ */
 const REPORT_ORDER: Record<ReportRpc, string[]> = {
   report_faculty_summary: [],
   report_departments: ['department_code'],
   report_offerings: ['course_code'],
-  report_lecturers: ['lecturer_name', 'lecturer_id'],
+  report_lecturers: [],
 }
 
 /**
