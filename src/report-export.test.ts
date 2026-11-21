@@ -31,11 +31,21 @@ function day(timestamp: string | null) {
   return timestamp === null ? null : { day: new Intl.DateTimeFormat('en-CA', { dateStyle: 'short' }).format(new Date(timestamp)) }
 }
 
+/** Missing sections by number and title, such as 4 Lecturer Timetable, 5 Student Timetable. */
 function sections(numbers: number[]) {
-  return numbers.length > 0 ? numbers.join(', ') : null
+  return numbers.length > 0 ? numbers.map((number) => `${number} ${SECTIONS.find((section) => section.number === number)!.title}`).join(', ') : null
 }
 
-const POOLED_HEADERS = ['Offerings', 'Sections', 'Uploaded', 'Uploaded (%)', 'Verified', 'Verified (%)', 'Needs fix', 'Needs fix (%)']
+const POOLED_HEADERS = [
+  'Offerings',
+  'Sections',
+  'Sections uploaded',
+  'Uploaded (%)',
+  'Sections verified',
+  'Verified (%)',
+  'Sections needing fix',
+  'Needs fix (%)',
+]
 
 function pooled(row: FacultySummary): Expected[] {
   return [
@@ -50,7 +60,7 @@ function pooled(row: FacultySummary): Expected[] {
   ]
 }
 
-const OFFERING_HEADERS = ['Course', 'Course title', 'Department', 'Department name', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Last upload']
+const OFFERING_HEADERS = ['Course code', 'Course', 'Department code', 'Department', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Last upload']
 
 function offering(row: OfferingRow): Expected[] {
   return [
@@ -90,7 +100,7 @@ const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; he
   {
     name: 'Departments',
     export: (format) => exportReport(DEPARTMENTS_TABLE, REPORT_FIXTURE.departments, REPORT_FIXTURE.semesterCode, format),
-    headers: ['Department', 'Department name', ...POOLED_HEADERS],
+    headers: ['Department code', 'Department', ...POOLED_HEADERS],
     rows: REPORT_FIXTURE.departments.map((row: DepartmentRow) => [row.department_code, row.department_name, ...pooled(row)]),
   },
   {
@@ -102,13 +112,13 @@ const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; he
   {
     name: 'Heatmap',
     export: (format) => exportReport(HEATMAP_TABLE, REPORT_FIXTURE.offerings, REPORT_FIXTURE.semesterCode, format),
-    headers: ['Course', 'Course title', ...SECTIONS.map((section) => `${section.number} ${section.title}`)],
+    headers: ['Course code', 'Course', ...SECTIONS.map((section) => `${section.number} ${section.title}`)],
     rows: REPORT_FIXTURE.offerings.map((row) => [row.course_code, row.course_title, ...row.section_statuses.map((status) => SECTION_STATUS_LABELS[status])]),
   },
   {
     name: 'Lecturers',
     export: (format) => exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, format),
-    headers: ['Lecturer', 'Department', 'Department name', 'Timetable', 'Course', 'Course title', 'Role', 'Missing sections'],
+    headers: ['Lecturer', 'Department code', 'Department', 'Timetable', 'Course code', 'Course', 'Role', 'Missing sections'],
     rows: REPORT_FIXTURE.lecturers.flatMap(lecturer),
   },
   {
@@ -192,7 +202,9 @@ test('the lecturer view exports one row for each offering of each lecturer', asy
     [courseCode('BITS3343'), 'Coordinator'],
   ])
   // Chen has no department and no timetable.
-  expect(rows.find((row) => row[0] === '陈伟明')!.slice(1, 4)).toEqual([null, null, 'Missing'])
+  const chen = rows.find((row) => row[0] === '陈伟明')!
+  expect(chen.slice(1, 4)).toEqual([null, null, 'Missing'])
+  expect(chen[7]).toBe('4 Lecturer Timetable, 5 Student Timetable, 6 Attendance Record, 10 Lecture Notes, 17 Week 12 Marks, 18 Grade List, 19 LO/PO Analysis')
 })
 
 test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows a text that starts like a formula as text', async () => {
@@ -201,7 +213,7 @@ test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows 
   expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
   const text = new TextDecoder().decode(bytes.slice(3))
   expect(text.endsWith('\r\n')).toBe(true)
-  expect(text.split('\r\n')[0]).toBe('Lecturer,Department,Department name,Timetable,Course,Course title,Role,Missing sections')
+  expect(text.split('\r\n')[0]).toBe('Lecturer,Department code,Department,Timetable,Course code,Course,Role,Missing sections')
 
   // Quotes double inside a quoted field, and a comma or line break is quoted.
   expect(text).toContain('"\'=HYPERLINK(""https://example.com"",""Open"")"')

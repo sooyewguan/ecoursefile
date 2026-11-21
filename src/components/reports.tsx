@@ -151,8 +151,8 @@ export function OfferingsTable({ rows, empty }: { rows: OfferingRow[] | null; em
       <Table aria-label="Offerings">
         <TableHeader className="bg-muted/50">
           <TableRow>
-            <TableHead className="px-4">{column.courseCode.header}</TableHead>
-            <TableHead className={cn('px-4', MEDIUM)}>{column.departmentCode.header}</TableHead>
+            <TableHead className="px-4">{column.courseTitle.header}</TableHead>
+            <TableHead className={cn('px-4', MEDIUM)}>{column.departmentName.header}</TableHead>
             <TableHead className={cn('px-4', MEDIUM)}>{column.coordinator.header}</TableHead>
             <TableHead className={cn('px-4', SMALL)}>{column.status.header}</TableHead>
             <TableHead className={cn('px-4 text-right', SMALL)}>{column.complete.header}</TableHead>

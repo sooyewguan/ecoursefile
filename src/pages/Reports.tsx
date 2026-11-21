@@ -154,7 +154,7 @@ function FacultySummaryView({ semester }: { semester: ReportSemester }) {
   const tiles = [
     { label: column.offerings.header, value: summary && column.offerings.value(summary) },
     ...SHARES.map(([count, percent]): { label: string; value: ReactNode; detail?: string } => ({
-      label: count.header,
+      label: percent.header,
       value: summary && formatPercent(percent.value(summary)),
       detail: summary && `${count.value(summary)} of ${column.sections.value(summary)} sections`,
     })),
@@ -208,11 +208,11 @@ function DepartmentsView({ semester }: { semester: ReportSemester }) {
           <Table aria-labelledby="departments-heading">
             <TableHeader className="bg-muted/50">
               <TableRow>
-                <TableHead className="max-sm:bg-muted px-4 max-sm:sticky max-sm:left-0 max-sm:z-10">{column.departmentCode.header}</TableHead>
+                <TableHead className="max-sm:bg-muted px-4 max-sm:sticky max-sm:left-0 max-sm:z-10">{column.departmentName.header}</TableHead>
                 <TableHead className="px-4 text-right">{column.offerings.header}</TableHead>
-                {SHARES.map(([count]) => (
-                  <TableHead key={count.header} className="px-4 text-right">
-                    {count.header}
+                {SHARES.map(([, percent]) => (
+                  <TableHead key={percent.header} className="px-4 text-right">
+                    {percent.header}
                   </TableHead>
                 ))}
               </TableRow>
@@ -333,7 +333,7 @@ function HeatmapView({ semester }: { semester: ReportSemester }) {
         <Table aria-label="Section heatmap" className="w-auto">
           <TableHeader className="bg-muted/50">
             <TableRow>
-              <TableHead className="bg-muted sticky left-0 z-10 px-4">{column.courseCode.header}</TableHead>
+              <TableHead className="bg-muted sticky left-0 z-10 px-4">{column.courseTitle.header}</TableHead>
               {SECTIONS.map((section) => (
                 <TableHead key={section.number} title={`${section.number} ${section.title}`} className="w-8 px-1 text-center tabular-nums">
                   {section.number}

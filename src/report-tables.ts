@@ -22,20 +22,20 @@ type Columns<Row> = Record<string, ReportColumn<Row>>
 /** A report view as a table: its name, which names the exported file, and its columns in order. */
 export type ReportTable<Row> = { view: string; columns: Columns<Row> }
 
-/** Section numbers in order, such as 4, 5, 10, or null for none. */
+/** Sections by number and title in order, such as 4 Lecturer Timetable, 10 Lecture Notes, or null for none. */
 function sectionList(sections: number[]) {
-  return sections.length > 0 ? sections.join(', ') : null
+  return sections.length > 0 ? sections.map(sectionName).join(', ') : null
 }
 
 /** The counts and percentages of the faculty or a department, as one value each. */
 const POOLED_COLUMNS = {
   offerings: { header: 'Offerings', kind: 'number', value: (row) => row.offerings },
   sections: { header: 'Sections', kind: 'number', value: (row) => row.counted_sections },
-  uploaded: { header: 'Uploaded', kind: 'number', value: (row) => row.uploaded_sections },
+  uploaded: { header: 'Sections uploaded', kind: 'number', value: (row) => row.uploaded_sections },
   uploadedPercent: { header: 'Uploaded', kind: 'percent', value: (row) => row.percent_uploaded },
-  verified: { header: 'Verified', kind: 'number', value: (row) => row.verified_sections },
+  verified: { header: 'Sections verified', kind: 'number', value: (row) => row.verified_sections },
   verifiedPercent: { header: 'Verified', kind: 'percent', value: (row) => row.percent_verified },
-  needsFix: { header: 'Needs fix', kind: 'number', value: (row) => row.needs_fix_sections },
+  needsFix: { header: 'Sections needing fix', kind: 'number', value: (row) => row.needs_fix_sections },
   needsFixPercent: { header: 'Needs fix', kind: 'percent', value: (row) => row.percent_needs_fix },
 } satisfies Columns<FacultySummary>
 
@@ -44,18 +44,18 @@ export const FACULTY_SUMMARY_TABLE = { view: 'Faculty summary', columns: POOLED_
 export const DEPARTMENTS_TABLE = {
   view: 'Departments',
   columns: {
-    departmentCode: { header: 'Department', kind: 'text', value: (row) => row.department_code },
-    departmentName: { header: 'Department name', kind: 'text', value: (row) => row.department_name },
+    departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.department_code },
+    departmentName: { header: 'Department', kind: 'text', value: (row) => row.department_name },
     ...POOLED_COLUMNS,
   },
 } satisfies ReportTable<DepartmentRow>
 
 /** The columns of the offering list, which My completeness shows too. */
 export const OFFERING_COLUMNS = {
-  courseCode: { header: 'Course', kind: 'text', value: (row) => row.course_code },
-  courseTitle: { header: 'Course title', kind: 'text', value: (row) => row.course_title },
-  departmentCode: { header: 'Department', kind: 'text', value: (row) => row.department_code },
-  departmentName: { header: 'Department name', kind: 'text', value: (row) => row.department_name },
+  courseCode: { header: 'Course code', kind: 'text', value: (row) => row.course_code },
+  courseTitle: { header: 'Course', kind: 'text', value: (row) => row.course_title },
+  departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.department_code },
+  departmentName: { header: 'Department', kind: 'text', value: (row) => row.department_name },
   coordinator: { header: 'Coordinator', kind: 'text', value: (row) => row.coordinator_name },
   status: { header: 'Status', kind: 'text', value: (row) => OFFERING_STATUS_LABELS[row.status] },
   complete: { header: 'Complete', kind: 'percent', value: (row) => row.percent_complete },
@@ -99,11 +99,11 @@ export const LECTURERS_TABLE = {
   view: 'Lecturers',
   columns: {
     lecturer: { header: 'Lecturer', kind: 'text', value: (row) => row.lecturer.lecturer_name },
-    departmentCode: { header: 'Department', kind: 'text', value: (row) => row.lecturer.department_code },
-    departmentName: { header: 'Department name', kind: 'text', value: (row) => row.lecturer.department_name },
+    departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.lecturer.department_code },
+    departmentName: { header: 'Department', kind: 'text', value: (row) => row.lecturer.department_name },
     timetable: { header: 'Timetable', kind: 'text', value: (row) => (row.lecturer.timetable_missing ? 'Missing' : 'Uploaded') },
-    courseCode: { header: 'Course', kind: 'text', value: (row) => row.offering.course_code },
-    courseTitle: { header: 'Course title', kind: 'text', value: (row) => row.offering.course_title },
+    courseCode: { header: 'Course code', kind: 'text', value: (row) => row.offering.course_code },
+    courseTitle: { header: 'Course', kind: 'text', value: (row) => row.offering.course_title },
     role: { header: 'Role', kind: 'text', value: (row) => (row.offering.coordinator ? 'Coordinator' : 'Lecturer') },
     missingSections: { header: 'Missing sections', kind: 'text', value: (row) => sectionList(row.offering.missing_sections) },
   },
