@@ -156,6 +156,10 @@ Two things in Supabase Auth's answer still differ. A repeat request for an email
 
 A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
 
+### My profile
+
+Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`. The page shows their name, email, department and roles, and has a **Change password** form. The form asks for the new password twice and calls `supabase.auth.updateUser({ password })`. The user stays signed in. Only an admin changes a user's name, email, department or roles, so the page shows them read-only.
+
 ## Catalog
 
 The admin keeps the catalog on three pages. The tables and their RLS policies are in `supabase/migrations/20261119030000_catalog.sql`.

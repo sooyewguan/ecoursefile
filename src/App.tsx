@@ -14,6 +14,7 @@ import { Departments } from './pages/Departments.tsx'
 import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
+import { Profile } from './pages/Profile.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { Reports } from './pages/Reports.tsx'
 import { ResetPassword } from './pages/ResetPassword.tsx'
@@ -50,6 +51,7 @@ export function App() {
               <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
               <Route path="/completeness" element={<Completeness />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/profile" element={<Profile />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

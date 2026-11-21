@@ -11,6 +11,7 @@ import {
   LogOutIcon,
   MenuIcon,
   TagsIcon,
+  UserRoundIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react'
@@ -156,6 +157,12 @@ function UserMenu({ profile, roles }: { profile: Profile; roles: GlobalRole[] })
           <RoleBadges roles={roles} />
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/profile">
+            <UserRoundIcon />
+            My profile
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void supabase.auth.signOut()}>
           <LogOutIcon />
           Sign out
