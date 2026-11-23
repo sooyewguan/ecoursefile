@@ -241,7 +241,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 
 Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
