@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expect, test } from 'vitest'
-import { adminClient, setOwnPassword, signIn, signInAs, uniqueEmail, uniquePhone } from './harness.ts'
+import { adminClient, signIn, signInAs, uniqueEmail } from './harness.ts'
 
 /** Creates a user the way an admin will: through the auth admin API with a temporary password. */
 async function createStaffUser() {
@@ -57,7 +57,8 @@ test('setting a new password clears the flag', async () => {
   const user = await createStaffUser()
   const client = await signIn(user.email, user.password)
 
-  await setOwnPassword(client, uniquePhone(), 'my-own-password')
+  const { error } = await client.auth.updateUser({ password: 'my-own-password' })
+  expect(error).toBeNull()
 
   expect(await readOwnFlag(client)).toBe(false)
   expect(await readOwnFlag(await signIn(user.email, 'my-own-password'))).toBe(false)

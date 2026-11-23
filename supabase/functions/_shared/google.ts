@@ -1,5 +1,5 @@
-// Calls Google APIs as the Firebase project's service account, for the Firebase phone verifier and
-// the FCM push adapter. FIREBASE_SERVICE_ACCOUNT holds the service account's JSON key, as the
+// Calls Google APIs as the Firebase project's service account, for the FCM push adapter.
+// FIREBASE_SERVICE_ACCOUNT holds the service account's JSON key, as the
 // Firebase console downloads it. The function signs a JWT with the key and swaps it for an access
 // token, which it keeps until five minutes before it expires.
 import { requiredEnv } from './http.ts'
@@ -8,8 +8,8 @@ export type ServiceAccount = { projectId: string; clientEmail: string; privateKe
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 
-/** Lets the token call Identity Toolkit, to delete a phone's Firebase user, and FCM, to send. */
-const SCOPES = 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/firebase.messaging'
+/** Lets the token send through FCM, and nothing else. */
+const SCOPES = 'https://www.googleapis.com/auth/firebase.messaging'
 
 export function serviceAccountFromEnv(): ServiceAccount {
   let key: unknown
@@ -65,11 +65,7 @@ function pemBytes(pem: string) {
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
 }
 
-export function base64Url(data: string | Uint8Array) {
+function base64Url(data: string | Uint8Array) {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-export function fromBase64Url(text: string) {
-  return Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (character) => character.charCodeAt(0))
 }

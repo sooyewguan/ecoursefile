@@ -1,5 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
-import { FileUpIcon, KeyRoundIcon, PencilIcon, PhoneOffIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
+import { FileUpIcon, KeyRoundIcon, PencilIcon, UserCheckIcon, UserPlusIcon, UsersIcon, UserXIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ComponentProps } from 'react'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
 import { RoleBadges } from '@/components/identity'
@@ -25,8 +25,6 @@ type UserRow = {
   id: string
   email: string
   full_name: string
-  /** The phone that gets the user's TACs, or null until they register one. */
-  phone: string | null
   active: boolean
   department_id: string | null
   /** Whether the signed-in user may edit, deactivate or reset this user, as the database decides. */
@@ -47,7 +45,6 @@ type OpenDialog =
   | { kind: 'import' }
   | { kind: 'edit'; user: UserRow }
   | { kind: 'reset-password'; user: UserRow }
-  | { kind: 'clear-phone'; user: UserRow }
   | { kind: 'set-active'; user: UserRow }
 
 /** Below md the department, roles and status move into the name cell, so a phone needs no sideways scroll. */
@@ -68,7 +65,7 @@ export function Users() {
     const [users, departments, assignable] = await Promise.all([
       supabase
         .from('profiles')
-        .select('id, email, full_name, phone, active, department_id, manageable, user_roles(role)')
+        .select('id, email, full_name, active, department_id, manageable, user_roles(role)')
         .order('full_name'),
       supabase.from('departments').select('id, code, name').order('code'),
       supabase.rpc('assignable_roles'),
@@ -175,7 +172,6 @@ export function Users() {
                           {user.id === me && <Badge variant="outline">You</Badge>}
                         </span>
                         <span className="text-muted-foreground">{user.email}</span>
-                        <span className="text-muted-foreground text-xs">{user.phone ?? 'No phone registered'}</span>
                         <div className="mt-2 grid gap-2 md:hidden">
                           {department && <span className="text-muted-foreground text-xs">{department}</span>}
                           <div className="flex flex-wrap items-center gap-1">
@@ -209,12 +205,6 @@ export function Users() {
                                 <KeyRoundIcon />
                                 Reset password
                               </DropdownMenuItem>
-                              {user.phone && (
-                                <DropdownMenuItem onSelect={() => setDialog({ kind: 'clear-phone', user })}>
-                                  <PhoneOffIcon />
-                                  Remove phone
-                                </DropdownMenuItem>
-                              )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 variant={user.active ? 'destructive' : 'default'}
@@ -312,22 +302,6 @@ export function Users() {
             <Input id="reset-temporary-password" name="temporaryPassword" type="text" autoComplete="off" required />
           </div>
         </FormDialog>
-      )}
-
-      {dialog?.kind === 'clear-phone' && (
-        <ConfirmDialog
-          title={`Remove the phone of ${dialog.user.full_name}?`}
-          description={`${dialog.user.phone} stops getting TACs for ${dialog.user.email}, and no longer resets their password. Reset their password too, so they register a new phone when they set their own.`}
-          confirmLabel="Remove phone"
-          destructive
-          onClose={close}
-          onConfirm={() =>
-            perform(
-              () => callAccounts({ action: 'clear-phone', userId: dialog.user.id }),
-              `Removed the phone of ${dialog.user.email}. Reset their password so they register a new one.`,
-            )
-          }
-        />
       )}
 
       {dialog?.kind === 'set-active' && (

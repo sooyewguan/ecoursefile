@@ -1,9 +1,7 @@
 // Account administration that needs the service role: creating a user with a temporary
-// password, importing users from a CSV file, resetting a password, and clearing the phone of a user
-// who lost it, so they register a new one when they next set their password. The SQL functions
+// password, importing users from a CSV file, and resetting a password. The SQL functions
 // jwt_roles, assignable_roles and can_manage decide who may do what, asked as the caller.
 import { authFetch, inList, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-import { phoneVerifierFromEnv } from '../_shared/phone.ts'
 import { isGlobalRole, type GlobalRole } from '../_shared/roles.ts'
 import { readUserImport, toNewUsers, type ImportedRow, type NewUser, type ParsedRow } from '../_shared/user-import.ts'
 
@@ -11,9 +9,6 @@ type AccountRequest =
   | ({ action: 'create-user' } & NewUser)
   | { action: 'import-users'; csv: string }
   | { action: 'reset-password'; userId: string; temporaryPassword: string }
-  | { action: 'clear-phone'; userId: string }
-
-const verifier = phoneVerifierFromEnv()
 
 serveJson(async (body, caller) => {
   const request = parseRequest(body)
@@ -24,8 +19,6 @@ serveJson(async (body, caller) => {
       return await importUsers(request.csv, caller)
     case 'reset-password':
       return await resetPassword(request, caller)
-    case 'clear-phone':
-      return await clearPhone(request.userId, caller)
   }
 })
 
@@ -66,12 +59,8 @@ function parseRequest(body: unknown): AccountRequest {
       }
       return { action: 'reset-password', userId, temporaryPassword }
     }
-    case 'clear-phone': {
-      if (!isUuid(input.userId)) throw invalid('clear-phone needs userId.')
-      return { action: 'clear-phone', userId: input.userId }
-    }
     default:
-      throw invalid('action must be create-user, import-users, reset-password or clear-phone.')
+      throw invalid('action must be create-user, import-users or reset-password.')
   }
 }
 
@@ -144,31 +133,10 @@ async function resetPassword(request: Extract<AccountRequest, { action: 'reset-p
   if (!(await callerRpc<boolean>('can_manage', { target: request.userId }, caller))) {
     throw new Refusal(403, 'forbidden', 'You may not reset this password.')
   }
-  await rest('POST', '/rpc/allow_password_change', { user_id: request.userId }, SERVICE)
   await auth('PUT', `/admin/users/${request.userId}`, { password: request.temporaryPassword })
   // A password change clears the flag, so the flag is set after it.
   await rest('PATCH', `/profiles?id=eq.${request.userId}`, { must_change_password: true }, SERVICE)
   return { userId: request.userId }
-}
-
-/**
- * Clears the phone of a user the caller may manage, and removes the phone from the verifier. The
- * user registers a new phone the next time they set their password, so the admin resets it too.
- */
-async function clearPhone(userId: string, caller: string) {
-  if (!(await callerRpc<boolean>('can_manage', { target: userId }, caller))) {
-    throw new Refusal(403, 'forbidden', 'You may not clear this phone number.')
-  }
-  const [profile] = await rest<{ phone: string | null }[]>('GET', `/profiles?id=eq.${userId}&select=phone`, undefined, SERVICE)
-  if (!profile?.phone) return { userId }
-  await rest('PATCH', `/profiles?id=eq.${userId}`, { phone: null }, SERVICE)
-  // The phone has gone from the profile already, so a verifier failure leaves only a stale Firebase user.
-  try {
-    await verifier.forget(profile.phone)
-  } catch (error) {
-    console.error(error)
-  }
-  return { userId }
 }
 
 function callerRpc<T>(name: string, args: Record<string, unknown>, caller: string): Promise<T> {

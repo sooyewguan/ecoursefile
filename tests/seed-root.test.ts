@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { expect, inject, test } from 'vitest'
-import { setOwnPassword, signIn, uniqueEmail, uniquePhone, userIdOf } from './harness.ts'
+import { signIn, uniqueEmail, userIdOf } from './harness.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -37,7 +37,7 @@ test('seeding again after root sets their own password keeps that password', asy
   const config = rootConfig()
   await seedRoot(config)
   const root = await signIn(config.ROOT_EMAIL, config.ROOT_PASSWORD)
-  await setOwnPassword(root, uniquePhone(), 'root-own-password')
+  expect((await root.auth.updateUser({ password: 'root-own-password' })).error).toBeNull()
 
   await seedRoot(config)
 

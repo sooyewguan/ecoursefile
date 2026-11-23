@@ -31,22 +31,13 @@ const CORS_HEADERS = {
  * status and { code, message }, and any other error a 500.
  */
 export function serveJson(handle: (body: unknown, caller: string) => Promise<unknown>) {
-  servePublicJson((body, caller) => {
-    if (!caller) throw new Refusal(401, 'unauthorized', 'Sign in first.')
-    return handle(body, caller)
-  })
-}
-
-/**
- * Serves a JSON API on POST, as serveJson does, for callers who may be signed out. The handler gets
- * the Authorization header, or null when there is none, and checks the caller itself.
- */
-export function servePublicJson(handle: (body: unknown, caller: string | null) => Promise<unknown>) {
   Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
     try {
       if (req.method !== 'POST') throw new Refusal(405, 'invalid_request', 'Use POST.')
-      return json(200, await handle(await req.json().catch(() => null), req.headers.get('Authorization')))
+      const caller = req.headers.get('Authorization')
+      if (!caller) throw new Refusal(401, 'unauthorized', 'Sign in first.')
+      return json(200, await handle(await req.json().catch(() => null), caller))
     } catch (error) {
       if (error instanceof Refusal) return json(error.status, { code: error.code, message: error.message })
       console.error(error)

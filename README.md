@@ -37,10 +37,10 @@ A web platform where course coordinators and lecturers submit course files for t
    npm run dev
    ```
 
-8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password and register a phone before it shows any other page. Type any phone number, click **Send TAC**, and read the TAC from `fake_sms.codes`, as [Phone verifiers](#phone-verifiers) shows.
+8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password before it shows any other page.
 9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments, staff and the catalog.
 
-The local stack texts no TAC and sends no push notification, and needs no Firebase project. The fake phone verifier records each TAC in `fake_sms.codes`, and the fake push adapter records each notification in `fake_push.outbox`. See [Phone verifiers](#phone-verifiers) and [Push notifications](#push-notifications). Nothing sends email. See [Email](#email).
+The local stack sends no push notification, and needs no Firebase project. The fake push adapter records each notification in `fake_push.outbox`. See [Push notifications](#push-notifications). Nothing sends email. See [Email](#email).
 
 After you change `supabase/config.toml` or add an Edge Function, restart the stack. The edge runtime serves only the functions that existed when it started.
 
@@ -67,9 +67,8 @@ npm run stack:start
 | --- | --- | --- |
 | `VITE_SUPABASE_URL` | Browser app | Supabase API URL. Locally `http://127.0.0.1:54321`. |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser app | Supabase publishable key. |
-| `VITE_PHONE_VERIFIER` | Browser app | `firebase` to text TACs through Firebase Phone Auth, or `fake` to ask the local `fake-sms` function. It must match the `PHONE_VERIFIER` secret. The app does not start without it. |
 | `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. The app does not start without it. |
-| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `firebase` or `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
 | `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | The public key of the Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. |
 | `SUPABASE_URL` | Seed script | Supabase API URL. |
 | `SUPABASE_SECRET_KEY` | Seed script | Supabase secret key. It bypasses row-level security, so never give it a `VITE_` prefix. |
@@ -85,9 +84,8 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `PHONE_VERIFIER` | `password` and `accounts` functions | `firebase` to check Firebase ID tokens, or `fake` to check the tokens of the `fake-sms` function. The local stack uses `fake`. The functions do not start without it, and the `fake-sms` function answers only while it is `fake`. |
 | `PUSH_ADAPTER` | `audit-requests` function | `fcm` to send push notifications through Firebase Cloud Messaging, or `fake` to record them in the `fake_push` schema. The local stack uses `fake`. The function does not start without it. |
-| `FIREBASE_SERVICE_ACCOUNT` | `password` and `accounts` functions with `firebase`, and `audit-requests` with `fcm` | The JSON key of a service account of the Firebase project, from the Firebase console under Project settings, Service accounts. The functions read the project ID from it. |
+| `FIREBASE_SERVICE_ACCOUNT` | `audit-requests` function, with `fcm` | The JSON key of a service account of the Firebase project, from the Firebase console under Project settings, Service accounts. The function reads the project ID from it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
 | `GRAPH_TENANT_ID` | `files` function, with `STORAGE_ADAPTER` `graph` | The Entra tenant ID. |
 | `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
@@ -105,16 +103,16 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, remove their phone, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
 - Nobody can grant `root`.
 - Nobody can change their own roles or the roles of a root user.
-- An admin cannot edit, reset, remove the phone of or deactivate themselves, another admin or a root user.
+- An admin cannot edit, reset or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
-- Clients can update only `full_name`, `department_id` and `active` on a profile. The email, the phone and the must-change-password flag are not writable.
+- Clients can update only `full_name`, `department_id` and `active` on a profile. The email and the must-change-password flag are not writable.
 
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
@@ -147,21 +145,14 @@ The function reads all rows before it creates anyone. It creates the users of th
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
 
-### Passwords and phones
+### Passwords
 
-Every password change needs a TAC, a 6-digit code texted to the user's phone. Supabase Auth checks only the email and password at sign-in. The browser texts the TAC and checks it through the phone verifier, Firebase Phone Auth in production, which gives an ID token that proves the phone. The `password` Edge Function checks the token and changes the password. See [The password Edge Function](#the-password-edge-function) and [Phone verifiers](#phone-verifiers).
+eCourseFile sends no email or SMS, so a password never travels by message.
 
-1. **First sign-in.** The admin creates the user, or imports them from a CSV file, with a temporary password. At their first sign-in, the change-password page asks for a new password twice and the user's phone number. The user clicks **Send TAC**, types the TAC, and the page calls `set-password`. The function stores the phone in `profiles.phone`, sets the password, and the must-change-password flag clears. The page then signs in again with the new password.
-2. **Change of password.** On **Your profile**, from the account menu, a signed-in user sets a new password with a TAC to their phone. A TAC to any other phone is refused with `wrong_phone`.
-3. **Change of phone.** On **Your profile**, a user moves to a new phone with their current password and a TAC to the new phone. Firebase forgets the old phone.
-4. **Forgot password.** The sign-in page links to **Forgot password?**, which asks for the phone number of the account, a TAC to it and a new password, and calls `reset-password`. The function answers with the account's email, and the page signs in with it. Only the phone's owner gets the TAC, so the page may say that no active account has the phone. A deactivated account gets no new password.
-5. **Lost phone.** A user who lost their phone and forgot their password asks an admin. On the **Users** page, the admin clicks **Remove phone** and then **Reset password**. At the next sign-in, the user registers a new phone on the change-password page, as at their first sign-in.
-
-A phone is in E.164 form, such as `+60123456789`, and no two users share one. The page also takes a Malaysian number as people write it, such as `012-345 6789`, and adds `+60`. The user and admins read the phone, and only the `password` and `accounts` functions write it, with the service role.
-
-Supabase Auth's own `updateUser({ password })` cannot change a password, so a stolen session cannot change one without a TAC. The trigger `require_password_change_grant` on `auth.users` refuses every password change unless `allow_password_change(user_id)` granted it in the minute before, and uses the grant up. Only the service role may call that function: the `password` function after it checks a TAC, the `accounts` function after it checks that the admin may reset the password, and the seed scripts. The migration is `supabase/migrations/20261123000000_phone_and_password_grants.sql`.
-
-A new password ends every session of the user, so the pages sign in again with it. A new password also clears the must-change-password flag, whether the user sets it on the change-password page, on their profile or after a forgotten password, since they chose it.
+1. The admin creates each user, or imports them from a CSV file, with a temporary password, and gives it to them.
+2. At their first sign-in, the change-password page asks for a new password before any other page. It sets it with `supabase.auth.updateUser({ password })`, which clears the must-change-password flag.
+3. A signed-in user changes their password on **Your profile**, from the account menu.
+4. A user who forgot their password follows **Forgot password?** on the sign-in page, which tells them to ask an admin. On the **Users** page, the admin clicks **Reset password** and gives them a new temporary password. The must-change-password flag is set again, so they choose their own at the next sign-in.
 
 ## Catalog
 
@@ -621,10 +612,9 @@ The JSON body has an `action` field.
 | --- | --- | --- | --- |
 | `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
-| `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Grants the change with `allow_password_change`, sets the temporary password, then sets the must-change-password flag again. |
-| `clear-phone` | `userId` | Admins, for users they manage | Clears the user's phone, and removes the phone from Firebase. The user registers a new phone the next time they set their password, so the admin resets it too. |
+| `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
-On success, `create-user`, `reset-password` and `clear-phone` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
+On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
@@ -634,50 +624,6 @@ On success, `create-user`, `reset-password` and `clear-phone` return HTTP 200 an
 | 409 | `email_exists` | A user with this email already exists. |
 
 The Edge Functions import only local files in `supabase/functions/_shared`. They call the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without remote imports does not depend on that.
-
-## The password Edge Function
-
-`supabase/functions/password/index.ts` makes every password change and every change of phone, after a TAC. The app calls it through `src/password.ts`. Signed-out users call it too, so `[functions.password]` in `supabase/config.toml` turns off the platform's JWT check, and the function checks the caller itself for the signed-in actions. Every action takes `idToken`, the ID token that the phone verifier gave the browser for a right TAC, and `password`.
-
-| `action` | Who may call it | What it does | Returns |
-| --- | --- | --- | --- |
-| `set-password` | A signed-in, active user | Sets the new `password`. A user with no phone registers the token's phone. A user with a phone needs a token for that phone. | `{ "phone" }` |
-| `change-phone` | A signed-in, active user | Moves the user to the token's phone, if `password` is their current password, and removes the old phone from Firebase. | `{ "phone" }` |
-| `reset-password` | Anyone | Sets the new `password` of the active account whose phone the token proves. | `{ "email" }` |
-
-A token works for ten minutes after the TAC was checked (`TOKEN_MAX_AGE_SECONDS` in `_shared/phone.ts`). On failure, the function returns `{ "code": "...", "message": "..." }`.
-
-| HTTP status | `code` | Meaning |
-| --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above, or Supabase Auth refused the password, such as one shorter than 6 characters. |
-| 401 | `invalid_token` | The verifier did not issue the token, or it is too old. |
-| 401 | `unauthorized` | A signed-in action has no valid signed-in user. |
-| 403 | `forbidden` | The user is deactivated. |
-| 403 | `wrong_phone` | A `set-password` with a token for a phone that is not the user's. |
-| 403 | `wrong_password` | A `change-phone` with a password that is not the user's current one. |
-| 404 | `no_account` | A `reset-password` for a phone that no active account has. |
-| 409 | `phone_in_use` | Another account has the token's phone. |
-
-## Phone verifiers
-
-`supabase/functions/_shared/phone.ts` defines the phone verifier, with two operations: read the phone that an ID token proves, and forget a phone. `PHONE_VERIFIER` picks the implementation, and `VITE_PHONE_VERIFIER` picks the browser side to match, in `src/phone.ts`.
-
-- `firebase` (`_shared/firebase-phone.ts`). The browser calls Firebase's `signInWithPhoneNumber` behind an invisible reCAPTCHA, and Firebase texts the TAC. A right TAC signs the browser in to Firebase, and the page takes the ID token and signs out of Firebase at once. The function checks the token as Firebase's docs say a server must: an RS256 signature by one of Google's `securetoken` keys, the project ID as audience, `https://securetoken.google.com/<project ID>` as issuer, its times, and a phone sign-in. Firebase Auth keeps a user for each phone that signed in. When a user changes their phone, or an admin removes it, the function deletes the old phone's Firebase user through Identity Toolkit, as the service account in `FIREBASE_SERVICE_ACCOUNT`. No automated test covers this verifier.
-- `fake` (`_shared/fake-phone.ts`, with the `fake-sms` function). The `fake-sms` function stands in for Firebase in the browser and the tests. Its `send` action records a TAC in `fake_sms.codes` and texts nothing. Its `confirm` action checks the TAC, which works once within five minutes, adds the phone to `fake_sms.accounts`, and returns a token kept in `fake_sms.tokens`. To read the latest TAC on the local stack:
-
-  ```sh
-  curl -s 'http://127.0.0.1:54321/rest/v1/codes?select=phone,code&order=sent_at.desc&limit=1' \
-    -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_sms'
-  ```
-
-Only the service role can use the `fake_sms` schema. `supabase/config.toml` exposes it to the API, so it comes from a migration, `supabase/migrations/20261123000100_fake_sms.sql`, and exists in every database.
-
-To set up Firebase Phone Auth for production:
-
-1. In the Firebase console, add a web app to the project, and copy its config to the `VITE_FIREBASE_*` variables.
-2. Under Authentication, Sign-in method, turn on **Phone**. Phone Auth needs the Blaze plan, and Google bills each SMS.
-3. Under Authentication, Settings, add the app's domain to **Authorized domains**, and set **SMS region policy** to allow only Malaysia, so nobody runs up the bill with texts to other countries.
-4. Under Project settings, Service accounts, generate a key, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PHONE_VERIFIER=firebase` the same way, and `VITE_PHONE_VERIFIER=firebase` for the build.
 
 ## Push notifications
 
@@ -691,14 +637,20 @@ Audit requests notify by push through Firebase Cloud Messaging. On **Your profil
 - `fcm` (`_shared/fcm-push.ts`) sends each notification as a data message with the FCM HTTP v1 API, as the service account in `FIREBASE_SERVICE_ACCOUNT`, and the service worker shows it. FCM answers 404 for a token it no longer knows, and 403 for a token of another project. No automated test covers it.
 - `fake` (`_shared/fake-push.ts`) records each notification in `fake_push.outbox`, with its token, title, text, link and time. The browser side registers a made-up token. A token in `fake_push.undeliverable` fails the send, as an FCM outage would, and a token in `fake_push.unregistered` comes back as no longer known. Seam 1 tests list tokens there. Only the service role can use the `fake_push` schema.
 
-To set up FCM for production, take the Web Push certificate's public key from the Firebase console under Project settings, Cloud Messaging, as `VITE_FIREBASE_VAPID_KEY`, and set `PUSH_ADAPTER=fcm` and `VITE_PUSH_ADAPTER=fcm`. FCM costs nothing.
+To set up FCM for production:
+
+1. In the Firebase console, add a web app to the project, and copy its config to the `VITE_FIREBASE_*` variables.
+2. Under Project settings, Cloud Messaging, generate a Web Push certificate, and copy its public key to `VITE_FIREBASE_VAPID_KEY`.
+3. Under Project settings, Service accounts, generate a key, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PUSH_ADAPTER=fcm` the same way, and `VITE_PUSH_ADAPTER=fcm` for the build.
+
+FCM is free, also on the Spark plan.
 
 ## Email
 
 eCourseFile sends no email. The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and the function refuses every one. Without the hook, Supabase Auth would send its recovery and sign-in links through SMTP, and such a link signs the user in without their password.
 
 - Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
-- To a signed call, it answers with an error, and Supabase Auth fails the request with HTTP 403 and the message "eCourseFile sends no email. Reset your password with a TAC to your phone." So `resetPasswordForEmail` and `signInWithOtp` make no link, and `updateUser({ email })` changes nothing.
+- To a signed call, it answers with an error, and Supabase Auth fails the request with HTTP 403 and the message "eCourseFile sends no email. Ask an admin to reset your password." So `resetPasswordForEmail` and `signInWithOtp` make no link, and `updateUser({ email })` changes nothing.
 
 On the local stack, Supabase Auth reaches the function at `http://host.docker.internal:54321/functions/v1/send-email`, and `[functions.send-email]` turns off the JWT check, since the hook sends no JWT. The hook's secret in `supabase/config.toml` serves the local stack and CI only. For a hosted project, set the hook to `https://<project-ref>.supabase.co/functions/v1/send-email` with a new secret under Authentication, Hooks, and set the same secret with `npx supabase secrets set SEND_EMAIL_HOOK_SECRET=...`.
 
@@ -709,9 +661,9 @@ Until migration `20261123000200_push_notifications.sql`, the functions sent emai
 `npm test` runs two Vitest projects.
 
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password tests get TACs with `tacToken` from `tests/harness.ts`, which reads them from `fake_sms.codes`, and the audit request tests read the fake push outbox with `fakePushOutbox`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The audit request tests read the fake push outbox with `fakePushOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
-Tests that create users give each user a new email address, and each phone a random one from `uniquePhone`. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
+Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
@@ -742,7 +694,7 @@ Tests read back the rows they create by id, never a whole table. The API returns
   ```
 
 - If calls to an Edge Function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
-- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than a migration that adds a schema `supabase/config.toml` exposes, such as `fake_sms` or `fake_push`, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
+- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than a migration that adds a schema `supabase/config.toml` exposes, such as `fake_push`, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
 
   ```sh
   npx supabase stop --no-backup

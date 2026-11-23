@@ -1,7 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import type { GlobalRole } from '../src/roles.ts'
-import { anonClient, callAccounts, createDepartment, createUser, rolesOf, setOwnPassword, signIn, signInAs, uniqueEmail, uniquePhone, userIdOf } from './harness.ts'
+import {
+  anonClient,
+  callAccounts,
+  createDepartment,
+  createUser,
+  rolesOf,
+  signIn,
+  signInAs,
+  uniqueEmail,
+  userIdOf,
+} from './harness.ts'
 
 let root: SupabaseClient
 let admin: SupabaseClient
@@ -51,7 +61,7 @@ test('admin creates a user, who must change the temporary password at first sign
 
   const user = await signIn(request.email, request.temporaryPassword)
   expect(await readOwnFlag(user)).toBe(true)
-  await setOwnPassword(user, uniquePhone(), 'my-own-password')
+  expect((await user.auth.updateUser({ password: 'my-own-password' })).error).toBeNull()
   expect(await readOwnFlag(user)).toBe(false)
 })
 
@@ -118,7 +128,7 @@ test('a request without a signed-in user is refused', async () => {
 test('admin reset sets the flag again, and the new temporary password works', async () => {
   const user = await createUser({ roles: ['lecturer'] })
   const own = await signIn(user.email, user.password)
-  await setOwnPassword(own, uniquePhone(), 'my-own-password')
+  expect((await own.auth.updateUser({ password: 'my-own-password' })).error).toBeNull()
   expect(await readOwnFlag(own)).toBe(false)
 
   const result = await callAccounts(admin, {

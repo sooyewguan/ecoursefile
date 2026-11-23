@@ -21,9 +21,6 @@ export async function ensureUser(admin: SupabaseClient, spec: UserSpec): Promise
   const user = (await findUser(admin, spec.email)) ?? (await createUser(admin, spec))
 
   if (!user.last_sign_in_at) {
-    // The database refuses a password change that it was not told to expect.
-    const { error: grantError } = await admin.rpc('allow_password_change', { user_id: user.id })
-    if (grantError) throw grantError
     const { error: passwordError } = await admin.auth.admin.updateUserById(user.id, { password: spec.password })
     if (passwordError) throw passwordError
     // Setting a password clears the flag, so the flag is written after it.

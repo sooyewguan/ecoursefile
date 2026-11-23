@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { MAX_IMPORT_ROWS, USER_IMPORT_TEMPLATE } from '../supabase/functions/_shared/user-import.ts'
-import { adminClient, callAccounts, createDepartment, createUser, setOwnPassword, signIn, signInAs, uniqueEmail, uniquePhone, userIdOf } from './harness.ts'
+import { adminClient, callAccounts, createDepartment, createUser, signIn, signInAs, uniqueEmail, userIdOf } from './harness.ts'
 
 const HEADER = 'full_name,email,department,roles,temporary_password'
 
@@ -101,7 +101,7 @@ test('valid rows of a mixed file become users who must change their password, an
 
   const lecturer = await signIn(email.lecturer, passwords.lecturer)
   expect(await readOwnFlag(lecturer)).toBe(true)
-  await setOwnPassword(lecturer, uniquePhone(), 'my-own-password')
+  expect((await lecturer.auth.updateUser({ password: 'my-own-password' })).error).toBeNull()
   expect(await readOwnFlag(lecturer)).toBe(false)
 })
 

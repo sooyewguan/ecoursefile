@@ -1,7 +1,6 @@
 import { isGlobalRole, type GlobalRole } from './roles.ts'
 
-/** The signed-in user. phone is null until they register one, when they first set their own password. */
-export type Profile = { id: string; email: string; fullName: string; phone: string | null }
+export type Profile = { id: string; email: string; fullName: string }
 
 export type AuthState =
   | { kind: 'loading' }

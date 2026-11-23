@@ -41,7 +41,7 @@ async function readAuthState(session: Session | null): Promise<AuthState> {
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name, phone, must_change_password')
+    .select('id, email, full_name, must_change_password')
     .eq('id', session.user.id)
     .single()
   if (error) {
@@ -49,8 +49,8 @@ async function readAuthState(session: Session | null): Promise<AuthState> {
     return { kind: 'signed-out' }
   }
 
-  const row: { id: string; email: string; full_name: string; phone: string | null; must_change_password: boolean } = data
-  const profile = { id: row.id, email: row.email, fullName: row.full_name, phone: row.phone }
+  const row: { id: string; email: string; full_name: string; must_change_password: boolean } = data
+  const profile = { id: row.id, email: row.email, fullName: row.full_name }
   if (row.must_change_password) return { kind: 'must-change-password', profile }
   // The same roles that RLS reads, so the pages offered match what the database allows.
   return { kind: 'ready', profile, roles: rolesFromAccessToken(session.access_token) }

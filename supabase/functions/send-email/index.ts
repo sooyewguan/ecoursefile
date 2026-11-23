@@ -1,7 +1,7 @@
 // The Send Email Hook. Supabase Auth calls this function in place of SMTP with each email it would
 // send, and the function refuses every one. eCourseFile sends no email: the admin creates each
-// account with a password, nobody signs up, signs in by link or changes their own email, and a
-// forgotten password is reset with an SMS TAC through the password function. Without the hook,
+// account with a password, nobody signs up, signs in by link or changes their own email, and an
+// admin resets a forgotten password. Without the hook,
 // Supabase Auth would send its recovery and magic link emails through SMTP, and such a link signs
 // the user in without their password.
 //
@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
   }
   // Supabase Auth reads the error from a 200 answer, as with its other hooks, and fails the request
   // that asked for the email with this status and message.
-  return Response.json({ error: { http_code: 403, message: 'eCourseFile sends no email. Reset your password with a TAC to your phone.' } })
+  return Response.json({ error: { http_code: 403, message: 'eCourseFile sends no email. Ask an admin to reset your password.' } })
 })
 
 /** The HMAC key of a Standard Webhooks secret, which Supabase writes as v1,whsec_<the key in base64>. */

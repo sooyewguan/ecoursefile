@@ -11,7 +11,7 @@ export function AuthLayout({
 }: {
   title: string
   description: string
-  children: ReactNode
+  children?: ReactNode
   footer?: ReactNode
 }) {
   return (
@@ -25,7 +25,7 @@ export function AuthLayout({
             </CardTitle>
             <CardDescription>{description}</CardDescription>
           </CardHeader>
-          <CardContent>{children}</CardContent>
+          {children && <CardContent>{children}</CardContent>}
         </Card>
         {footer && <div className="text-muted-foreground text-center text-sm">{footer}</div>}
       </div>
