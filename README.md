@@ -69,7 +69,7 @@ npm run stack:start
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser app | Supabase publishable key. |
 | `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. The app does not start without it. |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
-| `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | The public key of the Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. |
+| `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | Optional. The public key of the project's own Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. Without it, the Firebase SDK uses Firebase's default key. |
 | `SUPABASE_URL` | Seed script | Supabase API URL. |
 | `SUPABASE_SECRET_KEY` | Seed script | Supabase secret key. It bypasses row-level security, so never give it a `VITE_` prefix. |
 | `ROOT_EMAIL` | Seed script | Email address of the root user. |
@@ -640,8 +640,8 @@ Audit requests notify by push through Firebase Cloud Messaging. On **Your profil
 To set up FCM for production:
 
 1. In the Firebase console, add a web app to the project, and copy its config to the `VITE_FIREBASE_*` variables.
-2. Under Project settings, Cloud Messaging, generate a Web Push certificate, and copy its public key to `VITE_FIREBASE_VAPID_KEY`.
-3. Under Project settings, Service accounts, generate a key, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PUSH_ADAPTER=fcm` the same way, and `VITE_PUSH_ADAPTER=fcm` for the build.
+2. Optionally, under Project settings, Cloud Messaging, generate a Web Push certificate, and copy its public key to `VITE_FIREBASE_VAPID_KEY`. Without it, the Firebase SDK uses Firebase's default key.
+3. Under Project settings, Service accounts, generate a key for the Firebase Admin SDK service account, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PUSH_ADAPTER=fcm` the same way, and `VITE_PUSH_ADAPTER=fcm` for the build.
 
 FCM is free, also on the Spark plan.
 

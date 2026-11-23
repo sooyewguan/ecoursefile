@@ -19,8 +19,12 @@ export function firebaseApp() {
   return app
 }
 
-export function firebaseVapidKey() {
-  return required('VITE_FIREBASE_VAPID_KEY', import.meta.env.VITE_FIREBASE_VAPID_KEY)
+/**
+ * The public key of the project's own Web Push certificate, if it has one. Without it, the Firebase
+ * SDK uses Firebase's default key, which FCM accepts too.
+ */
+export function firebaseVapidKey(): string | undefined {
+  return import.meta.env.VITE_FIREBASE_VAPID_KEY || undefined
 }
 
 function adapter<T extends string>(name: string, value: string | undefined, allowed: readonly T[]): T {
