@@ -31,7 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { friendlyError } from '../errors.ts'
 import { containsFilter } from '../paging.ts'
-import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
+import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
 
@@ -53,6 +53,9 @@ type SharedFile = LinkedSharedFile & { section: number; uploaded_at: string; upl
 /** A program code's student timetable for the semester. */
 type StudentTimetable = SharedFile & { program_code: { code: string } }
 
+/** A lecturer's timetable for the semester. It is deletable here while no course file links it. */
+type LecturerTimetable = SharedFile & { deletable: boolean; lecturer: { display_name: string } }
+
 /** The dialog that is open, and the offering or shared file it acts on. title names the shared file. */
 type OpenDialog =
   | { kind: 'add' }
@@ -62,6 +65,7 @@ type OpenDialog =
   | { kind: 'delete-shared'; file: SharedFile; title: string }
 
 const STUDENT_TIMETABLE = PROGRAM_CODE_FILE_SECTION
+const LECTURER_TIMETABLE = LECTURER_FILE_SECTION
 
 /** How many options a picker shows for a search. */
 const PICKER_LIMIT = 20
@@ -77,9 +81,10 @@ const SHARED_COLUMNS = ['', WIDE, '']
 
 /**
  * One semester: its offerings, with their coordinators and lecturers, a page at a time; the
- * Academic Calendar and Appointment Letter that every course file of the semester links; and the
- * Student Timetable of each program code that has one, which every course file that ticks the code
- * links. Each file opens in a new tab.
+ * Academic Calendar and Appointment Letter that every course file of the semester links; every
+ * lecturer's timetable, with the course files that link it, including one whose lecturer no longer
+ * teaches in the semester; and the Student Timetable of each program code that has one, which every
+ * course file that ticks the code links. Each file opens in a new tab.
  */
 export function Semester() {
   const semesterId = useParams().semesterId!
@@ -106,7 +111,21 @@ export function Semester() {
     return query.order('course(code)').range(range.from, range.to).overrideTypes<Offering[], { merge: false }>()
   }, semesterId)
 
-  const timetables = usePagedList((range, search) => {
+  const lecturerTimetables = usePagedList((range, search) => {
+    let query = supabase
+      .from('files')
+      .select(
+        'id, section, name, uploaded_at, uploader_name, deletable, lecturer:profiles!files_lecturer_id_fkey!inner(display_name, full_name), linked_offerings(id, course:courses(code, title))',
+        { count: 'exact' },
+      )
+      .eq('semester_id', semesterId)
+      .eq('section', LECTURER_TIMETABLE.number)
+    const filter = containsFilter(['display_name', 'email'], search)
+    if (filter) query = query.or(filter, { referencedTable: 'lecturer' })
+    return query.order('lecturer(full_name)').range(range.from, range.to).overrideTypes<LecturerTimetable[], { merge: false }>()
+  }, semesterId)
+
+  const studentTimetables = usePagedList((range, search) => {
     let query = supabase
       .from('files')
       .select('id, section, name, uploaded_at, uploader_name, program_code:program_codes!inner(code), linked_offerings(id, course:courses(code, title))', {
@@ -166,10 +185,16 @@ export function Semester() {
     )
   }
 
+  /** Reloads the offerings, and the lecturer timetables, whose course files follow the offerings' lecturers. */
+  function reloadOfferings() {
+    offerings.retry()
+    lecturerTimetables.retry()
+  }
+
   /** Runs one write to an offering, reloads the offerings, and returns why it failed, or shows success and returns null. */
   async function write(request: PromiseLike<{ error: unknown }>, success: string) {
     const { error } = await request
-    offerings.retry()
+    reloadOfferings()
     if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'This course is already offered in this semester.' } })
     toast.success(success)
     return null
@@ -187,7 +212,7 @@ export function Semester() {
   async function remove(offering: Offering) {
     const { code } = offering.course
     const { error } = await supabase.from('offerings').delete().eq('id', offering.id)
-    offerings.retry()
+    reloadOfferings()
     if (error) return friendlyError(error, { codes: { '23503': `The course file of ${code} is in use now, so the offering stays.` } })
     toast.success(`Deleted ${code}`)
     return null
@@ -221,9 +246,10 @@ export function Semester() {
 
   // An empty list offers its action in its empty state, so the heading offers it only once a list has rows.
   const noOfferings = offerings.total === 0 && !offerings.query
-  const noTimetables = timetables.total === 0 && !timetables.query
+  const noStudentTimetables = studentTimetables.total === 0 && !studentTimetables.query
   const hasOfferings = offerings.total !== null && !noOfferings
-  const hasTimetables = timetables.total !== null && !noTimetables
+  const hasStudentTimetables = studentTimetables.total !== null && !noStudentTimetables
+  const noLecturerTimetables = lecturerTimetables.total === 0 && !lecturerTimetables.query
   const addButton = (
     <Button onClick={() => setDialog({ kind: 'add' })}>
       <PlusIcon />
@@ -337,16 +363,80 @@ export function Semester() {
         </Card>
       </section>
 
+      <section aria-labelledby="lecturer-timetables-heading" className="grid gap-3">
+        <ListHeading id="lecturer-timetables-heading" title="Lecturer timetables" total={lecturerTimetables.total} />
+        {lecturerTimetables.total !== null && !noLecturerTimetables && (
+          <Input
+            type="search"
+            aria-label="Search lecturer timetables"
+            placeholder="Search by lecturer name or email"
+            className="max-w-sm"
+            value={lecturerTimetables.query}
+            onChange={(event) => lecturerTimetables.setQuery(event.target.value)}
+          />
+        )}
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table aria-labelledby="lecturer-timetables-heading">
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead className="px-4">Lecturer</TableHead>
+                <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
+                <TableHead className="w-14 px-4">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lecturerTimetables.failed ? (
+                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the lecturer timetables" onRetry={lecturerTimetables.retry} />
+              ) : !lecturerTimetables.rows ? (
+                <TableSkeleton columns={SHARED_COLUMNS} />
+              ) : lecturerTimetables.rows.length === 0 ? (
+                <TableEmpty
+                  columns={SHARED_COLUMNS.length}
+                  icon={FileTextIcon}
+                  title={noLecturerTimetables ? 'No lecturer timetables yet' : 'No matching lecturer timetables'}
+                />
+              ) : (
+                lecturerTimetables.rows.map((timetable) => {
+                  const name = timetable.lecturer.display_name
+                  const courses = timetable.linked_offerings.map((offering) => offering.course.code).toSorted()
+                  return (
+                    <SharedFileRow
+                      key={timetable.id}
+                      name={name}
+                      file={timetable}
+                      detail={
+                        courses.length > 0 ? (
+                          <span className="text-muted-foreground text-xs">In {courses.join(', ')}</span>
+                        ) : (
+                          <Badge variant="outline">Not in any course file</Badge>
+                        )
+                      }
+                      actionLabel={`Actions for the timetable of ${name}`}
+                      onDelete={
+                        timetable.deletable ? (file) => setDialog({ kind: 'delete-shared', file, title: `the timetable of ${name}` }) : undefined
+                      }
+                    />
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+          {lecturerTimetables.total !== null && <Pager page={lecturerTimetables.page} total={lecturerTimetables.total} onPageChange={lecturerTimetables.setPage} />}
+        </Card>
+      </section>
+
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
-        <ListHeading id="student-timetables-heading" title="Student timetables" total={timetables.total} action={hasTimetables && uploadTimetableButton} />
-        {hasTimetables && (
+        <ListHeading id="student-timetables-heading" title="Student timetables" total={studentTimetables.total} action={hasStudentTimetables && uploadTimetableButton} />
+        {hasStudentTimetables && (
           <Input
             type="search"
             aria-label="Search student timetables"
             placeholder="Search by program code"
             className="max-w-sm"
-            value={timetables.query}
-            onChange={(event) => timetables.setQuery(event.target.value)}
+            value={studentTimetables.query}
+            onChange={(event) => studentTimetables.setQuery(event.target.value)}
           />
         )}
         <Card className="gap-0 overflow-hidden py-0">
@@ -361,19 +451,19 @@ export function Semester() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {timetables.failed ? (
-                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the student timetables" onRetry={timetables.retry} />
-              ) : !timetables.rows ? (
+              {studentTimetables.failed ? (
+                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the student timetables" onRetry={studentTimetables.retry} />
+              ) : !studentTimetables.rows ? (
                 <TableSkeleton columns={SHARED_COLUMNS} />
-              ) : timetables.rows.length === 0 ? (
+              ) : studentTimetables.rows.length === 0 ? (
                 <TableEmpty
                   columns={SHARED_COLUMNS.length}
                   icon={FileTextIcon}
-                  title={noTimetables ? 'No student timetables yet' : 'No matching student timetables'}
-                  action={noTimetables ? uploadTimetableButton : undefined}
+                  title={noStudentTimetables ? 'No student timetables yet' : 'No matching student timetables'}
+                  action={noStudentTimetables ? uploadTimetableButton : undefined}
                 />
               ) : (
-                timetables.rows.map((timetable) => (
+                studentTimetables.rows.map((timetable) => (
                   <SharedFileRow
                     key={timetable.id}
                     name={timetable.program_code.code}
@@ -385,7 +475,7 @@ export function Semester() {
               )}
             </TableBody>
           </Table>
-          {timetables.total !== null && <Pager page={timetables.page} total={timetables.total} onPageChange={timetables.setPage} />}
+          {studentTimetables.total !== null && <Pager page={studentTimetables.page} total={studentTimetables.total} onPageChange={studentTimetables.setPage} />}
         </Card>
       </section>
 
@@ -418,7 +508,7 @@ export function Semester() {
           semesterId={semesterId}
           onClose={close}
           onUploaded={(name) => {
-            timetables.retry()
+            studentTimetables.retry()
             toast.success(`Uploaded ${name}`)
           }}
         />
@@ -431,7 +521,8 @@ export function Semester() {
           onClose={close}
           onDeleted={async () => {
             await reload()
-            timetables.retry()
+            studentTimetables.retry()
+            lecturerTimetables.retry()
             toast.success(`Deleted ${dialog.file.name}`)
           }}
         />
@@ -501,20 +592,23 @@ function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdi
 }
 
 /**
- * A shared file's row: the section or program code it is for, the file, which opens in a new tab,
- * who uploaded it and when, and its row menu. Without a file it is Missing, with the upload button.
+ * A shared file's row: the section, program code or lecturer it is for, the file, which opens in a
+ * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Delete
+ * with onDelete. Without a file it is Missing, with the upload button.
  */
 function SharedFileRow({
   name,
   file,
+  detail,
   actionLabel,
   onDelete,
   upload,
 }: {
   name: string
   file: SharedFile | undefined
+  detail?: ReactNode
   actionLabel: string
-  onDelete: (file: SharedFile) => void
+  onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
   const uploaded = file && (
@@ -528,6 +622,7 @@ function SharedFileRow({
         <div className="grid justify-items-start gap-0.5">
           <span className="font-medium">{name}</span>
           {file ? <FileLink file={file} className="font-normal" /> : <SectionStatusBadge status="missing" />}
+          {detail}
           {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
         </div>
       </TableCell>
@@ -536,11 +631,15 @@ function SharedFileRow({
         {file ? (
           <RowActions label={actionLabel}>
             <FileMenuItems file={file} />
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
-              <Trash2Icon />
-              Delete
-            </DropdownMenuItem>
+            {onDelete && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
           </RowActions>
         ) : (
           upload
