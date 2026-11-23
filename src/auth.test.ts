@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { redirectFor, rolesFromAccessToken, type AuthState } from './auth.ts'
 import type { GlobalRole } from './roles.ts'
 
-const profile = { id: 'user-1', email: 'user@example.test', fullName: 'A User' }
+const profile = { id: 'user-1', email: 'user@example.test', fullName: 'A User', phone: null }
 
 function ready(...roles: GlobalRole[]): AuthState {
   return { kind: 'ready', profile, roles }
@@ -29,7 +29,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': null,
     '/change-password': null,
     '/forgot-password': null,
-    '/reset-password': null,
     [otherPage]: null,
     '/users': null,
     '/departments': null,
@@ -43,7 +42,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': null,
     '/change-password': '/sign-in',
     '/forgot-password': null,
-    '/reset-password': null,
     [otherPage]: '/sign-in',
     '/users': '/sign-in',
     '/departments': '/sign-in',
@@ -57,7 +55,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/change-password',
     '/change-password': null,
     '/forgot-password': '/change-password',
-    '/reset-password': null,
     [otherPage]: '/change-password',
     '/users': '/change-password',
     '/departments': '/change-password',
@@ -71,7 +68,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/',
     '/change-password': '/',
     '/forgot-password': '/',
-    '/reset-password': null,
     [otherPage]: null,
     '/users': '/',
     '/departments': '/',
@@ -85,7 +81,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/',
     '/change-password': '/',
     '/forgot-password': '/',
-    '/reset-password': null,
     [otherPage]: null,
     '/users': '/',
     '/departments': '/',
@@ -99,7 +94,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/',
     '/change-password': '/',
     '/forgot-password': '/',
-    '/reset-password': null,
     [otherPage]: null,
     '/users': null,
     '/departments': '/',
@@ -113,7 +107,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/',
     '/change-password': '/',
     '/forgot-password': '/',
-    '/reset-password': null,
     [otherPage]: null,
     '/users': null,
     '/departments': null,
@@ -127,7 +120,6 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/sign-in': '/',
     '/change-password': '/',
     '/forgot-password': '/',
-    '/reset-password': null,
     [otherPage]: null,
     '/users': null,
     '/departments': null,

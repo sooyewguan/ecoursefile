@@ -37,10 +37,10 @@ A web platform where course coordinators and lecturers submit course files for t
    npm run dev
    ```
 
-8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password before it shows any other page.
+8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password and register a phone before it shows any other page. Type any phone number, click **Send TAC**, and read the TAC from `fake_sms.codes`, as [Phone verifiers](#phone-verifiers) shows.
 9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments, staff and the catalog.
 
-The local stack sends no email. It records each email in the fake outbox instead, so a password reset link is read from there. See [Email](#email).
+The local stack texts no TAC and sends no push notification, and needs no Firebase project. The fake phone verifier records each TAC in `fake_sms.codes`, and the fake push adapter records each notification in `fake_push.outbox`. See [Phone verifiers](#phone-verifiers) and [Push notifications](#push-notifications). Nothing sends email. See [Email](#email).
 
 After you change `supabase/config.toml` or add an Edge Function, restart the stack. The edge runtime serves only the functions that existed when it started.
 
@@ -67,6 +67,10 @@ npm run stack:start
 | --- | --- | --- |
 | `VITE_SUPABASE_URL` | Browser app | Supabase API URL. Locally `http://127.0.0.1:54321`. |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser app | Supabase publishable key. |
+| `VITE_PHONE_VERIFIER` | Browser app | `firebase` to text TACs through Firebase Phone Auth, or `fake` to ask the local `fake-sms` function. It must match the `PHONE_VERIFIER` secret. The app does not start without it. |
+| `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. The app does not start without it. |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `firebase` or `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
+| `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | The public key of the Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. |
 | `SUPABASE_URL` | Seed script | Supabase API URL. |
 | `SUPABASE_SECRET_KEY` | Seed script | Supabase secret key. It bypasses row-level security, so never give it a `VITE_` prefix. |
 | `ROOT_EMAIL` | Seed script | Email address of the root user. |
@@ -81,13 +85,14 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `MAIL_ADAPTER` | `send-email` and `audit-requests` functions | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The functions do not start without it. |
+| `PHONE_VERIFIER` | `password` and `accounts` functions | `firebase` to check Firebase ID tokens, or `fake` to check the tokens of the `fake-sms` function. The local stack uses `fake`. The functions do not start without it, and the `fake-sms` function answers only while it is `fake`. |
+| `PUSH_ADAPTER` | `audit-requests` function | `fcm` to send push notifications through Firebase Cloud Messaging, or `fake` to record them in the `fake_push` schema. The local stack uses `fake`. The function does not start without it. |
+| `FIREBASE_SERVICE_ACCOUNT` | `password` and `accounts` functions with `firebase`, and `audit-requests` with `fcm` | The JSON key of a service account of the Firebase project, from the Firebase console under Project settings, Service accounts. The functions read the project ID from it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
-| `GRAPH_TENANT_ID` | `files` function with `STORAGE_ADAPTER` `graph`, and `send-email` and `audit-requests` with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
-| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site, and may send as the shared mailbox. |
+| `GRAPH_TENANT_ID` | `files` function, with `STORAGE_ADAPTER` `graph` | The Entra tenant ID. |
+| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
 | `GRAPH_CLIENT_SECRET` | The same | The client secret of that app. |
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
-| `GRAPH_MAILBOX` | `send-email` and `audit-requests` functions, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
 
 ## Seeding root again
 
@@ -100,16 +105,16 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, remove their phone, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
 - Nobody can grant `root`.
 - Nobody can change their own roles or the roles of a root user.
-- An admin cannot edit, reset or deactivate themselves, another admin or a root user.
+- An admin cannot edit, reset, remove the phone of or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
-- Clients can update only `full_name`, `department_id` and `active` on a profile. The email and the must-change-password flag are not writable.
+- Clients can update only `full_name`, `department_id` and `active` on a profile. The email, the phone and the must-change-password flag are not writable.
 
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
@@ -142,19 +147,21 @@ The function reads all rows before it creates anyone. It creates the users of th
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
 
-### Password reset
+### Passwords and phones
 
-A user who forgot their password asks for a reset link, and sets a new password with it. Supabase Auth sends no email through SMTP. Its Send Email Hook hands each email to the `send-email` Edge Function, which sends it through the mail adapter. See [Email](#email).
+Every password change needs a TAC, a 6-digit code texted to the user's phone. Supabase Auth checks only the email and password at sign-in. The browser texts the TAC and checks it through the phone verifier, Firebase Phone Auth in production, which gives an ID token that proves the phone. The `password` Edge Function checks the token and changes the password. See [The password Edge Function](#the-password-edge-function) and [Phone verifiers](#phone-verifiers).
 
-1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
-2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers a first request with `{}` and HTTP 200 for an active user, a deactivated user and an email with no account alike.
-3. The email greets the user by their profile's name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
-4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
-5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
+1. **First sign-in.** The admin creates the user, or imports them from a CSV file, with a temporary password. At their first sign-in, the change-password page asks for a new password twice and the user's phone number. The user clicks **Send TAC**, types the TAC, and the page calls `set-password`. The function stores the phone in `profiles.phone`, sets the password, and the must-change-password flag clears. The page then signs in again with the new password.
+2. **Change of password.** On **Your profile**, from the account menu, a signed-in user sets a new password with a TAC to their phone. A TAC to any other phone is refused with `wrong_phone`.
+3. **Change of phone.** On **Your profile**, a user moves to a new phone with their current password and a TAC to the new phone. Firebase forgets the old phone.
+4. **Forgot password.** The sign-in page links to **Forgot password?**, which asks for the phone number of the account, a TAC to it and a new password, and calls `reset-password`. The function answers with the account's email, and the page signs in with it. Only the phone's owner gets the TAC, so the page may say that no active account has the phone. A deactivated account gets no new password.
+5. **Lost phone.** A user who lost their phone and forgot their password asks an admin. On the **Users** page, the admin clicks **Remove phone** and then **Reset password**. At the next sign-in, the user registers a new phone on the change-password page, as at their first sign-in.
 
-Two things in Supabase Auth's answer still differ. A repeat request for an email with an account, within `max_frequency` in `[auth.email]` of the last one, gets HTTP 429 and "you can only request this after N seconds", while an email with no account gets HTTP 200 again. And a request for an email with an account takes longer, because Supabase Auth calls the hook. The page shows its usual text for a 429 too, so the page tells nobody which it was, but someone who calls the Supabase Auth API directly can tell from the status or the time.
+A phone is in E.164 form, such as `+60123456789`, and no two users share one. The page also takes a Malaysian number as people write it, such as `012-345 6789`, and adds `+60`. The user and admins read the phone, and only the `password` and `accounts` functions write it, with the service role.
 
-A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
+Supabase Auth's own `updateUser({ password })` cannot change a password, so a stolen session cannot change one without a TAC. The trigger `require_password_change_grant` on `auth.users` refuses every password change unless `allow_password_change(user_id)` granted it in the minute before, and uses the grant up. Only the service role may call that function: the `password` function after it checks a TAC, the `accounts` function after it checks that the admin may reset the password, and the seed scripts. The migration is `supabase/migrations/20261123000000_phone_and_password_grants.sql`.
+
+A new password ends every session of the user, so the pages sign in again with it. A new password also clears the must-change-password flag, whether the user sets it on the change-password page, on their profile or after a forgotten password, since they chose it.
 
 ## Catalog
 
@@ -397,40 +404,42 @@ Auditors read every course file in every semester, and give any section of it a 
 
 An audit request is one batch of Needs fix sections from one auditor on one course file. Its `state` goes from `draft` to `sent` to `replied`, one step at a time, and never back. The migrations are `supabase/migrations/20261120050000_audit_request_values.sql` and `supabase/migrations/20261120050100_audit_requests.sql`.
 
-1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets an email.
-2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one email, listing every flagged section with its comment. Each item keeps its section's file ids at the send, as `section_contents` returns them.
+1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets a notification.
+2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one push notification, which names the course and the number of flagged sections, and opens the course file when tapped. Each item keeps its section's file ids at the send, as `section_contents` returns them.
 3. **Checklist.** Everyone who reads the course file reads the sent request, and its sections are the staff's checklist. An item is ticked while its section holds a file that it did not hold at the send: an upload, a reuse, or a shared file uploaded or linked into the course file, such as a lecturer's timetable or the timetable of a program code ticked in section 5. A file uploaded before the send ticks nothing, and neither does deleting or reordering files. An item unticks when its new file is deleted. A switched-off section takes no uploads, so staff answer it with a comment, or switch it on and upload. The coordinator and lecturers comment on any item, and a new comment replaces the earlier one.
-4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets an email with the message and each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
+4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets a push notification with the start of the message, which opens the course file, where they read each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
 5. **New round.** The auditor checks the sections again. Any new Needs fix goes into a new draft, also while a sent request waits for its reply.
 
 Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
 
-The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
 
-The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
+The request's notification goes to every coordinator and lecturer of the offering whose profile is active, on every browser where they turned notifications on. Deactivated staff cannot sign in to fix anything, so they get none. The reply's notification goes to the request's auditor, while their profile is active. A recipient with no browser gets nothing, and reads the request in the app. A notification quotes at most 200 characters of the reply's message. See [Push notifications](#push-notifications).
 
-Each step commits first, and its email goes after it. `audit_request_emails` records each email's delivery: the function claims it before it sends it, and marks it delivered after.
+Each step commits first, and its notification goes after it. `audit_request_notifications` records each notification's delivery: the function claims it with `claim_audit_notification` before it sends it, and marks it delivered after.
 
-- A retry or a second click makes no second step, since a step already made changes nothing. It sends no second email, since the email is delivered or another call holds the claim.
-- When the email cannot be sent, the step stays made, the claim goes, and the function answers HTTP 502 `mail_failed`. The request shows that its email is not delivered (`email_pending`), and Send or Reply again sends it once.
-- If the function stops after the mail adapter sent the email and before it marked it delivered, the claim lapses after five minutes, and a retry then sends the email again. This is the only way an email goes twice.
-- The step comes first so that no email is sent for a step that did not happen, and staff read a sent request in the app even when its email failed. With the email first, marks that the auditor made while the email went out would change the draft it listed.
+- A retry or a second click makes no second step, since a step already made changes nothing. It sends no second notification, since the notification is delivered or another call holds the claim.
+- When the notification cannot be sent, the step stays made, the claim goes, and the function answers HTTP 502 `push_failed`. The request shows that its notification is not delivered (`notification_pending`), and Send or Reply again sends it once.
+- If the function stops after the push adapter sent the notification and before it marked it delivered, the claim lapses after five minutes, and a retry then sends the notification again. This is the only way a notification goes twice.
+- The step comes first so that no notification is sent for a step that did not happen, and staff read a sent request in the app even when its notification failed.
+
+Until migration `20261123000200_push_notifications.sql`, the steps sent email, and the table was `audit_request_emails`. That migration renames it, and replaces `email_pending` and `claim_audit_email` with `notification_pending` and `claim_audit_notification`.
 
 | RPC, table or column | What it does |
 | --- | --- |
 | `audit_requests` | One request: the offering, the auditor, the `state`, the times of its send and reply, who replied, and the reply's message. A trigger allows only the two steps, each made by one update. Only the RPCs below write it. |
 | `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
 | `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
-| `checklist_complete`, `email_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the email of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
+| `checklist_complete`, `notification_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
 | `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
 | `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
 | `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
 
-Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its email. The app makes the two steps through the `audit-requests` function, which calls them and sends the emails.
+Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its notification. The app makes the two steps through the `audit-requests` function, which calls them and sends the notifications.
 
 ### The audit-requests Edge Function
 
-The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's email if it is still owed. The JSON body has an `action` field.
+The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's notification if it is still owed. The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
@@ -444,7 +453,7 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
 | 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
-| 502 | `mail_failed` | The step is made, but its email could not be sent. The same call again sends it. |
+| 502 | `push_failed` | The step is made, but its notification could not be sent. The same call again sends it. |
 
 ## Activity
 
@@ -612,9 +621,10 @@ The JSON body has an `action` field.
 | --- | --- | --- | --- |
 | `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
-| `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
+| `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Grants the change with `allow_password_change`, sets the temporary password, then sets the must-change-password flag again. |
+| `clear-phone` | `userId` | Admins, for users they manage | Clears the user's phone, and removes the phone from Firebase. The user registers a new phone the next time they set their password, so the admin resets it too. |
 
-On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
+On success, `create-user`, `reset-password` and `clear-phone` return HTTP 200 and `{ "userId": "..." }`. `import-users` returns HTTP 200 and `{ "rows": [...] }`, one entry for each row of the file with a value. Each entry has `row`, the row number as a spreadsheet shows it with the header as row 1, and `email`. An added row also has `"status": "created"` and `userId`. A rejected row has `"status": "rejected"`, a `code` and a `reason`. A file that cannot be read as a whole, such as one without a `roles` column or with more than 300 users, gets HTTP 400 and creates nobody. A server error on one row rejects that row with `internal_error`, and the response still covers every row. On failure, the function returns `{ "code": "...", "message": "..." }`. Tests and the app can rely on the `code` values.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
@@ -625,41 +635,83 @@ On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": 
 
 The Edge Functions import only local files in `supabase/functions/_shared`. They call the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without remote imports does not depend on that.
 
+## The password Edge Function
+
+`supabase/functions/password/index.ts` makes every password change and every change of phone, after a TAC. The app calls it through `src/password.ts`. Signed-out users call it too, so `[functions.password]` in `supabase/config.toml` turns off the platform's JWT check, and the function checks the caller itself for the signed-in actions. Every action takes `idToken`, the ID token that the phone verifier gave the browser for a right TAC, and `password`.
+
+| `action` | Who may call it | What it does | Returns |
+| --- | --- | --- | --- |
+| `set-password` | A signed-in, active user | Sets the new `password`. A user with no phone registers the token's phone. A user with a phone needs a token for that phone. | `{ "phone" }` |
+| `change-phone` | A signed-in, active user | Moves the user to the token's phone, if `password` is their current password, and removes the old phone from Firebase. | `{ "phone" }` |
+| `reset-password` | Anyone | Sets the new `password` of the active account whose phone the token proves. | `{ "email" }` |
+
+A token works for ten minutes after the TAC was checked (`TOKEN_MAX_AGE_SECONDS` in `_shared/phone.ts`). On failure, the function returns `{ "code": "...", "message": "..." }`.
+
+| HTTP status | `code` | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_request` | The body is not one of the actions above, or Supabase Auth refused the password, such as one shorter than 6 characters. |
+| 401 | `invalid_token` | The verifier did not issue the token, or it is too old. |
+| 401 | `unauthorized` | A signed-in action has no valid signed-in user. |
+| 403 | `forbidden` | The user is deactivated. |
+| 403 | `wrong_phone` | A `set-password` with a token for a phone that is not the user's. |
+| 403 | `wrong_password` | A `change-phone` with a password that is not the user's current one. |
+| 404 | `no_account` | A `reset-password` for a phone that no active account has. |
+| 409 | `phone_in_use` | Another account has the token's phone. |
+
+## Phone verifiers
+
+`supabase/functions/_shared/phone.ts` defines the phone verifier, with two operations: read the phone that an ID token proves, and forget a phone. `PHONE_VERIFIER` picks the implementation, and `VITE_PHONE_VERIFIER` picks the browser side to match, in `src/phone.ts`.
+
+- `firebase` (`_shared/firebase-phone.ts`). The browser calls Firebase's `signInWithPhoneNumber` behind an invisible reCAPTCHA, and Firebase texts the TAC. A right TAC signs the browser in to Firebase, and the page takes the ID token and signs out of Firebase at once. The function checks the token as Firebase's docs say a server must: an RS256 signature by one of Google's `securetoken` keys, the project ID as audience, `https://securetoken.google.com/<project ID>` as issuer, its times, and a phone sign-in. Firebase Auth keeps a user for each phone that signed in. When a user changes their phone, or an admin removes it, the function deletes the old phone's Firebase user through Identity Toolkit, as the service account in `FIREBASE_SERVICE_ACCOUNT`. No automated test covers this verifier.
+- `fake` (`_shared/fake-phone.ts`, with the `fake-sms` function). The `fake-sms` function stands in for Firebase in the browser and the tests. Its `send` action records a TAC in `fake_sms.codes` and texts nothing. Its `confirm` action checks the TAC, which works once within five minutes, adds the phone to `fake_sms.accounts`, and returns a token kept in `fake_sms.tokens`. To read the latest TAC on the local stack:
+
+  ```sh
+  curl -s 'http://127.0.0.1:54321/rest/v1/codes?select=phone,code&order=sent_at.desc&limit=1' \
+    -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_sms'
+  ```
+
+Only the service role can use the `fake_sms` schema. `supabase/config.toml` exposes it to the API, so it comes from a migration, `supabase/migrations/20261123000100_fake_sms.sql`, and exists in every database.
+
+To set up Firebase Phone Auth for production:
+
+1. In the Firebase console, add a web app to the project, and copy its config to the `VITE_FIREBASE_*` variables.
+2. Under Authentication, Sign-in method, turn on **Phone**. Phone Auth needs the Blaze plan, and Google bills each SMS.
+3. Under Authentication, Settings, add the app's domain to **Authorized domains**, and set **SMS region policy** to allow only Malaysia, so nobody runs up the bill with texts to other countries.
+4. Under Project settings, Service accounts, generate a key, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PHONE_VERIFIER=firebase` the same way, and `VITE_PHONE_VERIFIER=firebase` for the build.
+
+## Push notifications
+
+Audit requests notify by push through Firebase Cloud Messaging. On **Your profile**, each user turns notifications on for each browser and phone they use. The browser asks for permission, registers the service worker `public/push-sw.js`, and gets its FCM registration token, which `register_push_token` stores in `push_tokens` for the user. A token that another user registered on the same browser moves to the new user. Signing out removes the browser's token with `unregister_push_token`, so the next user of the browser gets none of the earlier user's notifications. Each time the app opens, it registers the token again, since FCM may give a browser a new one.
+
+- Chrome, Edge and Firefox take push on a computer and on Android. Safari on an iPhone or iPad takes push only from iOS 16.4, and only when the user adds eCourseFile to the Home Screen and opens it from there. The profile page says so on a browser that cannot take push.
+- A user who blocked notifications for the site unblocks them in the browser's settings.
+
+`supabase/functions/_shared/push.ts` defines the push adapter, with one operation: send a notification, its title, text and the app's path a tap opens, to a list of tokens, and return the tokens that the push service no longer knows. The `audit-requests` function removes those tokens. `PUSH_ADAPTER` picks the implementation, and `VITE_PUSH_ADAPTER` picks the browser side to match, in `src/push.ts`.
+
+- `fcm` (`_shared/fcm-push.ts`) sends each notification as a data message with the FCM HTTP v1 API, as the service account in `FIREBASE_SERVICE_ACCOUNT`, and the service worker shows it. FCM answers 404 for a token it no longer knows, and 403 for a token of another project. No automated test covers it.
+- `fake` (`_shared/fake-push.ts`) records each notification in `fake_push.outbox`, with its token, title, text, link and time. The browser side registers a made-up token. A token in `fake_push.undeliverable` fails the send, as an FCM outage would, and a token in `fake_push.unregistered` comes back as no longer known. Seam 1 tests list tokens there. Only the service role can use the `fake_push` schema.
+
+To set up FCM for production, take the Web Push certificate's public key from the Firebase console under Project settings, Cloud Messaging, as `VITE_FIREBASE_VAPID_KEY`, and set `PUSH_ADAPTER=fcm` and `VITE_PUSH_ADAPTER=fcm`. FCM costs nothing.
+
 ## Email
 
-The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and sends nothing through SMTP itself.
+eCourseFile sends no email. The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and the function refuses every one. Without the hook, Supabase Auth would send its recovery and sign-in links through SMTP, and such a link signs the user in without their password.
 
-- Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401 and sends nothing. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
-- It sends password reset (`recovery`) emails. See [Password reset](#password-reset).
-- It refuses every other type, such as `signup`, `invite`, `magiclink`, `email_change` and `reauthentication`, and sends nothing. The admin creates each account with a temporary password, nobody signs up, and the app has no sign-in by link and no change of one's own email. Supabase Auth then fails the request with HTTP 403 and the message "eCourseFile sends only password reset emails.", so `signInWithOtp` makes no link, and `updateUser({ email })` changes nothing.
-- If the email cannot be sent, the request fails with HTTP 500, so the user knows to try again.
+- Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
+- To a signed call, it answers with an error, and Supabase Auth fails the request with HTTP 403 and the message "eCourseFile sends no email. Reset your password with a TAC to your phone." So `resetPasswordForEmail` and `signInWithOtp` make no link, and `updateUser({ email })` changes nothing.
 
 On the local stack, Supabase Auth reaches the function at `http://host.docker.internal:54321/functions/v1/send-email`, and `[functions.send-email]` turns off the JWT check, since the hook sends no JWT. The hook's secret in `supabase/config.toml` serves the local stack and CI only. For a hosted project, set the hook to `https://<project-ref>.supabase.co/functions/v1/send-email` with a new secret under Authentication, Hooks, and set the same secret with `npx supabase secrets set SEND_EMAIL_HOOK_SECRET=...`.
 
-### Mail adapters
-
-`supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. The `send-email` and `audit-requests` functions send through it, and escape what users wrote with `escapeHtml` in `_shared/html.ts`. `MAIL_ADAPTER` picks the implementation.
-
-- `graph` (`_shared/graph-mail.ts`) sends from the shared mailbox in `GRAPH_MAILBOX` with Graph `sendMail`, as the Entra app in the `GRAPH_*` secrets, with an app-only token. The storage adapter signs in the same way, through `_shared/graph.ts`. Graph keeps a copy in the mailbox's Sent Items. Exchange limits the app to that mailbox through RBAC for Applications. No automated test covers it.
-- `fake` (`_shared/fake-mail.ts`) records each email in `fake_mail.outbox`, with its recipients, subject, HTML and time. Only the service role can use the `fake_mail` schema. Seam 1 tests read it with the secret key. To read the latest email on the local stack, such as a reset link:
-
-  ```sh
-  curl -s 'http://127.0.0.1:54321/rest/v1/outbox?select=recipients,subject,html&order=sent_at.desc&limit=1' \
-    -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_mail'
-  ```
-
-  The fake refuses an email when any recipient is listed in `fake_mail.undeliverable`, as a failed send, and records nothing. Seam 1 tests list an address there to test what a mail failure does.
-
-`supabase/config.toml` exposes the `fake_mail` schema to the API, so the schema comes from a migration, `supabase/migrations/20261120040000_fake_mail.sql`, and exists in every database. `supabase/migrations/20261120050200_fake_mail_undeliverable.sql` adds `fake_mail.undeliverable`.
+Until migration `20261123000200_push_notifications.sql`, the functions sent email through a mail adapter, and the local stack recorded it in the `fake_mail` schema. That migration drops the schema.
 
 ## Tests
 
 `npm test` runs two Vitest projects.
 
 - `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset and audit request tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password tests get TACs with `tacToken` from `tests/harness.ts`, which reads them from `fake_sms.codes`, and the audit request tests read the fake push outbox with `fakePushOutbox`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
-Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
+Tests that create users give each user a new email address, and each phone a random one from `uniquePhone`. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
@@ -673,7 +725,7 @@ A student timetable changes section 5 only of the offerings that tick its progra
 
 The tests in `tests/verdicts.test.ts` and `tests/compile-manifest.test.ts` also upload timetables only for lecturers and program codes they create, in semesters from `pickSemester`. A manifest test therefore finds no calendar or letter in sections 1 and 3, and `tests/shared-files.test.ts` tests those.
 
-The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, so each address's fake outbox holds only the test's emails. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
+The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, each with a push token of their own, so each token's fake outbox holds only the test's notifications. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
 
 The tests in `tests/activity.test.ts` create their own lecturers, auditors and program codes, and take semesters from `pickSemester`. Calendars and letters are left to `tests/shared-files.test.ts`, which also checks that they show in the activity of each course file of their semester.
 
@@ -690,7 +742,7 @@ Tests read back the rows they create by id, never a whole table. The API returns
   ```
 
 - If calls to an Edge Function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
-- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than the `fake_storage` or `fake_mail` migration, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
+- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than a migration that adds a schema `supabase/config.toml` exposes, such as `fake_sms` or `fake_push`, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
 
   ```sh
   npx supabase stop --no-backup

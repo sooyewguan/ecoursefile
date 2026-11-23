@@ -11,9 +11,11 @@ import {
   LogOutIcon,
   MenuIcon,
   TagsIcon,
+  UserRoundIcon,
   UsersIcon,
   type LucideIcon,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { Link, NavLink, Outlet } from 'react-router'
 import { Brand } from '@/components/brand'
 import { Initials, RoleBadges } from '@/components/identity'
@@ -29,7 +31,8 @@ import {
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { canOpen, ROLE_PAGES, type Profile } from '../auth.ts'
-import { useAuth } from '../auth-provider.tsx'
+import { signOut, useAuth } from '../auth-provider.tsx'
+import { refreshPush } from '../push.ts'
 import type { GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
 
@@ -56,6 +59,13 @@ export function openPages(roles: readonly GlobalRole[]) {
 /** The top bar and page frame around every page of a signed-in user. */
 export function AppShell() {
   const state = useAuth()
+  const userId = state.kind === 'ready' ? state.profile.id : null
+
+  // FCM may give this browser a new token from time to time, so register it again for each user who opens the app.
+  useEffect(() => {
+    if (userId) refreshPush(supabase).catch((error) => console.error('Could not refresh the push token', error))
+  }, [userId])
+
   // The route guard sends every other state away from the pages inside the shell.
   if (state.kind !== 'ready') return null
 
@@ -156,7 +166,13 @@ function UserMenu({ profile, roles }: { profile: Profile; roles: GlobalRole[] })
           <RoleBadges roles={roles} />
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void supabase.auth.signOut()}>
+        <DropdownMenuItem asChild>
+          <Link to="/profile">
+            <UserRoundIcon />
+            Your profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void signOut()}>
           <LogOutIcon />
           Sign out
         </DropdownMenuItem>

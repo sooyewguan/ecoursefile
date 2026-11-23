@@ -1,6 +1,7 @@
 import { isGlobalRole, type GlobalRole } from './roles.ts'
 
-export type Profile = { id: string; email: string; fullName: string }
+/** The signed-in user. phone is null until they register one, when they first set their own password. */
+export type Profile = { id: string; email: string; fullName: string; phone: string | null }
 
 export type AuthState =
   | { kind: 'loading' }
@@ -32,15 +33,8 @@ export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
 /** The pages for signed-out visitors, which a signed-in user is sent away from. */
 const SIGNED_OUT_PAGES = ['/sign-in', '/forgot-password']
 
-/**
- * The page a reset link opens. It stays open in every state, since following the link signs the
- * user in before the page sets their new password.
- */
-export const RESET_PASSWORD_PAGE = '/reset-password'
-
 /** Where to send a visitor in this state who asked for this path, or null to let them stay. */
 export function redirectFor(state: AuthState, path: string): string | null {
-  if (path === RESET_PASSWORD_PAGE) return null
   switch (state.kind) {
     case 'loading':
       return null

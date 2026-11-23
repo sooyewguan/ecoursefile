@@ -15,17 +15,17 @@ export class AuditRequestError extends Error {
 }
 
 /**
- * Sends the caller's draft request, which emails the offering's coordinator and lecturers. Sending
- * a sent request again changes nothing, and sends its email only if it has not gone yet.
+ * Sends the caller's draft request, which notifies the offering's coordinator and lecturers by push.
+ * Sending a sent request again changes nothing, and sends its notification only if it has not gone yet.
  */
 export function sendAuditRequest(client: SupabaseClient, requestId: string) {
   return callAuditRequests(client, { action: 'send', requestId })
 }
 
 /**
- * Replies to a sent request, with an optional message, which emails the auditor. Every checklist
- * item must be ticked or commented. Replying again changes nothing, and sends the reply's email
- * only if it has not gone yet.
+ * Replies to a sent request, with an optional message, which notifies the auditor by push. Every
+ * checklist item must be ticked or commented. Replying again changes nothing, and sends the reply's
+ * notification only if it has not gone yet.
  */
 export function replyToAuditRequest(client: SupabaseClient, requestId: string, message?: string) {
   return callAuditRequests(client, { action: 'reply', requestId, message: message ?? null })

@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { AppShell } from '@/components/app-shell'
 import { Spinner } from '@/components/ui/spinner'
-import { redirectFor, RESET_PASSWORD_PAGE } from './auth.ts'
+import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
 import { Completeness } from './pages/Completeness.tsx'
@@ -14,9 +14,9 @@ import { Departments } from './pages/Departments.tsx'
 import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
+import { Profile } from './pages/Profile.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { Reports } from './pages/Reports.tsx'
-import { ResetPassword } from './pages/ResetPassword.tsx'
 import { Semester } from './pages/Semester.tsx'
 import { Semesters } from './pages/Semesters.tsx'
 import { SignIn } from './pages/SignIn.tsx'
@@ -32,10 +32,10 @@ export function App() {
           <Route element={<Guard />}>
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path={RESET_PASSWORD_PAGE} element={<ResetPassword />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Home />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/users" element={<Users />} />
               <Route path="/departments" element={<Departments />} />
               <Route path="/course-types" element={<CourseTypes />} />

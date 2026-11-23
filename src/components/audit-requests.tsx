@@ -1,4 +1,4 @@
-import { CircleCheckIcon, CircleIcon, MailWarningIcon, MessageSquareIcon, ReplyIcon, SendIcon } from 'lucide-react'
+import { CircleCheckIcon, CircleIcon, BellOffIcon, MessageSquareIcon, ReplyIcon, SendIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
@@ -34,12 +34,12 @@ type AuditRequest = {
   replier_name: string | null
   reply_message: string | null
   checklist_complete: boolean
-  email_pending: boolean
+  notification_pending: boolean
   items: RequestItem[]
 }
 
 const SELECT =
-  'id, state, auditor_id, auditor_name, sent_at, replied_at, replier_name, reply_message, checklist_complete, email_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
+  'id, state, auditor_id, auditor_name, sent_at, replied_at, replier_name, reply_message, checklist_complete, notification_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
 
 /** An item that staff are commenting on. */
 type Commenting = { request: AuditRequest; item: RequestItem }
@@ -75,8 +75,8 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
     void load()
   }, [load])
 
-  /** Makes a step again to send its email, which is all it does to a request past that step. */
-  async function retryEmail(request: AuditRequest) {
+  /** Makes a step again to send its notification, which is all it does to a request past that step. */
+  async function retryNotification(request: AuditRequest) {
     setRetrying(request.id)
     const failure = await (request.state === 'sent' ? sendAuditRequest(supabase, request.id) : replyToAuditRequest(supabase, request.id)).then(
       () => null,
@@ -90,8 +90,8 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
 
   /**
    * Runs a step, reloads, and returns the error message for its dialog, or null to close it. A step
-   * whose email failed is made all the same, so its dialog closes, and the error shows above the
-   * requests, where the request offers to send the email again.
+   * whose notification failed is made all the same, so its dialog closes, and the error shows above the
+   * requests, where the request offers to send the notification again.
    */
   async function step(run: () => Promise<unknown>) {
     const failure = await run().then(
@@ -99,7 +99,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       (failure: unknown) => failure,
     )
     await load()
-    if (failure instanceof AuditRequestError && failure.code === 'mail_failed') setError(failure.message)
+    if (failure instanceof AuditRequestError && failure.code === 'push_failed') setError(failure.message)
     else if (failure) return failure instanceof Error ? failure.message : String(failure)
     return null
   }
@@ -114,15 +114,15 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
         const own = request.auditor_id === userId
         const canReply = isStaff && request.state === 'sent'
         const retry =
-          request.email_pending && ((request.state === 'sent' && own) || (request.state === 'replied' && isStaff)) ? (
+          request.notification_pending && ((request.state === 'sent' && own) || (request.state === 'replied' && isStaff)) ? (
             <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
               <span className="flex items-center gap-2">
-                <MailWarningIcon className="size-4 shrink-0" />
-                {request.state === 'sent' ? 'The email to the coordinator and lecturers has not gone yet.' : 'The email to the auditor has not gone yet.'}
+                <BellOffIcon className="size-4 shrink-0" />
+                {request.state === 'sent' ? 'The notification to the coordinator and lecturers has not gone yet.' : 'The notification to the auditor has not gone yet.'}
               </span>
-              <Button variant="outline" size="sm" disabled={retrying === request.id} onClick={() => void retryEmail(request)}>
+              <Button variant="outline" size="sm" disabled={retrying === request.id} onClick={() => void retryNotification(request)}>
                 {retrying === request.id ? <Spinner /> : <SendIcon />}
-                Send the email again
+                Send the notification again
               </Button>
             </div>
           ) : null
@@ -133,7 +133,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
                 <h3 className="font-semibold">{request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}</h3>
                 <p className="text-muted-foreground text-sm">
                   {request.state === 'draft'
-                    ? `${plural(request.items.length, 'section')} marked Needs fix. Staff see it, and get one email that lists them, once you send it.`
+                    ? `${plural(request.items.length, 'section')} marked Needs fix. Staff see it, and get a notification, once you send it.`
                     : `Sent ${new Date(request.sent_at!).toLocaleString()}`}
                 </p>
               </div>
@@ -188,7 +188,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {sending && (
         <ConfirmDialog
           title="Send this audit request?"
-          description={`The coordinator and lecturers get one email that lists ${sending.items.length === 1 ? 'this section' : `these ${sending.items.length} sections`} with your comments. A Needs fix you mark after this goes into a new request.`}
+          description={`The coordinator and lecturers get a notification, and see ${sending.items.length === 1 ? 'this section' : `these ${sending.items.length} sections`} with your comments in the course file. A Needs fix you mark after this goes into a new request.`}
           confirmLabel="Send to staff"
           onClose={() => setSending(null)}
           onConfirm={() => step(() => sendAuditRequest(supabase, sending.id))}
@@ -198,7 +198,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {replying && (
         <FormDialog
           title="Reply to the auditor"
-          description={`${replying.auditor_name} gets an email with your message and how each section was answered.`}
+          description={`${replying.auditor_name} gets a notification with your message, and sees how each section was answered in the course file.`}
           submitLabel="Send reply"
           onClose={() => setReplying(null)}
           onSubmit={(form) => step(() => replyToAuditRequest(supabase, replying.id, String(form.get('message'))))}
