@@ -10,12 +10,14 @@ const TOKEN_KEY = 'ecoursefile.pushToken'
 const SERVICE_WORKER = '/push-sw.js'
 
 /**
+ * unavailable: the site has no push set up, because VITE_PUSH_ADAPTER is not set.
  * unsupported: the browser cannot take push, such as Safari on an iPhone outside a Home Screen app.
  * blocked: the user refused notifications for the site in the browser's settings.
  */
-export type PushStatus = 'unsupported' | 'blocked' | 'off' | 'on'
+export type PushStatus = 'unavailable' | 'unsupported' | 'blocked' | 'off' | 'on'
 
 export async function pushStatus(): Promise<PushStatus> {
+  if (PUSH_ADAPTER === null) return 'unavailable'
   if (PUSH_ADAPTER === 'fake') return storedToken() ? 'on' : 'off'
   if (!(await browserSupportsPush())) return 'unsupported'
   if (Notification.permission === 'denied') return 'blocked'

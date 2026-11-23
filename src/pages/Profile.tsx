@@ -99,6 +99,7 @@ function ChangePasswordCard() {
 }
 
 const PUSH_TEXT: Record<PushStatus, string> = {
+  unavailable: 'Notifications are not set up on this site yet.',
   on: 'This browser shows a notification when an auditor sends you an audit request, or staff reply to yours.',
   off: 'Turn notifications on to hear about audit requests on this browser. Do it on each browser and phone you use.',
   blocked: 'Notifications are blocked for this site. Allow them in your browser settings, then reload the page.',

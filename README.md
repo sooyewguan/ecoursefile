@@ -67,7 +67,7 @@ npm run stack:start
 | --- | --- | --- |
 | `VITE_SUPABASE_URL` | Browser app | Supabase API URL. Locally `http://127.0.0.1:54321`. |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser app | Supabase publishable key. |
-| `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. The app does not start without it. |
+| `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. Leave it out until push is set up: the profile page then says notifications are not set up, and the rest of the app works. Any other value stops the app, so a typo shows. |
 | `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
 | `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | Optional. The public key of the project's own Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. Without it, the Firebase SDK uses Firebase's default key. |
 | `SUPABASE_URL` | Seed script | Supabase API URL. |

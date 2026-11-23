@@ -2,7 +2,11 @@
 // only when a notification needs it, so other pages do not download it.
 import type { FirebaseApp } from 'firebase/app'
 
-/** fcm registers this browser with Firebase Cloud Messaging, and fake registers a made-up token. */
+/**
+ * fcm registers this browser with Firebase Cloud Messaging, and fake registers a made-up token.
+ * null, when VITE_PUSH_ADAPTER is not set, means the site has no push yet, and the rest of the app
+ * works without it.
+ */
 export const PUSH_ADAPTER = adapter('VITE_PUSH_ADAPTER', import.meta.env.VITE_PUSH_ADAPTER, ['fcm', 'fake'])
 
 let app: Promise<FirebaseApp> | null = null
@@ -27,8 +31,10 @@ export function firebaseVapidKey(): string | undefined {
   return import.meta.env.VITE_FIREBASE_VAPID_KEY || undefined
 }
 
-function adapter<T extends string>(name: string, value: string | undefined, allowed: readonly T[]): T {
-  if (!allowed.includes(value as T)) throw new Error(`Set ${name} to ${allowed.join(' or ')} in .env (see .env.example).`)
+/** The value, or null when it is not set. A value that is set but not allowed is a typo, so it throws. */
+function adapter<T extends string>(name: string, value: string | undefined, allowed: readonly T[]): T | null {
+  if (!value) return null
+  if (!allowed.includes(value as T)) throw new Error(`Set ${name} to ${allowed.join(' or ')} in .env (see .env.example), or leave it out.`)
   return value as T
 }
 
