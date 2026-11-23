@@ -227,6 +227,8 @@ An offering in use stays as it is for these reasons:
 
 So an offering made by mistake must be fixed before its staff start on it. Once its course file is in use, it stays in its semester and in the reports.
 
+On the semester page, the row menu of each offering has **Edit** and **Delete**. **Edit** opens the offering's course, coordinator and lecturers. While the course file is in use, the course is disabled, and the dialog says why. **Delete** asks for confirmation, or for an offering in use, says why it stays.
+
 The app changes the course with an update of `course_id` on `offerings`, and deletes with a delete from `offerings`. RLS lets only admins do either. Anyone else's update or delete changes nothing. A course that the semester already offers fails with `23505`. Saving the course an offering already has keeps its sections, even when its course type changed since. Deleting an offering leaves its lecturers' timetables for the semester.
 
 Who reads an offering, its lecturers and its course file is decided by `public.can_read_offering(offering_id)`:

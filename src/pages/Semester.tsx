@@ -1,8 +1,8 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PlusIcon, Trash2Icon, UploadIcon, UsersIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { FormDialog } from '@/components/action-dialogs'
+import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
@@ -11,6 +11,15 @@ import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableLoadError
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -26,11 +35,15 @@ import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from 
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
 
-/** An offering and its lecturers, the coordinator among them, by the names the app shows. */
+/**
+ * An offering and its lecturers, the coordinator among them, by the names the app shows. While its
+ * course file is not in use, its course can change and it can be deleted.
+ */
 type Offering = {
   id: string
   coordinator_id: string
-  course: { code: string; title: string }
+  in_use: boolean
+  course: { id: string; code: string; title: string }
   lecturers: { lecturer_id: string; lecturer_name: string }[]
 }
 
@@ -44,6 +57,7 @@ type StudentTimetable = SharedFile & { program_code: { code: string } }
 type OpenDialog =
   | { kind: 'add' }
   | { kind: 'edit'; offering: Offering }
+  | { kind: 'delete'; offering: Offering }
   | { kind: 'upload-timetable' }
   | { kind: 'delete-shared'; file: SharedFile; title: string }
 
@@ -83,7 +97,7 @@ export function Semester() {
   const offerings = usePagedList((range, search) => {
     let query = supabase
       .from('offerings')
-      .select('id, coordinator_id, course:courses!inner(code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
+      .select('id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
         count: 'exact',
       })
       .eq('semester_id', semesterId)
@@ -158,6 +172,24 @@ export function Semester() {
     offerings.retry()
     if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'This course is already offered in this semester.' } })
     toast.success(success)
+    return null
+  }
+
+  /** Changes the offering's course when another is chosen, then sets its staff. A refused course change changes nothing. */
+  async function edit(offering: Offering, { coordinatorId, lecturerIds }: Staff, course: ComboboxOption) {
+    if (course.value !== offering.course.id) {
+      const { error } = await supabase.from('offerings').update({ course_id: course.value }).eq('id', offering.id)
+      if (error) return { error }
+    }
+    return supabase.rpc('set_offering_lecturers', { offering_id: offering.id, coordinator_id: coordinatorId, lecturer_ids: lecturerIds })
+  }
+
+  async function remove(offering: Offering) {
+    const { code } = offering.course
+    const { error } = await supabase.from('offerings').delete().eq('id', offering.id)
+    offerings.retry()
+    if (error) return friendlyError(error, { codes: { '23503': `The course file of ${code} is in use now, so the offering stays.` } })
+    toast.success(`Deleted ${code}`)
     return null
   }
 
@@ -246,7 +278,14 @@ export function Semester() {
                   action={noOfferings ? addButton : undefined}
                 />
               ) : (
-                offerings.rows.map((offering) => <OfferingRow key={offering.id} offering={offering} onEdit={() => setDialog({ kind: 'edit', offering })} />)
+                offerings.rows.map((offering) => (
+                  <OfferingRow
+                    key={offering.id}
+                    offering={offering}
+                    onEdit={() => setDialog({ kind: 'edit', offering })}
+                    onDelete={() => setDialog({ kind: 'delete', offering })}
+                  />
+                ))
               )}
             </TableBody>
           </Table>
@@ -368,14 +407,11 @@ export function Semester() {
           semesterId={semesterId}
           offering={dialog.offering}
           onClose={close}
-          onSubmit={({ coordinatorId, lecturerIds }) =>
-            write(
-              supabase.rpc('set_offering_lecturers', { offering_id: dialog.offering.id, coordinator_id: coordinatorId, lecturer_ids: lecturerIds }),
-              `Saved ${dialog.offering.course.code}`,
-            )
-          }
+          onSubmit={(staff, course) => write(edit(dialog.offering, staff, course!), `Saved ${course!.label}`)}
         />
       )}
+
+      {dialog?.kind === 'delete' && <DeleteOfferingDialog offering={dialog.offering} onClose={close} onDelete={() => remove(dialog.offering)} />}
 
       {dialog?.kind === 'upload-timetable' && (
         <UploadTimetableDialog
@@ -418,7 +454,7 @@ function ListHeading({ id, title, total, action }: { id: string; title: string; 
 }
 
 /** An offering's row: its course, which opens its course file, its coordinator and its other lecturers. */
-function OfferingRow({ offering, onEdit }: { offering: Offering; onEdit: () => void }) {
+function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdit: () => void; onDelete: () => void }) {
   const coordinator = offering.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)?.lecturer_name
   const others = offering.lecturers
     .filter((lecturer) => lecturer.lecturer_id !== offering.coordinator_id)
@@ -450,8 +486,13 @@ function OfferingRow({ offering, onEdit }: { offering: Offering; onEdit: () => v
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onEdit}>
-            <UsersIcon />
-            Edit lecturers
+            <PencilIcon />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+            <Trash2Icon />
+            Delete
           </DropdownMenuItem>
         </RowActions>
       </TableCell>
@@ -519,11 +560,15 @@ async function searchLecturers(query: string): Promise<ComboboxOption[]> {
   return data.map((person) => ({ value: person.id, label: person.display_name ?? person.email, detail: person.email }))
 }
 
+/** An offering's coordinator, and its other lecturers. */
+type Staff = { coordinatorId: string; lecturerIds: string[] }
+
 /**
- * The dialog that adds an offering, or with an offering edits its lecturers. The course is chosen
- * among those the semester does not offer yet. The coordinator is a lecturer too, so they show
- * first among the lecturers and cannot be taken off. A coordinator who is replaced stays a lecturer
- * until taken off. onSubmit gets the coordinator, the other lecturers and the course to add.
+ * The dialog that adds an offering, or with an offering edits it. The course is chosen among those
+ * the semester does not offer yet, and stays once the offering's course file is in use. The
+ * coordinator is a lecturer too, so they show first among the lecturers and cannot be taken off. A
+ * coordinator who is replaced stays a lecturer until taken off. onSubmit gets the coordinator, the
+ * other lecturers and the course.
  */
 function OfferingDialog({
   semesterId,
@@ -534,10 +579,12 @@ function OfferingDialog({
   semesterId: string
   offering?: Offering
   onClose: () => void
-  onSubmit: (staff: { coordinatorId: string; lecturerIds: string[] }, course: ComboboxOption | null) => Promise<string | null>
+  onSubmit: (staff: Staff, course: ComboboxOption | null) => Promise<string | null>
 }) {
   const named = (lecturer: Offering['lecturers'][number]): ComboboxOption => ({ value: lecturer.lecturer_id, label: lecturer.lecturer_name })
-  const [course, setCourse] = useState<ComboboxOption | null>(null)
+  const [course, setCourse] = useState<ComboboxOption | null>(
+    offering ? { value: offering.course.id, label: `${offering.course.code} ${offering.course.title}` } : null,
+  )
   const [coordinator, setCoordinator] = useState<ComboboxOption | null>(() => {
     const current = offering?.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)
     return current ? named(current) : null
@@ -557,22 +604,30 @@ function OfferingDialog({
 
   return (
     <FormDialog
-      title={offering ? `Edit lecturers of ${offering.course.code}` : 'Add an offering'}
+      title={offering ? `Edit ${offering.course.code}` : 'Add an offering'}
       submitLabel={offering ? 'Save' : 'Add offering'}
       onClose={onClose}
       onSubmit={async () => {
-        if (!offering && !course) return { field: 'course_id', message: 'Choose a course.' }
+        if (!course) return { field: 'course_id', message: 'Choose a course.' }
         if (!coordinator) return { field: 'coordinator_id', message: 'Choose a coordinator.' }
         return onSubmit({ coordinatorId: coordinator.value, lecturerIds: others.map((lecturer) => lecturer.value) }, course)
       }}
     >
-      {!offering && (
-        <div className="grid gap-2">
-          <Label htmlFor="offering-course">Course</Label>
-          <Combobox id="offering-course" name="course_id" value={course} onChange={setCourse} search={searchCourses} placeholder="Choose a course" searchPlaceholder="Search courses" />
-          <FieldError name="course_id" />
-        </div>
-      )}
+      <div className="grid gap-2">
+        <Label htmlFor="offering-course">Course</Label>
+        <Combobox
+          id="offering-course"
+          name="course_id"
+          value={course}
+          onChange={setCourse}
+          search={searchCourses}
+          placeholder="Choose a course"
+          searchPlaceholder="Search courses"
+          disabled={offering?.in_use}
+        />
+        {offering?.in_use && <p className="text-muted-foreground text-sm">Its course file is in use, so the course stays.</p>}
+        <FieldError name="course_id" />
+      </div>
       <div className="grid gap-2">
         <Label htmlFor="offering-coordinator">Coordinator</Label>
         <Combobox
@@ -628,6 +683,38 @@ function OfferingDialog({
         />
       </div>
     </FormDialog>
+  )
+}
+
+/** Confirms the delete of an offering whose course file is not in use, or says why one in use stays. */
+function DeleteOfferingDialog({ offering, onDelete, onClose }: { offering: Offering; onDelete: () => Promise<string | null>; onClose: () => void }) {
+  const { code, title } = offering.course
+  if (offering.in_use) {
+    return (
+      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Can't delete {code}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its course file is in use, so the offering stays as part of the audit record. Its coordinator and lecturers can still change.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
+  return (
+    <ConfirmDialog
+      title={`Delete ${code} ${title}?`}
+      description="Its coordinator and lecturers lose it. This can't be undone."
+      confirmLabel="Delete"
+      destructive
+      onClose={onClose}
+      onConfirm={onDelete}
+    />
   )
 }
 
