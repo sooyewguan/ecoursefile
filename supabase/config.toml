@@ -11,8 +11,9 @@ enabled = true
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
-# fake_storage holds the fake storage library, and fake_mail the fake outbox, for the service role only.
-schemas = ["public", "graphql_public", "fake_storage", "fake_mail"]
+# fake_storage holds the fake storage library, fake_sms the fake phone verifier's TACs, and fake_push
+# the fake push outbox, for the service role only.
+schemas = ["public", "graphql_public", "fake_storage", "fake_sms", "fake_push"]
 # Extra schemas to add to the search_path of every request.
 extra_search_path = ["public", "extensions"]
 # The maximum number of rows returned from a view, table, or stored procedure. Limits payload size
@@ -297,8 +298,8 @@ max_frequency = "5s"
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
 
-# Supabase Auth sends no email through SMTP. It calls the send-email Edge Function, which sends
-# password reset emails through the mail adapter. Auth reaches the function through the host, so
+# Supabase Auth sends no email. It calls the send-email Edge Function in place of SMTP, and the
+# function refuses every email, since passwords change by SMS TAC. Auth reaches the function through the host, so
 # the URI must be http://host.docker.internal or https. The secret signs each call. It is for the
 # local stack only and must equal SEND_EMAIL_HOOK_SECRET in [edge_runtime.secrets]. A hosted
 # project has its own.
@@ -408,13 +409,15 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# The local stack keeps files in the fake storage library, and records email in the fake outbox.
-# FAKE_STORAGE_URL is the fake-storage function as the browser and the tests reach it.
+# The local stack keeps files in the fake storage library, verifies phones with the fake-sms
+# function, and records push notifications in the fake push outbox. FAKE_STORAGE_URL is the
+# fake-storage function as the browser and the tests reach it.
 # SEND_EMAIL_HOOK_SECRET must equal the secret of [auth.hook.send_email].
 [edge_runtime.secrets]
 STORAGE_ADAPTER = "fake"
 FAKE_STORAGE_URL = "http://127.0.0.1:54321/functions/v1/fake-storage"
-MAIL_ADAPTER = "fake"
+PHONE_VERIFIER = "fake"
+PUSH_ADAPTER = "fake"
 SEND_EMAIL_HOOK_SECRET = "v1,whsec_1RynRfnDEXU8HKWWz87vTJVqhK66Ncrt8kfBjHoLAQM="
 
 # The fake's upload URLs, like Graph's, take no Authorization header.
@@ -423,6 +426,14 @@ verify_jwt = false
 
 # Supabase Auth calls the Send Email Hook without a JWT. The function checks the hook's signature.
 [functions.send-email]
+verify_jwt = false
+
+# A signed-out user resets their password through the password function, and asks the fake-sms
+# function for a TAC. The password function checks the caller itself for its other actions.
+[functions.password]
+verify_jwt = false
+
+[functions.fake-sms]
 verify_jwt = false
 
 [analytics]

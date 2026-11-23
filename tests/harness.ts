@@ -225,16 +225,65 @@ export async function fakeStoreItems(folder: string) {
   return data as { id: string; path: string; size: number; mime_type: string }[]
 }
 
-/** The emails in the fake outbox that went to this address, oldest first. */
-export async function fakeOutbox(email: string) {
+/** A Malaysian mobile number in E.164 form that no earlier run has used, as near as chance allows. */
+export function uniquePhone() {
+  return `+601${String(randomBelow(1e9)).padStart(9, '0')}`
+}
+
+/**
+ * Gets an ID token for the phone the way the browser gets one from Firebase: the fake-sms function
+ * records a TAC, the test reads it from fake_sms.codes as a developer would, and swaps it for the
+ * token.
+ */
+export async function tacToken(phone: string) {
+  const client = anonClient()
+  const sent = await client.functions.invoke('fake-sms', { body: { action: 'send', phone } })
+  if (sent.error) throw sent.error
+  const { data, error } = await adminClient().schema('fake_sms').from('codes').select('code').eq('id', sent.data.verificationId).single()
+  if (error) throw error
+  const confirmed = await client.functions.invoke('fake-sms', { body: { action: 'confirm', verificationId: sent.data.verificationId, code: data.code } })
+  if (confirmed.error) throw confirmed.error
+  return confirmed.data.idToken as string
+}
+
+/** Calls the password Edge Function as this client, signed in or not, and returns the HTTP status and JSON body. */
+export async function callPassword(client: SupabaseClient, body: Record<string, unknown>): Promise<{ status: number; body: any }> {
+  const { data, error } = await client.functions.invoke('password', { body })
+  if (!error) return { status: 200, body: data }
+  if (error instanceof FunctionsHttpError) {
+    const response: Response = error.context
+    return { status: response.status, body: await response.json() }
+  }
+  throw error
+}
+
+/**
+ * Sets a new password for the signed-in user with a TAC to the phone, as the change-password page
+ * does, and throws unless the function took it. A user with no phone registers this one.
+ */
+export async function setOwnPassword(client: SupabaseClient, phone: string, password: string) {
+  const result = await callPassword(client, { action: 'set-password', idToken: await tacToken(phone), password })
+  if (result.status !== 200) throw new Error(`set-password answered ${result.status}: ${JSON.stringify(result.body)}`)
+}
+
+/** Registers a push token for the signed-in user, as the app does when they turn notifications on, and returns it. */
+export async function registerPushToken(client: SupabaseClient) {
+  const token = `fake-${randomUUID()}`
+  const { error } = await client.rpc('register_push_token', { token })
+  if (error) throw error
+  return token
+}
+
+/** The notifications in the fake push outbox that went to these tokens, oldest first. */
+export async function fakePushOutbox(...tokens: string[]) {
   const { data, error } = await adminClient()
-    .schema('fake_mail')
+    .schema('fake_push')
     .from('outbox')
-    .select('recipients, subject, html')
-    .contains('recipients', [email])
+    .select('token, title, body, link')
+    .in('token', tokens)
     .order('sent_at')
   if (error) throw error
-  return data as { recipients: string[]; subject: string; html: string }[]
+  return data as { token: string; title: string; body: string; link: string }[]
 }
 
 /**
