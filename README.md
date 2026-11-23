@@ -103,7 +103,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers, and change the course of an offering or delete it while its course file is not in use. Upload and delete each semester's Academic Calendar and Appointment Letter. |
 | Everyone else | Read their own profile and roles, change their own title and name, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
@@ -207,6 +207,27 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 | `set_offering_lecturers(offering_id, coordinator_id, lecturer_ids)` | Replaces the offering's coordinator and lecturers. |
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
+
+### Changing and deleting offerings
+
+An offering's coordinator and lecturers change at any time. Its course changes, and the offering can be deleted, only while its course file is not in use. The migration is `supabase/migrations/20261124000200_change_and_delete_offerings.sql`.
+
+A course file is **in use** once it has an item, or an entry in its activity log: an upload, a reuse, a switch, a tick, a verdict, or an audit request, which starts with a verdict. A file that was deleted since still leaves its upload and its delete in the log, so the course file stays in use. The `in_use` column of `offerings` says whether it is, for everyone who reads the offering.
+
+| Change | Course file not in use | Course file in use |
+| --- | --- | --- |
+| Coordinator and lecturers | Yes, with `set_offering_lecturers` | Yes. A lecturer who is taken off loses the course file, and keeps their timetable. |
+| Course | Yes. The offering takes the course type's sections 10 to 16 of the new course, as a new offering does. | No. Fails with Postgres error `23503`. |
+| Delete | Yes. Its lecturers go with it. | No. Fails with Postgres error `23503`. |
+
+An offering in use stays as it is for these reasons:
+
+- The activity log keeps every entry, and each entry names the offering. Deleting the offering would delete the history that auditors check at any time.
+- Files, verdicts and audit requests are about the material of one course. Under another course, a verdict would judge material it never saw. The stored files would also stay in the folder named by the old course code and title.
+
+So an offering made by mistake must be fixed before its staff start on it. Once its course file is in use, it stays in its semester and in the reports.
+
+The app changes the course with an update of `course_id` on `offerings`, and deletes with a delete from `offerings`. RLS lets only admins do either. Anyone else's update or delete changes nothing. A course that the semester already offers fails with `23505`. Saving the course an offering already has keeps its sections, even when its course type changed since. Deleting an offering leaves its lecturers' timetables for the semester.
 
 Who reads an offering, its lecturers and its course file is decided by `public.can_read_offering(offering_id)`:
 
@@ -693,7 +714,7 @@ Tests that create users give each user a new email address. You can run the test
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
 - `pickSemester` and `createOffering` use the 2,400 codes with start years 2000 to 2799.
-- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. Offerings are never deleted, so after about 100 runs the helper finds none left and asks for a database reset.
+- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. The tests never delete an offering they fill a semester with, so after about 100 runs the helper finds none left and asks for a database reset.
 - `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Of the other tests, only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
