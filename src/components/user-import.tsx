@@ -81,12 +81,12 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
               </TableCell>
               <TableCell className="px-4 py-3 whitespace-normal">
                 {row.status === 'created' ? (
-                  <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
+                  <Badge variant="success">
                     Added
                   </Badge>
                 ) : (
                   <div className="grid gap-1">
-                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                    <Badge variant="destructive">
                       Rejected
                     </Badge>
                     <span>{row.reason}</span>

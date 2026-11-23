@@ -276,7 +276,7 @@ function ChecklistItem({
 }) {
   const name = sectionName(item.section)
   const [Icon, label, tone] = item.ticked
-    ? [CircleCheckIcon, 'Ticked: it has a new file', 'text-emerald-600 dark:text-emerald-400']
+    ? [CircleCheckIcon, 'Ticked: it has a new file', 'text-success']
     : item.comment
       ? [MessageSquareIcon, 'Answered with a comment', 'text-foreground']
       : [CircleIcon, 'Not answered yet', 'text-muted-foreground']
