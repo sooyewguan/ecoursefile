@@ -4,7 +4,7 @@ import { beforeAll, expect, test } from 'vitest'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
 import { createUploadSession, deleteFile, deleteSharedFile, finalizeUpload, sendChunks, uploadFile, type SharedSlot } from '../src/uploads.ts'
 import { TEST_DOMAIN } from './global-setup.ts'
-import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, signIn, signInAs } from './harness.ts'
+import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
 // Every test gives its timetables to new lecturers. A timetable links only into the offerings its
 // lecturer teaches, so these uploads change no other test's offering, in any semester.
@@ -389,4 +389,43 @@ test('a lecturer who no longer teaches in the semester still reads and deletes t
 
   await deleteSharedFile(lecturer.client, timetable.id)
   expect(await timetablesOf(auditor, semester, [lecturer])).toEqual([])
+})
+
+test('the admin reads every timetable of the semester with its lecturer and course files, and deletes one that no course file links', async () => {
+  const semester = await pickSemester()
+  const [coordinator, former] = [await createStaff(), await createStaff()]
+  const offeringId = await offer(semester, coordinator, [former])
+  const kept = await uploadTimetable(coordinator, semester)
+  const left = await uploadTimetable(former, semester, 'left.pdf')
+  expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+
+  // The semester page reads them this way.
+  const listed = async (client: SupabaseClient) => {
+    const { data, error } = await client
+      .from('files')
+      .select('id, lecturer:profiles!files_lecturer_id_fkey(display_name), deletable, linked_offerings(id)')
+      .eq('semester_id', semester.id)
+      .eq('section', TIMETABLE)
+      .in('id', [kept.id, left.id])
+      .order('name')
+    if (error) throw error
+    return data
+  }
+  expect(await listed(admin)).toEqual([
+    { id: left.id, lecturer: { display_name: 'Seam1 User' }, deletable: true, linked_offerings: [] },
+    { id: kept.id, lecturer: { display_name: 'Seam1 User' }, deletable: false, linked_offerings: [{ id: offeringId }] },
+  ])
+  expect((await listed(auditor)).map((file) => file.deletable)).toEqual([false, false])
+
+  await expect(deleteSharedFile(admin, kept.id)).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  await deleteSharedFile(admin, left.id)
+
+  expect((await listed(admin)).map((file) => file.id)).toEqual([kept.id])
+  expect(await fakeStoreItems(timetableFolder(semester, former))).toEqual([])
+  const { data: log, error } = await admin.from('activity_log').select('action, actor_id, file_name').eq('lecturer_id', former.id).order('id')
+  expect(error).toBeNull()
+  expect(log).toEqual([
+    { action: 'upload', actor_id: former.id, file_name: 'left.pdf' },
+    { action: 'delete', actor_id: await userIdOf(admin), file_name: 'left.pdf' },
+  ])
 })
