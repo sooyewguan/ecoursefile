@@ -84,6 +84,17 @@ test.each([1, 9, 17, 19])('section %i has no course type default', async (sectio
   expect((await admin.from('course_types').select('sections_on').eq('id', type.id)).data).toEqual([{ sections_on: [10, 12] }])
 })
 
+test('a course type names each section once', async () => {
+  const type = await createCourseType()
+
+  const created = await admin.from('course_types').insert({ name: unique('Repeated'), sections_on: [10, 10] })
+  const edited = await admin.from('course_types').update({ sections_on: [12, 13, 12] }).eq('id', type.id)
+
+  expect(created.error?.code).toBe(CHECK_VIOLATION)
+  expect(edited.error?.code).toBe(CHECK_VIOLATION)
+  expect((await admin.from('course_types').select('sections_on').eq('id', type.id)).data).toEqual([{ sections_on: [10, 12] }])
+})
+
 test('course type names are unique', async () => {
   const type = await createCourseType()
 
