@@ -1,99 +1,110 @@
 import { Building2Icon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FieldError } from '@/components/form-errors'
+import { PageHeader, RowActions } from '@/components/page'
+import { usePagedList } from '@/components/paged-list'
+import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { supabase } from '../supabase.ts'
-
-type Department = { id: string; code: string; name: string }
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn, plural } from '@/lib/utils'
+import { matching, type Department } from '../catalog.ts'
+import { friendlyError } from '../errors.ts'
+import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 /** The dialog that is open, and the department it acts on. */
 type OpenDialog =
   | { kind: 'add' }
-  | { kind: 'rename'; department: Department }
+  | { kind: 'edit'; department: Department }
   | { kind: 'delete'; department: Department }
 
+/** Below md the name moves under the code, so a phone needs no sideways scroll. */
+const WIDE = 'hidden md:table-cell'
+
 /** The table's columns: code, name and the row menu. */
-const COLUMNS = ['', '', '']
+const COLUMNS = ['', WIDE, '']
 
 export function Departments() {
-  const [departments, setDepartments] = useState<Department[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const list = usePagedList<Department>(({ from, to }, search) =>
+    matching(supabase.from('departments').select('id, code, name', { count: 'exact' }), ['code', 'name'], search)
+      .order('code')
+      .range(from, to),
+  )
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
+  const empty = isEmptyList(list)
 
-  const reload = useCallback(async () => {
-    const { data, error } = await supabase.from('departments').select('id, code, name').order('code')
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setDepartments(data)
-  }, [])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
-
-  /** Runs one write, reloads the list, and returns the write's error message or null. */
-  async function write(request: PromiseLike<{ error: { message: string } | null }>, success: string) {
+  /** Saves a department's code and name, reloads the list, and returns why it failed or null. */
+  async function save(request: PromiseLike<{ error: { code: string } | null }>, code: string, success: string) {
     const { error } = await request
-    await reload()
-    if (!error) setNotice({ tone: 'success', text: success })
-    return error?.message ?? null
+    list.retry()
+    if (error?.code === UNIQUE_VIOLATION) return { field: 'code', message: `A department with the code ${code} already exists.` }
+    if (error) return friendlyError(error)
+    toast.success(success)
+    return null
   }
 
   function close() {
     setDialog(null)
   }
 
+  const addButton = (
+    <Button onClick={() => setDialog({ kind: 'add' })}>
+      <PlusIcon />
+      Add department
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Departments"
-        description="The departments that staff belong to. Every HoD needs one."
-        action={
-          <Button onClick={() => setDialog({ kind: 'add' })}>
-            <PlusIcon />
-            Add department
-          </Button>
-        }
-      />
-      {notice && <NoticeAlert notice={notice} />}
+      <PageHeader title="Departments" action={!empty && addButton} />
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="w-40 px-4">Code</TableHead>
-              <TableHead className="px-4">Name</TableHead>
-              <TableHead className="w-14 px-4">
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!departments ? (
-              <TableSkeleton columns={COLUMNS} />
-            ) : departments.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={Building2Icon}
-                title="No departments yet"
-                description="Add a department so that you can place staff in it."
-              />
-            ) : (
-              departments.map((department) => (
+      <div className="grid gap-3">
+        {!empty && <ListSearch list={list} label="Search departments" />}
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table>
+            <TableHeader className="bg-muted/50 max-md:hidden">
+              <TableRow>
+                <TableHead className="w-40 px-4">Code</TableHead>
+                <TableHead className={cn('px-4', WIDE)}>Name</TableHead>
+                <TableHead className="w-14 px-4">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <PagedTableBody
+              list={list}
+              columns={COLUMNS}
+              loadError="Couldn't load departments"
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={Building2Icon} noun="departments" addButton={addButton} />}
+            >
+              {(department) => (
                 <TableRow key={department.id}>
-                  <TableCell className="px-4 py-3 font-medium whitespace-normal">{department.code}</TableCell>
-                  <TableCell className="px-4 py-3 whitespace-normal">{department.name}</TableCell>
+                  <TableCell className="px-4 py-3 whitespace-normal">
+                    <div className="grid gap-0.5">
+                      <span className="font-medium">{department.code}</span>
+                      <span className="md:hidden">{department.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{department.name}</TableCell>
                   <TableCell className="px-4 py-2 text-right">
                     <RowActions label={`Actions for ${department.code}`}>
-                      <DropdownMenuItem onSelect={() => setDialog({ kind: 'rename', department })}>
+                      <DropdownMenuItem onSelect={() => setDialog({ kind: 'edit', department })}>
                         <PencilIcon />
-                        Rename
+                        Edit
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem variant="destructive" onSelect={() => setDialog({ kind: 'delete', department })}>
@@ -103,39 +114,35 @@ export function Departments() {
                     </RowActions>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+              )}
+            </PagedTableBody>
+          </Table>
+          <TablePager list={list} />
+        </Card>
+      </div>
 
       {dialog?.kind === 'add' && (
         <FormDialog
           title="Add a department"
-          description="Staff and HoDs can be placed in it once it exists."
           submitLabel="Add department"
           onClose={close}
           onSubmit={(form) => {
             const values = departmentValues(form)
-            return write(supabase.from('departments').insert(values), `Added ${values.code} ${values.name}.`)
+            return save(supabase.from('departments').insert(values), values.code, `Added ${values.code}`)
           }}
         >
           <DepartmentFields />
         </FormDialog>
       )}
 
-      {dialog?.kind === 'rename' && (
+      {dialog?.kind === 'edit' && (
         <FormDialog
-          title={`Rename ${dialog.department.code}`}
-          description="Change the department's code or name. Its staff stay in it."
+          title={`Edit ${dialog.department.code}`}
           submitLabel="Save"
           onClose={close}
           onSubmit={(form) => {
             const values = departmentValues(form)
-            return write(
-              supabase.from('departments').update(values).eq('id', dialog.department.id),
-              `Saved ${values.code} ${values.name}.`,
-            )
+            return save(supabase.from('departments').update(values).eq('id', dialog.department.id), values.code, `Saved ${values.code}`)
           }}
         >
           <DepartmentFields department={dialog.department} />
@@ -143,18 +150,17 @@ export function Departments() {
       )}
 
       {dialog?.kind === 'delete' && (
-        <ConfirmDialog
-          title={`Delete ${dialog.department.code} ${dialog.department.name}?`}
-          description="This cannot be undone. A department that still has staff or courses in it cannot be deleted."
-          confirmLabel="Delete"
-          destructive
+        <DeleteDepartmentDialog
+          department={dialog.department}
           onClose={close}
-          onConfirm={() =>
-            write(
-              supabase.from('departments').delete().eq('id', dialog.department.id),
-              `Deleted ${dialog.department.code} ${dialog.department.name}.`,
-            )
-          }
+          onDelete={async () => {
+            const { code } = dialog.department
+            const { error } = await supabase.from('departments').delete().eq('id', dialog.department.id)
+            list.retry()
+            if (error) return friendlyError(error, { codes: { '23503': `${code} still has courses or staff. Move them to another department first.` } })
+            toast.success(`Deleted ${code}`)
+            return null
+          }}
         />
       )}
     </div>
@@ -171,11 +177,78 @@ function DepartmentFields({ department }: { department?: Department }) {
       <div className="grid gap-2">
         <Label htmlFor="department-code">Code</Label>
         <Input id="department-code" name="code" defaultValue={department?.code} autoComplete="off" required />
+        <FieldError name="code" />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="department-name">Name</Label>
         <Input id="department-name" name="name" defaultValue={department?.name} autoComplete="off" required />
       </div>
     </>
+  )
+}
+
+/** The courses and staff that keep a department from being deleted. */
+type Usage = { courses: number; staff: number }
+
+/**
+ * Counts what the department still has before it offers a delete, so a department in use says what
+ * to move instead of failing. The dialog opens once the counts are in. If counting fails, it offers
+ * the delete, which the database still refuses for a department in use.
+ */
+function DeleteDepartmentDialog({
+  department,
+  onDelete,
+  onClose,
+}: {
+  department: Department
+  onDelete: () => Promise<string | null>
+  onClose: () => void
+}) {
+  const [usage, setUsage] = useState<Usage | 'counting' | 'unknown'>('counting')
+
+  useEffect(() => {
+    let current = true
+    const count = (table: 'courses' | 'profiles') =>
+      supabase.from(table).select('id', { count: 'exact', head: true }).eq('department_id', department.id)
+    void Promise.all([count('courses'), count('profiles')]).then(([courses, staff]) => {
+      if (!current) return
+      setUsage(courses.error || staff.error ? 'unknown' : { courses: courses.count ?? 0, staff: staff.count ?? 0 })
+    })
+    return () => {
+      current = false
+    }
+  }, [department.id])
+
+  if (usage === 'counting') return null
+
+  if (usage !== 'unknown' && usage.courses + usage.staff > 0) {
+    const held = [usage.courses > 0 && plural(usage.courses, 'course'), usage.staff > 0 && plural(usage.staff, 'staff member')]
+    return (
+      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Can't delete {department.code}</AlertDialogTitle>
+            <AlertDialogDescription>
+              It has {held.filter(Boolean).join(' and ')}. Move {usage.courses + usage.staff === 1 ? 'it' : 'them'} to another
+              department first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
+
+  return (
+    <ConfirmDialog
+      title={`Delete ${department.code} ${department.name}?`}
+      description="This can't be undone."
+      confirmLabel="Delete"
+      destructive
+      onClose={onClose}
+      onConfirm={onDelete}
+    />
   )
 }

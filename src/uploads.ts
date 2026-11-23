@@ -1,6 +1,7 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
 import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
+import { UserFacingError } from './errors.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 import { pagesPerSheet } from './sections.ts'
 
@@ -52,15 +53,7 @@ export type UploadSession = { uploadUrl: string; expiresAt: string; storedName: 
  * A refused file action. code is not_pdf, too_large or unreadable_pdf when the browser refuses a
  * file, and the files function's error code when it refuses the request, with its HTTP status.
  */
-export class FileActionError extends Error {
-  code: string
-  status: number | null
-  constructor(code: string, message: string, status: number | null = null) {
-    super(message)
-    this.code = code
-    this.status = status
-  }
-}
+export class FileActionError extends UserFacingError {}
 
 /** Chunks are 5 MiB, a multiple of the 320 KiB that Graph requires. */
 const CHUNK_BYTES = 16 * 320 * 1024
@@ -93,8 +86,8 @@ async function storedBytes(slot: Slot | SharedSlot, file: File): Promise<Blob> {
   const problem = uploadProblem(bytes)
   if (problem === 'too_large' && perSheet) {
     // A merged section takes parts, such as Lecture Notes by chapter. A merged slot takes whole scripts.
-    const advice = 'slot' in slot && slot.slot ? 'Scan the script at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
-    throw new FileActionError(problem, `Merged ${perSheet} pages to a page, the file is still larger than 20 MB. ${advice}`)
+    const advice = 'slot' in slot && slot.slot ? 'Scan it at a lower resolution and upload it again.' : 'Split it into parts and upload each part.'
+    throw new FileActionError(problem, `${file.name} is still over 20 MB at ${perSheet} pages per sheet. ${advice}`)
   }
   if (problem) throw new FileActionError(problem, UPLOAD_PROBLEM_MESSAGES[problem])
   // The compile reads every stored PDF with the PDF engine, so a PDF the engine cannot read is refused here.
@@ -119,8 +112,8 @@ function unreadable(file: File, isProtected: boolean) {
   return new FileActionError(
     'unreadable_pdf',
     isProtected
-      ? `${file.name} is protected by a password or by limits on printing or editing, so the compiled course file cannot include it. Upload a copy without protection.`
-      : `${file.name} could not be read as a PDF. Save or export it as a PDF again and upload that.`,
+      ? `${file.name} is protected by a password or by limits on printing or editing. Upload a copy without protection.`
+      : `${file.name} could not be read as a PDF. Export it as a PDF again and retry.`,
   )
 }
 
@@ -137,7 +130,7 @@ export async function sendChunks(uploadUrl: string, bytes: Blob, onProgress?: (f
       headers: { 'Content-Range': `bytes ${start}-${end - 1}/${bytes.size}` },
       body: bytes.slice(start, end),
     })
-    if (!response.ok) throw new FileActionError('upload_failed', `The upload stopped with HTTP ${response.status}.`, response.status)
+    if (!response.ok) throw new FileActionError('upload_failed', 'The upload stopped. Try again.', response.status)
     onProgress?.(end / bytes.size)
   }
 }
@@ -193,6 +186,23 @@ export async function reuseFile(client: SupabaseClient, slot: Slot, fileId: stri
  */
 export function compileManifest(client: SupabaseClient, offeringId: string) {
   return callFiles<CompileManifest>(client, { action: 'compile-manifest', offeringId })
+}
+
+/**
+ * The file's name and a short-lived URL that gets its bytes without an Authorization header. The
+ * files function gives it to a user who may read the file, and refuses others with not_found. A
+ * file of a past offering that the user may only reuse needs the slot it would be reused into.
+ */
+export function fileUrl(client: SupabaseClient, fileId: string, reuseInto?: Slot) {
+  return callFiles<{ name: string; url: string }>(client, { action: 'file-url', fileId, ...reuseInto })
+}
+
+/** The file's name and its bytes as a PDF, which the URL from fileUrl gets. */
+export async function fetchFile(client: SupabaseClient, fileId: string, reuseInto?: Slot) {
+  const { name, url } = await fileUrl(client, fileId, reuseInto)
+  const response = await fetch(url)
+  if (!response.ok) throw new FileActionError('download_failed', `Couldn't get ${name}. Try again.`, response.status)
+  return { name, blob: new Blob([await response.arrayBuffer()], { type: PDF_TYPE }) }
 }
 
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {

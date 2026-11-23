@@ -84,7 +84,7 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `PUSH_ADAPTER` | `audit-requests` function | `fcm` to send push notifications through Firebase Cloud Messaging, or `fake` to record them in the `fake_push` schema. The local stack uses `fake`. The function does not start without it. |
+| `PUSH_ADAPTER` | `audit-requests` function | `fcm` to send push notifications through Firebase Cloud Messaging, or `fake` to record them in the `fake_push` schema. The local stack uses `fake`. Leave it unset until push is set up: audit requests then work, and send no notification. |
 | `FIREBASE_SERVICE_ACCOUNT` | `audit-requests` function, with `fcm` | The JSON key of a service account of the Firebase project, from the Firebase console under Project settings, Service accounts. The function reads the project ID from it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
 | `GRAPH_TENANT_ID` | `files` function, with `STORAGE_ADAPTER` `graph` | The Entra tenant ID. |
@@ -103,8 +103,8 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
-| Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Everyone else | Read their own profile and roles, change their own title and name, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
@@ -112,11 +112,20 @@ Some limits apply to everyone:
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
-- Clients can update only `full_name`, `department_id` and `active` on a profile. The email and the must-change-password flag are not writable.
+- Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
+- A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
 
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+### Names and titles
+
+A profile has a `full_name` and an optional `title`, an honorific such as `Dr.`, `Prof. Madya` or `Ts.`. A title is trimmed, not empty, and at most 40 characters. `display_name` is a generated column that the database keeps up to date: the title, a space and the full name, or the full name alone. The migration is `supabase/migrations/20261121010000_profile_titles.sql`.
+
+The app names a person by `display_name` wherever it shows them: the header and the home page, the **Users** page, and the staff picker of a semester. The database columns and RPCs that name people read it too: `uploader_name`, the `lecturer_name` of `offering_lecturers` and of `report_lecturers`, `auditor_name`, `replier_name`, `commenter_name`, `actor_name` and `coordinator_name`. So do the PDF cover and the audit request and password reset emails. Lists of people sort by `full_name`, so that people with a title do not group together. The exceptions are the PDF cover and the lecturer timetable section of a course file. They list an offering's lecturers by `lecturer_name` after the coordinator, because lecturers cannot read other profiles.
+
+`update_my_profile(full_name, title)` sets the caller's own name and title, trimmed, and changes nothing else. An empty title clears the title. An empty name fails with Postgres error `23514`, and a name over 200 characters or a title over 40 fails with `22001`. Admins set a user's title and name on the **Users** page, as they set the department.
 
 ### Importing users from a CSV file
 
@@ -124,7 +133,8 @@ On the **Users** page, an admin clicks **Import CSV**, downloads the template, f
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
-- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`, and optionally `title`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- `title` is the user's title, such as `Dr.`, or empty for none. A file without a `title` column gives nobody a title. The template lists `title` last.
 - `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
@@ -140,7 +150,7 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
 | `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
@@ -151,8 +161,21 @@ eCourseFile sends no email or SMS, so a password never travels by message.
 
 1. The admin creates each user, or imports them from a CSV file, with a temporary password, and gives it to them.
 2. At their first sign-in, the change-password page asks for a new password before any other page. It sets it with `supabase.auth.updateUser({ password })`, which clears the must-change-password flag.
-3. A signed-in user changes their password on **Your profile**, from the account menu.
+3. A signed-in user changes their password on **My profile**, from the account menu.
 4. A user who forgot their password follows **Forgot password?** on the sign-in page, which tells them to ask an admin. On the **Users** page, the admin clicks **Reset password** and gives them a new temporary password. The must-change-password flag is set again, so they choose their own at the next sign-in.
+
+Every new password field, and the temporary password fields of the **Users** page, says "At least 6 characters" and refuses a shorter one before it reaches Supabase Auth, which sets that minimum with `minimum_password_length` in `supabase/config.toml`.
+
+### My profile
+
+Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`. The page splits what an admin sets from what the user sets.
+
+- The card on the left shows the user's initials, their name with its title, and their email, department and roles. It has no inputs. A user with no department sees a dash.
+- **Name and title** is a form for the title, which is optional, and the full name. **Save** calls `update_my_profile`. The page then reads the profile again with `useReloadAuth` from `src/auth-provider.tsx`, so the header shows the new name at once, and a toast says "Saved". A blank name shows the database's "Give your full name." under the field. See [Names and titles](#names-and-titles).
+- **Notifications on this browser** turns push notifications of audit requests on or off for the browser. See [Push notifications](#push-notifications).
+- **Password** asks for the current password and the new one twice. The page checks the current password with `supabase.auth.signInWithPassword`, so a person at an unlocked screen who does not know it cannot take over the account. It then calls `supabase.auth.updateUser({ password })`, and a toast says "Password changed". A wrong current password, a new password equal to the current one, and a confirmation that differs each show under their own field. The user stays signed in. This check runs in the browser only. A caller with the session's access token can still call Supabase Auth directly.
+
+Initials skip words that link a given name to a parent's name, such as "bin", "binti" and "a/l", so "Aisyah binti Rahman" shows as AR. The rule is `initialsOf` in `src/names.ts`.
 
 ## Catalog
 
@@ -489,20 +512,22 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_faculty_summary(semester_id)` | Faculty summary | The semester, so always one row |
 | `report_departments(semester_id)` | Department breakdown | Department with offerings in the semester, by department code |
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
-| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by name |
+| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by full name |
 
 The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. On a phone, the department breakdown scrolls sideways inside its card, with the department column pinned.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
 - **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. On a phone, the table scrolls sideways inside its card, with the course column pinned. A course code wraps at 112 px, so the pinned column leaves room for the sections.
-- **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
+- **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
 
-The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
+The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. Choosing another semester drops the department. A semester, tab, status or department that the page cannot show gives way to what it shows, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
 
-The **My completeness** page shows lecturers the offering list for the offerings they teach or coordinate, in one semester. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
+Each tab loads its report once. A failed load shows "Couldn't load this report" with **Try again** under the tabs. A semester whose report has no offerings shows "No offerings in" and the semester code, in place of the tab's controls.
+
+The **My completeness** page shows lecturers each course file they teach or coordinate in one semester: its status, completeness, coordinator and last upload, and its missing sections and its sections marked Needs fix, by number and title, each linked to its section page. While the lecturer has no timetable for the semester, an alert links to the section 4 page of one of their course files, where they upload it. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
 
 ### What the numbers mean
 
@@ -533,26 +558,26 @@ Each `report_offerings` row also has the course, its department, the coordinator
 
 Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
 
-The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until it holds as many as the API counts. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
+The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which reads it with `readAll`: it asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until a page comes back with fewer than 1,000 rows. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. The **Reports** page reads its list of semesters, and **My completeness** the lecturer's offerings, the same way. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
 ### Export
 
-Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel (.xlsx)** and **CSV (.csv)**. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
+Each tab of the **Reports** page has one **Export** menu, at the end of the tab's row of controls, and **My completeness** has one beside the semester. It offers **Excel**, which saves an .xlsx file, and **CSV**, which saves a .csv file. A failed export says "Couldn't export. Try again." in a toast. The browser builds the file from the rows on screen, with the offering list's filters and the lecturer search applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
 
 `src/report-tables.ts` describes each view as a table: its name and, for each column, the header, the kind of value and how to read it from a report row. The pages take their headers and values from these descriptions, and `exportReport` in `src/report-export.ts` writes their columns, so a file holds what the screen shows. A screen cell that shows two values is two columns in the file, so that a spreadsheet can sort and filter each one.
 
 | View | Columns |
 | --- | --- |
-| Faculty summary, one row | Offerings, Sections (that count), then Uploaded, Verified and Needs fix, each as a count of sections and as `(%)` |
-| Departments | Department (its code), Department name, and the columns of the faculty summary |
-| Offerings, My completeness | Course (its code), Course title, Department, Department name, Coordinator, Status, Complete (%), Missing sections, Last upload |
-| Heatmap | Course, Course title, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department, Department name, Timetable (`Missing` or `Uploaded`), Course, Course title, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
+| Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
+| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
-- Statuses are the text the screen shows, such as `Needs fix`. Missing sections are their numbers, such as `4, 5, 10`.
+- Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.
 - Last upload is the day the screen shows, in the user's time zone. An .xlsx holds it as a date in the format `yyyy-mm-dd`, and a .csv as text such as `2026-11-20`.
-- Where the screen shows a placeholder for no value, such as a dash, Never, None or Nothing missing, the cell is empty.
+- Where the screen shows a placeholder for no value, such as a dash, No uploads yet or None missing, the cell is empty.
 
 A .csv follows RFC 4180: commas between fields, a field in double quotes when it holds a comma, a quote or a line break, a quote inside one doubled, and CRLF after each row. It starts with a UTF-8 byte order mark, so that Excel reads names outside ASCII correctly. Names, titles and department names are typed by users, so a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return starts with `'` in a .csv, and a spreadsheet shows it as text rather than run it as a formula.
 
@@ -563,7 +588,7 @@ An .xlsx has one sheet, named after the view, with the header row bold and froze
 The app is desktop first. These pages also work on a phone 360 px wide, with no sideways scroll: the course file page with its sections, audit requests and activity, each section page with its status and the auditor's verdict, the **Reports** page with its Export menus, and **My completeness**. An auditor records verdicts and sends an audit request from a phone, and the coordinator and lecturers comment on its checklist and reply.
 
 - A long word, such as a course code with a UUID or a name with no space, breaks anywhere rather than widen the page. `overflow-wrap: anywhere` on `body` in `src/index.css` does this for the whole app, so no element needs its own rule.
-- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, and the offering list's status and completeness. The department breakdown and the heatmap are too wide for that, so they scroll sideways inside their card, with the first column pinned.
+- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, the offering list's status and completeness, the department breakdown's offerings and percentages, and each lecturer's courses. The heatmap shows each offering's sections as numbered squares in its course cell, ten to a row.
 - On a touch screen, `pointer: coarse`, the app's controls are at least 44 by 44 px, as WCAG 2.2 success criterion 2.5.5 asks. Buttons, tabs, menu items, selects, inputs and the navigation links grow to 44 px. The checkbox and the close buttons of dialogs and of the navigation keep their size and take taps on a 44 px area around them. With a mouse, the controls keep their desktop size.
 - Uploading and the compiled PDF stay desktop first. They work on a phone without breaking the layout, but are not tuned for it.
 
@@ -610,7 +635,7 @@ The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it does |
 | --- | --- | --- | --- |
-| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
+| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword`, and optionally `title` (a string or `null`) | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
@@ -618,7 +643,7 @@ On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": 
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
+| 400 | `invalid_request` | The body is not one of the actions above, the title is longer than 40 characters, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not do this. |
 | 409 | `email_exists` | A user with this email already exists. |
@@ -627,7 +652,7 @@ The Edge Functions import only local files in `supabase/functions/_shared`. They
 
 ## Push notifications
 
-Audit requests notify by push through Firebase Cloud Messaging. On **Your profile**, each user turns notifications on for each browser and phone they use. The browser asks for permission, registers the service worker `public/push-sw.js`, and gets its FCM registration token, which `register_push_token` stores in `push_tokens` for the user. A token that another user registered on the same browser moves to the new user. Signing out removes the browser's token with `unregister_push_token`, so the next user of the browser gets none of the earlier user's notifications. Each time the app opens, it registers the token again, since FCM may give a browser a new one.
+Audit requests notify by push through Firebase Cloud Messaging. On **My profile**, each user turns notifications on for each browser and phone they use. The browser asks for permission, registers the service worker `public/push-sw.js`, and gets its FCM registration token, which `register_push_token` stores in `push_tokens` for the user. A token that another user registered on the same browser moves to the new user. Signing out removes the browser's token with `unregister_push_token`, so the next user of the browser gets none of the earlier user's notifications. Each time the app opens, it registers the token again, since FCM may give a browser a new one.
 
 - Chrome, Edge and Firefox take push on a computer and on Android. Safari on an iPhone or iPad takes push only from iOS 16.4, and only when the user adds eCourseFile to the Home Screen and opens it from there. The profile page says so on a browser that cannot take push.
 - A user who blocked notifications for the site unblocks them in the browser's settings.
@@ -654,13 +679,13 @@ eCourseFile sends no email. The `send-email` Edge Function, `supabase/functions/
 
 On the local stack, Supabase Auth reaches the function at `http://host.docker.internal:54321/functions/v1/send-email`, and `[functions.send-email]` turns off the JWT check, since the hook sends no JWT. The hook's secret in `supabase/config.toml` serves the local stack and CI only. For a hosted project, set the hook to `https://<project-ref>.supabase.co/functions/v1/send-email` with a new secret under Authentication, Hooks, and set the same secret with `npx supabase secrets set SEND_EMAIL_HOOK_SECRET=...`.
 
-Until migration `20261123000200_push_notifications.sql`, the functions sent email through a mail adapter, and the local stack recorded it in the `fake_mail` schema. That migration drops the schema.
+Until migration `20261123000200_push_notifications.sql`, the functions sent email through a mail adapter, and the local stack recorded it in the `fake_mail` schema. The schema stays in the database, with what it recorded, but nothing writes to it or exposes it any more.
 
 ## Tests
 
 `npm test` runs two Vitest projects.
 
-- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too.
+- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too. `src/copy-rules.test.ts` fails when a source file's words use a phrase from `BANNED_PHRASES` in `src/copy-rules.ts`, such as "SharePoint", "the admin" or "appears here". Comments may use them. Add a phrase there when a review turns up a new kind of filler.
 - `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The audit request tests read the fake push outbox with `fakePushOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.

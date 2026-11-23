@@ -103,6 +103,39 @@ test('a refused role grant leaves no account behind', async () => {
   expect(signInResult.error?.code).toBe('invalid_credentials')
 })
 
+/** The title and display name of the user with this email, as the admin reads them. */
+async function namesByEmail(email: string) {
+  const { data, error } = await admin.from('profiles').select('title, display_name').eq('email', email)
+  if (error) throw error
+  return data
+}
+
+test.each([
+  ['  Dr.  ', { title: 'Dr.', display_name: 'Dr. Created User' }],
+  ['   ', { title: null, display_name: 'Created User' }],
+  [null, { title: null, display_name: 'Created User' }],
+  [undefined, { title: null, display_name: 'Created User' }],
+])('admin creates a user with the title %j, trimmed, and an empty title is none', async (title, expected) => {
+  const departmentId = await createDepartment()
+  const request = { ...createUserRequest(['lecturer'], departmentId), title }
+
+  expect((await callAccounts(admin, request)).status).toBe(200)
+
+  expect(await namesByEmail(request.email)).toEqual([expected])
+  expect(await profileByEmail(request.email)).toMatchObject([{ full_name: 'Created User', department_id: departmentId }])
+})
+
+test('a title of 40 characters is kept, and a longer one is refused before any account is made', async () => {
+  const kept = { ...createUserRequest(['lecturer']), title: 't'.repeat(40) }
+  const refused = { ...createUserRequest(['lecturer']), title: 't'.repeat(41) }
+
+  expect((await callAccounts(admin, kept)).status).toBe(200)
+  expect(await callAccounts(admin, refused)).toMatchObject({ status: 400, body: { code: 'invalid_request' } })
+
+  expect(await namesByEmail(kept.email)).toEqual([{ title: kept.title, display_name: `${kept.title} Created User` }])
+  expect(await profileByEmail(refused.email)).toEqual([])
+})
+
 test('creating a user with an email already in use is refused', async () => {
   const existing = await createUser()
 
@@ -113,6 +146,7 @@ test('creating a user with an email already in use is refused', async () => {
 
 test.each([
   { action: 'create-user', email: 'no-name@seam1.test', roles: ['lecturer'], temporaryPassword: 'temporary-password-1' },
+  { ...createUserRequest(['lecturer']), title: 5 },
   { action: 'reset-password', userId: 'not-a-uuid', temporaryPassword: 'temporary-password-1' },
   { action: 'delete-everyone' },
 ])('a malformed request is refused: %j', async (body) => {

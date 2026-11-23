@@ -411,6 +411,36 @@ test('Reply notifies the auditor once and shows in the app, and the log holds th
   expect((await comment(lecturer.client, id, REPLACEMENT_NOTICES, 'Later.')).error?.code).toBe(PERMISSION_DENIED)
 })
 
+test('the notifications and the app name the auditor, the commenter and the replier by their title and name', async () => {
+  const chong = await createPerson('lecturer')
+  const course = await createCourse({ lecturers: [chong] })
+  const { offeringId, coordinator, lecturer: bala } = course
+  const auditor = await createPerson('auditor')
+  for (const [user, fullName, title] of [
+    [coordinator, 'Zainab Audit', 'Dr.'],
+    [bala, 'Bala Audit', 'Ts.'],
+    [chong, 'Chong Audit', null],
+    [auditor, 'Aminah Audit', 'Prof. Madya'],
+  ] as const) {
+    expect((await user.client.rpc('update_my_profile', { full_name: fullName, title })).error).toBeNull()
+  }
+  await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  await sendAuditRequest(auditor.client, id)
+  expect((await comment(bala.client, id, TEACHING_PLAN, 'The plan is on its way.')).error).toBeNull()
+  await replyToAuditRequest(coordinator.client, id)
+
+  const sent = await fakePushOutbox(coordinator.token, bala.token, chong.token)
+  expect(sent.map((notification) => notification.token).toSorted()).toEqual([coordinator.token, bala.token, chong.token].toSorted())
+  for (const notification of sent) expect(notification.body).toMatch(/^Prof\. Madya Aminah Audit asks you to fix a section of the course file of /)
+  const [reply] = await outboxOf(auditor)
+  expect(reply.body).toMatch(/^Dr\. Zainab Audit replied to your audit request for /)
+  const [shown] = await requestsOf(chong.client, offeringId)
+  expect(shown).toMatchObject({ auditor_name: 'Prof. Madya Aminah Audit', replier_name: 'Dr. Zainab Audit' })
+  expect(shown.items.map((item) => item.commenter_name)).toEqual(['Ts. Bala Audit'])
+})
+
 test('a Needs fix after the send or after the reply goes into a new request, and the earlier ones stay as they were', async () => {
   const course = await createCourse()
   const { offeringId, coordinator, lecturer } = course

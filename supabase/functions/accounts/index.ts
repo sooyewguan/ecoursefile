@@ -3,7 +3,7 @@
 // jwt_roles, assignable_roles and can_manage decide who may do what, asked as the caller.
 import { authFetch, inList, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { isGlobalRole, type GlobalRole } from '../_shared/roles.ts'
-import { readUserImport, toNewUsers, type ImportedRow, type NewUser, type ParsedRow } from '../_shared/user-import.ts'
+import { MAX_TITLE_LENGTH, readUserImport, toNewUsers, type ImportedRow, type NewUser, type ParsedRow } from '../_shared/user-import.ts'
 
 type AccountRequest =
   | ({ action: 'create-user' } & NewUser)
@@ -26,23 +26,25 @@ function parseRequest(body: unknown): AccountRequest {
   const input = isRecord(body) ? body : {}
   switch (input.action) {
     case 'create-user': {
-      const { email, fullName, departmentId, roles, temporaryPassword } = input
+      const { email, fullName, title = null, departmentId, roles, temporaryPassword } = input
       if (
         typeof email !== 'string' ||
         !email.includes('@') ||
         typeof fullName !== 'string' ||
         fullName.trim() === '' ||
+        !(title === null || typeof title === 'string') ||
         !(departmentId === null || isUuid(departmentId)) ||
         !Array.isArray(roles) ||
         !roles.every(isGlobalRole) ||
         typeof temporaryPassword !== 'string'
       ) {
-        throw invalid('create-user needs email, fullName, departmentId (or null), roles and temporaryPassword.')
+        throw invalid('create-user needs email, fullName, departmentId (or null), roles and temporaryPassword, and takes an optional title.')
       }
       return {
         action: 'create-user',
         email: email.trim(),
         fullName: fullName.trim(),
+        title: title?.trim() || null,
         departmentId,
         roles: [...new Set(roles)],
         temporaryPassword,
@@ -67,6 +69,10 @@ function parseRequest(body: unknown): AccountRequest {
 // Root may create accounts whose roles are all admin, and admins may create staff. Each new
 // account holds at least one role the caller may grant, so root creates nothing but admins.
 async function createUser(request: NewUser, caller: string) {
+  // The database refuses it too, but only once the account exists.
+  if (request.title !== null && [...request.title].length > MAX_TITLE_LENGTH) {
+    throw invalid(`A title can have at most ${MAX_TITLE_LENGTH} characters.`)
+  }
   const assignable = await callerRpc<GlobalRole[]>('assignable_roles', {}, caller)
   const refused = request.roles.filter((role) => !assignable.includes(role))
   if (request.roles.length === 0) throw new Refusal(403, 'forbidden', 'A user needs at least one role.')
@@ -82,8 +88,8 @@ async function createUser(request: NewUser, caller: string) {
     user_metadata: { full_name: request.fullName },
   })
   try {
-    if (request.departmentId) {
-      await rest('PATCH', `/profiles?id=eq.${user.id}`, { department_id: request.departmentId }, SERVICE)
+    if (request.departmentId || request.title) {
+      await rest('PATCH', `/profiles?id=eq.${user.id}`, { department_id: request.departmentId, title: request.title }, SERVICE)
     }
     // Inserted as the caller, so the grant rules in RLS decide.
     await rest('POST', '/user_roles', request.roles.map((role) => ({ user_id: user.id, role })), caller)

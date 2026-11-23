@@ -1,19 +1,23 @@
 import { ArrowLeftIcon, FileTextIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
+import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { FileLink, FileMenuItems } from '@/components/file-link'
+import { LoadError, NotFound, PageHeader, RowActions, TableSkeleton } from '@/components/page'
+import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
+import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import { LECTURER_FILE_SECTION, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
@@ -40,7 +44,7 @@ type PageData = { offering: Offering | null; status: SectionStatus | null }
 /** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: lecturer, timetable, uploaded, and the row menu of the user's own timetable. */
+/** The table's columns: lecturer, timetable, uploaded, and the row menu of each timetable. */
 const COLUMNS = ['', '', WIDE, '']
 
 /**
@@ -54,7 +58,7 @@ export function LecturerTimetables() {
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState<Timetable | null>(null)
   const picker = useRef<HTMLInputElement>(null)
@@ -72,11 +76,9 @@ export function LecturerTimetables() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? statuses.error
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    const failed = Boolean(offering.error ?? statuses.error)
+    setLoadFailed(failed)
+    if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
   }, [offeringId])
@@ -95,20 +97,15 @@ export function LecturerTimetables() {
   )
 
   if (data && !data.offering) {
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
+  }
+
+  if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={SECTION.title} description="Open a section from its course file." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FileTextIcon}
-                title="Section not found"
-                description="It does not exist, or you do not have access to its course file."
-              />
-            </TableBody>
-          </Table>
+        <PageHeader title={SECTION.title} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load the timetables" onRetry={reload} />
         </Card>
       </div>
     )
@@ -129,14 +126,13 @@ export function LecturerTimetables() {
     event.target.value = ''
     if (!file || !offering) return
     setUploading(true)
-    setNotice(null)
     try {
       await uploadFile(supabase, { semesterId: offering.semester_id, section: SECTION.number }, file)
       await reload()
-      setNotice({ tone: 'success', text: `Uploaded ${file.name} as your timetable for ${offering.semester.code}.` })
+      toast.success('Uploaded your timetable')
     } catch (error) {
       await reload()
-      setNotice({ tone: 'error', text: `${file.name} was not uploaded. ${error instanceof Error ? error.message : String(error)}` })
+      toast.error(friendlyError(error))
     }
     setUploading(false)
   }
@@ -162,16 +158,6 @@ export function LecturerTimetables() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {data?.status && <SectionStatusBadge status={data.status} />}
-        <span>
-          Each lecturer uploads their own timetable, one PDF of up to 20 MB per semester. It shows in every course file they teach that semester. This
-          section is Missing until every lecturer of this offering has one.
-        </span>
-      </div>
-      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {notice && <NoticeAlert notice={notice} />}
-
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Lecturer timetables">
           <TableHeader className="bg-muted/50">
@@ -190,7 +176,7 @@ export function LecturerTimetables() {
             ) : (
               lecturers.map((lecturer) => {
                 const timetable = offering.linked_files.find((file) => file.lecturer_id === lecturer.lecturer_id)
-                const uploadedAt = timetable && new Date(timetable.uploaded_at).toLocaleString()
+                const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const isOwn = lecturer.lecturer_id === userId
                 return (
                   <TableRow key={lecturer.lecturer_id}>
@@ -204,7 +190,7 @@ export function LecturerTimetables() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       {timetable ? (
                         <div className="grid gap-0.5">
-                          <span>{timetable.name}</span>
+                          <FileLink file={timetable} />
                           <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
                           <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
                         </div>
@@ -214,12 +200,18 @@ export function LecturerTimetables() {
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
                     <TableCell className="px-4 py-2 text-right">
-                      {isOwn && timetable && (
-                        <RowActions label="Actions for your timetable">
-                          <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(timetable)}>
-                            <Trash2Icon />
-                            Delete
-                          </DropdownMenuItem>
+                      {timetable && (
+                        <RowActions label={isOwn ? 'Actions for your timetable' : `Actions for the timetable of ${lecturer.lecturer_name}`}>
+                          <FileMenuItems file={timetable} />
+                          {isOwn && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(timetable)}>
+                                <Trash2Icon />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </RowActions>
                       )}
                     </TableCell>
@@ -231,15 +223,17 @@ export function LecturerTimetables() {
         </Table>
       </Card>
 
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
+      <SectionPager offeringId={offeringId} section={SECTION.number} />
+
       {deleting && offering && (
         <DeleteSharedFileDialog
           file={deleting}
-          section={SECTION}
-          subject={`Your timetable for ${offering.semester.code}`}
+          title="your timetable"
           onClose={() => setDeleting(null)}
           onDeleted={async () => {
             await reload()
-            setNotice({ tone: 'success', text: `Deleted ${deleting.name}.` })
+            toast.success(`Deleted ${deleting.name}`)
           }}
         />
       )}

@@ -110,6 +110,3 @@ create table fake_push.unregistered (token text primary key);
 
 grant usage on schema fake_push to service_role;
 grant all on all tables in schema fake_push to service_role;
-
--- Nothing sends email any more.
-drop schema fake_mail cascade;

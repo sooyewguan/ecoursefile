@@ -417,6 +417,24 @@ test('lecturers and coordinators read the reports of the offerings they teach on
   ])
 })
 
+test('the reports name each lecturer by their title and name, and list lecturers by full name', async () => {
+  const semester = await emptyReportSemester()
+  const [aminah, bala, chong] = await Promise.all([createStaff('Aminah Report'), createStaff('Bala Report'), createStaff('Chong Report')])
+  for (const [staff, title] of [
+    [aminah, 'Prof. Madya'],
+    [bala, 'Ts.'],
+  ] as const) {
+    expect((await staff.client.rpc('update_my_profile', { full_name: staff.name, title })).error).toBeNull()
+  }
+  for (const staff of [chong, bala, aminah]) await createOffering({ coordinatorId: staff.id, semester })
+  const names = ['Prof. Madya Aminah Report', 'Ts. Bala Report', 'Chong Report']
+  const dean = await signInAs('dean')
+
+  expect((await fetchReport<LecturerRow>(dean, 'report_lecturers', semester.id)).map((row) => row.lecturer_name)).toEqual(names)
+  const offerings = await fetchReport<OfferingRow>(dean, 'report_offerings', semester.id)
+  expect(offerings.map((row) => row.coordinator_name).toSorted()).toEqual(names.toSorted())
+})
+
 test('root, signed-out visitors and direct calls to the helpers get no reports', async () => {
   const root = await signInAs('root')
   for (const name of REPORTS) {

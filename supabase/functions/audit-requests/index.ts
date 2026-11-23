@@ -20,14 +20,15 @@ type AuditRequest = { id: string; state: 'draft' | Step }
 
 type AuditRequestsRequest = { action: 'send'; requestId: string } | { action: 'reply'; requestId: string; message: string | null }
 
-type Person = { id: string; full_name: string; active: boolean }
+/** display_name is how a notification names a person, with their title. */
+type Person = { id: string; display_name: string; active: boolean }
 
 /** A request as the notifications need it, read with the service role. NOTIFICATION_SELECT selects it. */
 type NotificationSource = {
   state: Step
   reply_message: string | null
   auditor: Person
-  replier: { full_name: string } | null
+  replier: { display_name: string } | null
   offering: {
     id: string
     semester: { code: string }
@@ -40,9 +41,9 @@ type NotificationSource = {
 const NOTIFICATION_SELECT = [
   'state',
   'reply_message',
-  'auditor:profiles!audit_requests_auditor_id_fkey(id,full_name,active)',
-  'replier:profiles!audit_requests_replied_by_fkey(full_name)',
-  'offering:offerings(id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,full_name,active)))',
+  'auditor:profiles!audit_requests_auditor_id_fkey(id,display_name,active)',
+  'replier:profiles!audit_requests_replied_by_fkey(display_name)',
+  'offering:offerings(id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,display_name,active)))',
   'items:audit_request_items(section)',
 ].join(',')
 
@@ -149,7 +150,7 @@ function requestNotification({ auditor, offering, items }: NotificationSource) {
     to: [...new Set(staff.map((lecturer) => lecturer.id))],
     message: {
       title: `Audit request for ${offering.course.code}`,
-      body: `${auditor.full_name} asks you to fix ${count} of the course file of ${courseOf(offering)}.`,
+      body: `${auditor.display_name} asks you to fix ${count} of the course file of ${courseOf(offering)}.`,
       link: `/course-files/${offering.id}`,
     },
   }
@@ -162,7 +163,7 @@ function replyNotification({ auditor, replier, reply_message, offering }: Notifi
     to: auditor.active ? [auditor.id] : [],
     message: {
       title: `Reply to your audit request for ${offering.course.code}`,
-      body: `${replier!.full_name} replied to your audit request for ${courseOf(offering)}.${quote ? ` "${quote}"` : ''}`,
+      body: `${replier!.display_name} replied to your audit request for ${courseOf(offering)}.${quote ? ` "${quote}"` : ''}`,
       link: `/course-files/${offering.id}`,
     },
   }

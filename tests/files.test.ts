@@ -468,15 +468,15 @@ test('each upload and delete adds an activity log entry that only readers of the
   expect(await logOf(course.lecturer.client)).toEqual(expected)
 })
 
-test('staff read the name of the uploader of each file in their offering', async () => {
+test('staff read the title and name of the uploader of each file in their offering', async () => {
   const course = await createCourse()
   const fullName = `Coordinator ${crypto.randomUUID()}`
-  expect((await adminClient().from('profiles').update({ full_name: fullName }).eq('id', course.coordinator.id)).error).toBeNull()
+  expect((await adminClient().from('profiles').update({ full_name: fullName, title: 'Dr.' }).eq('id', course.coordinator.id)).error).toBeNull()
   await uploadFile(course.coordinator.client, course.slot, pdf('plan.pdf'))
 
   const { data } = await course.lecturer.client.from('files').select('uploader_name').eq('offering_id', course.slot.offeringId)
 
-  expect(data).toEqual([{ uploader_name: fullName }])
+  expect(data).toEqual([{ uploader_name: `Dr. ${fullName}` }])
 })
 
 /** A PDF of count numbered 16:9 slides, as lecture notes are exported. */

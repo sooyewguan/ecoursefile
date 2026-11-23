@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { AppShell } from '@/components/app-shell'
+import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
@@ -11,6 +12,7 @@ import { CourseFileSection } from './pages/CourseFileSection.tsx'
 import { Courses } from './pages/Courses.tsx'
 import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
+import { FileViewer } from './pages/FileViewer.tsx'
 import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
@@ -27,12 +29,14 @@ import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 export function App() {
   return (
     <AuthProvider>
+      <Toaster />
       <BrowserRouter>
         <Routes>
           <Route element={<Guard />}>
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/files/:fileId" element={<FileViewer />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Home />} />
               <Route path="/profile" element={<Profile />} />
@@ -50,6 +54,7 @@ export function App() {
               <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
               <Route path="/completeness" element={<Completeness />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/profile" element={<Profile />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

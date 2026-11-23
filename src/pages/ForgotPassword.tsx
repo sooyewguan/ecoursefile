@@ -6,7 +6,7 @@ export function ForgotPassword() {
   return (
     <AuthLayout
       title="Forgot your password?"
-      description="Ask an admin of your faculty to reset it. They give you a temporary password, and you choose your own at your next sign-in."
+      description="Your faculty's eCourseFile administrator resets it and gives you a temporary password. You choose your own at your next sign-in."
       footer={
         <Link to="/sign-in" className="underline underline-offset-4">
           Back to sign in

@@ -2,7 +2,7 @@ import { expect, test } from 'vitest'
 import { redirectFor, rolesFromAccessToken, type AuthState } from './auth.ts'
 import type { GlobalRole } from './roles.ts'
 
-const profile = { id: 'user-1', email: 'user@example.test', fullName: 'A User' }
+const profile = { id: 'user-1', email: 'user@example.test', fullName: 'A User', title: null, displayName: 'A User' }
 
 function ready(...roles: GlobalRole[]): AuthState {
   return { kind: 'ready', profile, roles }

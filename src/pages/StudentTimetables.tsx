@@ -1,10 +1,13 @@
 import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { toast } from 'sonner'
+import { FileLink, FileMenuItems } from '@/components/file-link'
+import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
+import { Time } from '@/components/time'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn, formatSize } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { friendlyError } from '../errors.ts'
 import { PROGRAM_CODE_FILE_SECTION, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -41,8 +45,8 @@ type PageData = { offering: Offering | null; status: SectionStatus | null }
 /** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: tick, program code, timetable and uploaded. */
-const COLUMNS = ['', '', '', WIDE]
+/** The table's columns: tick, program code, timetable, uploaded and the timetable's row menu. */
+const COLUMNS = ['', '', '', WIDE, '']
 
 /**
  * Section 5 of a course file: the program codes whose students take the course. The list holds
@@ -56,7 +60,7 @@ export function StudentTimetables() {
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const [data, setData] = useState<PageData | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   /** The program code whose tick is being saved. */
   const [saving, setSaving] = useState<string | null>(null)
 
@@ -73,11 +77,9 @@ export function StudentTimetables() {
         .overrideTypes<Offering | null, { merge: false }>(),
       supabase.rpc('section_statuses', { offering_id: offeringId }),
     ])
-    const error = offering.error ?? statuses.error
-    if (error) {
-      setNotice({ tone: 'error', text: error.message })
-      return
-    }
+    const failed = Boolean(offering.error ?? statuses.error)
+    setLoadFailed(failed)
+    if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
   }, [offeringId])
@@ -96,20 +98,15 @@ export function StudentTimetables() {
   )
 
   if (data && !data.offering) {
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
+  }
+
+  if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={SECTION.title} description="Open a section from its course file." action={backLink} />
-        <Card className="gap-0 overflow-hidden py-0">
-          <Table>
-            <TableBody>
-              <TableEmpty
-                columns={1}
-                icon={FileTextIcon}
-                title="Section not found"
-                description="It does not exist, or you do not have access to its course file."
-              />
-            </TableBody>
-          </Table>
+        <PageHeader title={SECTION.title} action={backLink} />
+        <Card className="py-0">
+          <LoadError title="Couldn't load the student timetables" onRetry={reload} />
         </Card>
       </div>
     )
@@ -124,13 +121,12 @@ export function StudentTimetables() {
   /** Whether the user teaches the offering, and so may tick its codes. */
   const canTick = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
 
-  /** Ticks or unticks the code, then reports the outcome. */
+  /** Ticks or unticks the code. The box shows the outcome, and a refusal shows in a toast. */
   async function setTicked(programCode: ProgramCode, isTicked: boolean) {
     setSaving(programCode.id)
-    setNotice(null)
     const { error } = await supabase.rpc('tick_program_code', { offering_id: offeringId, program_code_id: programCode.id, ticked: isTicked })
     await reload()
-    setNotice(error ? { tone: 'error', text: error.message } : { tone: 'success', text: `${isTicked ? 'Ticked' : 'Unticked'} ${programCode.code}.` })
+    if (error) toast.error(friendlyError(error))
     setSaving(null)
   }
 
@@ -144,17 +140,6 @@ export function StudentTimetables() {
         action={backLink}
       />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        {data?.status && <SectionStatusBadge status={data.status} />}
-        <span>
-          {canTick ? 'Tick' : 'The coordinator and lecturers tick'} each program code whose students take this course, and its student timetable shows
-          here. The list holds the codes that have a timetable for {offering?.semester.code ?? 'the semester'}, which the admin uploads. This section is
-          Missing until a code is ticked, and while a ticked code has no timetable.
-        </span>
-      </div>
-      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
-      {notice && <NoticeAlert notice={notice} />}
-
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Program codes">
           <TableHeader className="bg-muted/50">
@@ -165,23 +150,21 @@ export function StudentTimetables() {
               <TableHead className="px-4">Program code</TableHead>
               <TableHead className="px-4">Timetable</TableHead>
               <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
+              <TableHead className="w-14 px-4">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {!offering ? (
               <TableSkeleton columns={COLUMNS} />
             ) : codes.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={FileTextIcon}
-                title="No student timetables yet"
-                description={`The admin uploads a timetable for each program code on the page of semester ${offering.semester.code}. Codes show here once they have one.`}
-              />
+              <TableEmpty columns={COLUMNS.length} icon={FileTextIcon} title={`No student timetables for ${offering.semester.code} yet`} />
             ) : (
               codes.map((programCode) => {
                 const isTicked = ticked.has(programCode.id)
                 const timetable = offering.linked_files.find((file) => file.program_code_id === programCode.id)
-                const uploadedAt = timetable && new Date(timetable.uploaded_at).toLocaleString()
+                const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const checkboxId = `program-code-${programCode.id}`
                 return (
                   <TableRow key={programCode.id}>
@@ -205,20 +188,27 @@ export function StudentTimetables() {
                     <TableCell className="px-4 py-3 whitespace-normal">
                       {timetable ? (
                         <div className="grid gap-0.5">
-                          <span>{timetable.name}</span>
+                          <FileLink file={timetable} />
                           <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
                           <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
                         </div>
                       ) : isTicked ? (
                         <div className="grid justify-items-start gap-1">
                           <SectionStatusBadge status="missing" />
-                          <span className="text-muted-foreground text-xs">The admin deleted this timetable. Untick the code, or ask the admin to upload it again.</span>
+                          <span className="text-muted-foreground text-xs">Timetable removed</span>
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">Not linked</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
+                    <TableCell className="px-4 py-2 text-right">
+                      {timetable && (
+                        <RowActions label={`Actions for the student timetable of ${programCode.code}`}>
+                          <FileMenuItems file={timetable} />
+                        </RowActions>
+                      )}
+                    </TableCell>
                   </TableRow>
                 )
               })
@@ -226,6 +216,9 @@ export function StudentTimetables() {
           </TableBody>
         </Table>
       </Card>
+
+      <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
+      <SectionPager offeringId={offeringId} section={SECTION.number} />
     </div>
   )
 }

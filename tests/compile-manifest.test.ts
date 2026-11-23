@@ -156,6 +156,23 @@ test('the cover names the course, semester, department, coordinator and lecturer
   })
 })
 
+test('the cover names each lecturer by their title and name', async () => {
+  const { offeringId, coordinator, bala, aisyah } = await createCourse()
+  for (const [staff, fullName, title] of [
+    [coordinator, 'Zainab Coordinator', 'Prof. Madya'],
+    [bala, 'Bala Lecturer', 'Ts.'],
+  ] as const) {
+    expect((await staff.client.rpc('update_my_profile', { full_name: fullName, title })).error).toBeNull()
+  }
+
+  const { cover } = await compileManifest(aisyah.client, offeringId)
+
+  expect(cover).toMatchObject({
+    coordinator: 'Prof. Madya Zainab Coordinator',
+    lecturers: ['Prof. Madya Zainab Coordinator', 'Aisyah Lecturer', 'Ts. Bala Lecturer'],
+  })
+})
+
 test('everyone who reads the course file gets its manifest, and other lecturers and root are refused', async () => {
   const { offeringId, course, coordinator, bala, outsider } = await createCourse()
   const readers = [coordinator.client, bala.client, ...(await Promise.all((['auditor', 'hod', 'dean', 'deputy_dean', 'admin'] as const).map(signInAs)))]

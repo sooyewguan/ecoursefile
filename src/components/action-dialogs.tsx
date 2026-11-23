@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { editsErrorField, FormErrors, type ActionError } from '@/components/form-errors'
 import { ErrorAlert } from '@/components/notice'
 import {
   AlertDialog,
@@ -22,12 +23,13 @@ import {
 } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
 
-/** Runs an action and resolves to its error message, or null when it succeeded. */
-export type Action<T extends unknown[] = []> = (...args: T) => Promise<string | null>
+/** Runs an action and resolves to why it failed, or null when it succeeded. */
+export type Action<T extends unknown[] = []> = (...args: T) => Promise<ActionError | null>
 
 /**
- * A dialog around a form. Submitting runs the action; the dialog shows the action's error, or
- * closes when the action succeeds. The dialog is open while it is mounted.
+ * A dialog around a form. Submitting runs the action; the dialog shows the action's error, under
+ * its field when it names one, or closes when the action succeeds. The dialog is open while it is
+ * mounted. Place a FieldError under each field that an error can name.
  */
 export function FormDialog({
   title,
@@ -39,14 +41,15 @@ export function FormDialog({
   children,
 }: {
   title: string
-  description: ReactNode
+  description?: ReactNode
   submitLabel: string
   submitDisabled?: boolean
   onSubmit: Action<[FormData]>
   onClose: () => void
   children: ReactNode
 }) {
-  const [error, setError] = useState<string | null>(null)
+  const form = useRef<HTMLFormElement>(null)
+  const [error, setError] = useState<ActionError | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -60,14 +63,23 @@ export function FormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto">
-        <form onSubmit={submit} aria-label={title} className="grid gap-6">
+      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto" {...(!description && { 'aria-describedby': undefined })}>
+        <form
+          ref={form}
+          onSubmit={submit}
+          onInput={(event) => editsErrorField(error, event.target) && setError(null)}
+          aria-label={title}
+          className="grid gap-6"
+        >
           <DialogHeader>
             <DialogTitle className="leading-snug">{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+            {description && <DialogDescription>{description}</DialogDescription>}
           </DialogHeader>
-          <div className="grid gap-4">{children}</div>
-          {error && <ErrorAlert>{error}</ErrorAlert>}
+          <div className="grid gap-4">
+            <FormErrors form={form} error={error}>
+              {children}
+            </FormErrors>
+          </div>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="outline">
@@ -99,10 +111,10 @@ export function ConfirmDialog({
   children,
 }: {
   title: string
-  description: ReactNode
+  description?: ReactNode
   confirmLabel: string
   destructive?: boolean
-  onConfirm: Action
+  onConfirm: () => Promise<string | null>
   onClose: () => void
   children?: ReactNode
 }) {
@@ -119,10 +131,10 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent>
+      <AlertDialogContent {...(!description && { 'aria-describedby': undefined })}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
         {children}
         {error && <ErrorAlert>{error}</ErrorAlert>}

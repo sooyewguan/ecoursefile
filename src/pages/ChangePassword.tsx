@@ -1,38 +1,35 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { AuthLayout } from '@/components/auth-layout'
-import { ErrorAlert } from '@/components/notice'
+import { editsErrorField, FormErrors, type ActionError } from '@/components/form-errors'
+import { confirmationError, NewPasswordFields, newPasswordError } from '@/components/password-fields'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '../auth-provider.tsx'
 import { supabase } from '../supabase.ts'
 
 export function ChangePassword() {
   const state = useAuth()
-  const [error, setError] = useState<string | null>(null)
+  const form = useRef<HTMLFormElement>(null)
+  const [error, setError] = useState<ActionError | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const password = String(form.get('password'))
-    if (password !== String(form.get('confirm'))) {
-      setError('The two passwords do not match.')
-      return
-    }
+    const fields = new FormData(event.currentTarget)
+    const mismatch = confirmationError(fields)
+    if (mismatch) return setError(mismatch)
     setBusy(true)
     // On success supabase-js emits USER_UPDATED, the auth state re-reads the cleared flag,
     // and the route guard moves the user on to /.
-    const { error } = await supabase.auth.updateUser({ password })
+    const { error } = await supabase.auth.updateUser({ password: String(fields.get('password')) })
     setBusy(false)
-    setError(error?.message ?? null)
+    setError(error && newPasswordError(error))
   }
 
   return (
     <AuthLayout
       title="Set a new password"
-      description="You need to set a new password before you can continue."
+      description="Replace your temporary password to continue."
       footer={
         <>
           {state.kind === 'must-change-password' && <>Signed in as {state.profile.email}. </>}
@@ -47,16 +44,10 @@ export function ChangePassword() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="grid gap-5">
-        <div className="grid gap-2">
-          <Label htmlFor="password">New password</Label>
-          <Input id="password" name="password" type="password" autoComplete="new-password" required />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="confirm">Confirm new password</Label>
-          <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
-        </div>
-        {error && <ErrorAlert>{error}</ErrorAlert>}
+      <form ref={form} onSubmit={onSubmit} onInput={(event) => editsErrorField(error, event.target) && setError(null)} className="grid gap-5">
+        <FormErrors form={form} error={error}>
+          <NewPasswordFields />
+        </FormErrors>
         <Button type="submit" disabled={busy} className="w-full">
           {busy && <Spinner />}
           Set password
