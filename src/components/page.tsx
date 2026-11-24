@@ -40,6 +40,14 @@ export function PageHeader({ title, description, action }: { title: string; desc
   )
 }
 
+/**
+ * A page's buttons, at the end of its header. On a phone they take the header's full width and
+ * share each row they wrap onto, so buttons of different lengths line up at both edges.
+ */
+export function PageActions({ children }: { children: ReactNode }) {
+  return <div className="flex flex-wrap gap-2 max-sm:w-full max-sm:*:grow">{children}</div>
+}
+
 /** The card that holds a table edge to edge, with what belongs to the table, such as its pager. */
 export function TableCard({ children }: { children: ReactNode }) {
   return <Card className="gap-0 overflow-hidden py-0">{children}</Card>

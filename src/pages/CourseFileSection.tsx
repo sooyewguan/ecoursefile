@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
@@ -386,7 +386,7 @@ export function CourseFileSection() {
             : `Section ${section.number}`
         }
         action={
-          <div className="flex flex-wrap gap-2">
+          <PageActions>
             {backLink}
             {section.itemTitle
               ? addItemButton
@@ -396,7 +396,7 @@ export function CourseFileSection() {
                     {uploadButton({ item: null, slot: null })}
                   </>
                 )}
-          </div>
+          </PageActions>
         }
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />

@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableSkeleton } from '@/components/page'
 import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -145,7 +145,7 @@ export function LecturerTimetables() {
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }
         action={
-          <div className="flex flex-wrap gap-2">
+          <PageActions>
             {backLink}
             {canUpload && (
               <Button onClick={() => picker.current?.click()} disabled={uploading}>
@@ -153,7 +153,7 @@ export function LecturerTimetables() {
                 Upload your timetable
               </Button>
             )}
-          </div>
+          </PageActions>
         }
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />

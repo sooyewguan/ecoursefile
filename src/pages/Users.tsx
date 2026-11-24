@@ -7,7 +7,7 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
-import { PageHeader, RowActions, TableCard, TableEmpty } from '@/components/page'
+import { PageActions, PageHeader, RowActions, TableCard, TableEmpty } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
@@ -172,7 +172,7 @@ export function Users() {
         title="Users"
         action={
           granted.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <PageActions>
               {!forRoot && (
                 <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
                   <FileUpIcon />
@@ -183,7 +183,7 @@ export function Users() {
                 <UserPlusIcon />
                 {forRoot ? 'Add admin' : 'Add user'}
               </Button>
-            </div>
+            </PageActions>
           )
         }
       />
