@@ -1,6 +1,7 @@
 import { DownloadIcon, FileTextIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
+import { BrandMark } from '@/components/brand'
 import { reuseSlotOf } from '@/components/file-link'
 import { LoadError, NotFound, useDocumentTitle } from '@/components/page'
 import { Button } from '@/components/ui/button'
@@ -13,8 +14,8 @@ import { FileActionError, fetchFile } from '../uploads.ts'
 type Shown = { name: string; url: string } | 'not-found' | 'failed'
 
 /**
- * One file in a tab of its own, which file links open: its name, a Download button, and the PDF in
- * the browser's viewer. The bytes come through a short-lived URL from the files function, which
+ * One file in a tab of its own, which file links open: the app's mark, which leads home, the file's
+ * name, a Download button, and the PDF in the browser's viewer. The bytes come through a short-lived URL from the files function, which
  * shows the file only to a user who may read it.
  */
 export function FileViewer() {
@@ -61,27 +62,31 @@ export function FileViewer() {
 
   return (
     <main className="flex h-svh flex-col">
-      <header className="flex items-center gap-3 border-b px-4 py-2">
-        <FileTextIcon aria-hidden="true" className="text-muted-foreground size-5 shrink-0" />
+      <header className="bg-card flex h-14 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
+        <Link to="/" aria-label="eCourseFile home" className="focus-visible:ring-ring/40 shrink-0 rounded-lg outline-none focus-visible:ring-[3px]">
+          <BrandMark />
+        </Link>
+        <span aria-hidden="true" className="bg-border h-6 w-px shrink-0" />
+        <FileTextIcon aria-hidden="true" className="text-muted-foreground size-4 shrink-0" />
         {file ? <h1 className="min-w-0 flex-1 truncate text-sm font-medium">{file.name}</h1> : <Skeleton className="h-5 max-w-56 flex-1" />}
         {file ? (
           <Button asChild variant="outline" size="sm">
             <a href={file.url} download={file.name}>
               <DownloadIcon />
-              Download
+              <span className="max-sm:sr-only">Download</span>
             </a>
           </Button>
         ) : (
           <Button variant="outline" size="sm" disabled>
             <DownloadIcon />
-            Download
+            <span className="max-sm:sr-only">Download</span>
           </Button>
         )}
       </header>
       {file ? (
-        <iframe title={file.name} src={file.url} className="w-full flex-1" />
+        <iframe title={file.name} src={file.url} className="bg-muted w-full flex-1" />
       ) : (
-        <div className="text-muted-foreground flex flex-1 items-center justify-center">
+        <div className="bg-muted text-muted-foreground flex flex-1 items-center justify-center">
           <Spinner className="size-6" />
         </div>
       )}
