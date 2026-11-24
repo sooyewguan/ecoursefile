@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, FileDownIcon, FolderOpenIcon } from 'lucide-react'
+import { ArrowLeftIcon, CircleAlertIcon, CircleCheckIcon, FileDownIcon, FolderOpenIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -7,6 +7,7 @@ import { AuditRequests } from '@/components/audit-requests'
 import { LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
+import { VerdictDialog } from '@/components/section-verdict'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,7 +19,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
 import { courseFileProgress } from '../progress.ts'
 import { saveFile } from '../save-file.ts'
-import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
+import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
 
@@ -61,6 +62,10 @@ export function CourseFile() {
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [compiling, setCompiling] = useState<Compiling | null>(null)
+  /** The verdict an auditor is recording from the section table. */
+  const [recording, setRecording] = useState<{ section: number; title: string; verdict: Verdict } | null>(null)
+  /** Goes up with each verdict recorded here, so the audit requests load the auditor's draft again. */
+  const [revision, setRevision] = useState(0)
 
   const reload = useCallback(async () => {
     const [offering, statuses] = await Promise.all([
@@ -114,8 +119,9 @@ export function CourseFile() {
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
-  /** The table's columns: number, section, the switch for staff, and status, last so it stays put. */
-  const columns = canSwitch ? ['', '', '', WIDE] : ['', '', WIDE]
+  const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
+  /** The table's columns: number, section, the switch for staff, status, and an auditor's verdict buttons. */
+  const columns = ['', '', ...(canSwitch ? [''] : []), WIDE, ...(isAuditor ? [''] : [])]
   const progress = data && courseFileProgress(data.statuses)
 
   /**
@@ -201,6 +207,7 @@ export function CourseFile() {
               onSwitchOn={(section) =>
                 void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
               }
+              revision={revision}
             />
           )}
 
@@ -226,6 +233,9 @@ export function CourseFile() {
                     <TableHead className="px-4">Section</TableHead>
                     {canSwitch && <TableHead className="w-16 px-4">On</TableHead>}
                     <TableHead className={cn('w-36 px-4', WIDE)}>Status</TableHead>
+                    {isAuditor && (
+                      <TableHead className="w-24 px-4 text-right">Review</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -274,6 +284,30 @@ export function CourseFile() {
                           <TableCell className={cn('px-4 py-3 align-top', WIDE)}>
                             <SectionStatusBadge status={status} />
                           </TableCell>
+                          {isAuditor && (
+                            <TableCell className="relative z-10 px-4 py-2 align-top">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Mark ${title} verified`}
+                                  title="Mark verified"
+                                  onClick={() => setRecording({ section, title, verdict: 'verified' })}
+                                >
+                                  <CircleCheckIcon className="text-success" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Mark ${title} needs fix`}
+                                  title="Mark needs fix"
+                                  onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
+                                >
+                                  <CircleAlertIcon className="text-warning" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       )
                     })
@@ -289,6 +323,19 @@ export function CourseFile() {
       </Tabs>
 
       {switchDialog}
+      {recording && (
+        <VerdictDialog
+          offeringId={offeringId!}
+          section={recording.section}
+          sectionTitle={recording.title}
+          verdict={recording.verdict}
+          onClose={() => setRecording(null)}
+          onRecorded={async () => {
+            await reload()
+            setRevision((count) => count + 1)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -82,7 +82,8 @@ type Commenting = { request: AuditRequest; item: RequestItem }
  * staffEmails are the coordinator's and lecturers' emails, for an auditor to tell them of a request
  * that notified nobody, and courseCode names the course file in that email. switchedOff holds the
  * switchable sections that are off, with the reason when there is one, and onSwitchOn switches one on
- * for staff, since a switched-off section takes no upload. A request's
+ * for staff, since a switched-off section takes no upload. A new revision loads the requests again,
+ * for a verdict recorded elsewhere on the page, which changes the auditor's draft. A request's
  * notification links to #audit-request-<id>, so the page scrolls to that request and marks it once
  * the requests load.
  */
@@ -95,6 +96,7 @@ export function AuditRequests({
   statuses,
   switchedOff,
   onSwitchOn,
+  revision,
 }: {
   offeringId: string
   courseCode: string
@@ -104,6 +106,7 @@ export function AuditRequests({
   statuses: Map<number, SectionStatus>
   switchedOff: ReadonlyMap<number, string | undefined>
   onSwitchOn: (section: number) => void
+  revision: number
 }) {
   const { hash } = useLocation()
   /** Null while they load. */
@@ -133,7 +136,7 @@ export function AuditRequests({
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, revision])
 
   useEffect(() => {
     if (loaded && hash) document.getElementById(hash.slice(1))?.scrollIntoView()
