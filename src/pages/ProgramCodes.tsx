@@ -61,7 +61,7 @@ export function ProgramCodes() {
         {!empty && <ListSearch list={list} label="Search program codes" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="px-4">Code</TableHead>
                 <TableHead className="w-24 px-4">

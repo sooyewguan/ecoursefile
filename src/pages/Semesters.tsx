@@ -71,7 +71,7 @@ export function Semesters() {
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead className="px-4">Semester</TableHead>
               <TableHead className="w-32 px-4 text-right">Offerings</TableHead>

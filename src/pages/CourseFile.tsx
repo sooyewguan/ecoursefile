@@ -194,7 +194,7 @@ export function CourseFile() {
             </div>
             <Card className="gap-0 overflow-hidden py-0">
               <Table aria-labelledby="sections-heading">
-                <TableHeader className="bg-muted/50">
+                <TableHeader>
                   <TableRow>
                     <TableHead className="w-12 px-4 text-right">#</TableHead>
                     <TableHead className="px-4">Section</TableHead>

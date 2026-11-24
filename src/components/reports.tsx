@@ -175,7 +175,7 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table aria-label="Offerings">
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead className="min-w-56 px-4">{column.courseTitle.header}</TableHead>
             <TableHead className={cn('w-28 px-4', LARGE)}>{column.departmentName.header}</TableHead>

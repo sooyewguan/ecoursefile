@@ -538,7 +538,7 @@ function FileTable({
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table aria-label={label}>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             {reorderable && (
               <TableHead className={cn('w-10 px-2', WIDE)}>

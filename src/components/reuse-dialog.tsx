@@ -60,7 +60,7 @@ export function ReuseDialog({
         </DialogHeader>
         <div className="overflow-hidden rounded-md border">
           <Table aria-label="Files from past semesters">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className={`w-32 px-4 ${WIDE}`}>Semester</TableHead>
                 <TableHead className="px-4">File</TableHead>

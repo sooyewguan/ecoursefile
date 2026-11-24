@@ -68,7 +68,7 @@ export function CourseTypes() {
         {!empty && <ListSearch list={list} label="Search course types" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="w-1/3 px-4">Name</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>On by default</TableHead>

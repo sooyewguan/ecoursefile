@@ -160,7 +160,7 @@ export function LecturerTimetables() {
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Lecturer timetables">
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead className="px-4">Lecturer</TableHead>
               <TableHead className="px-4">Timetable</TableHead>

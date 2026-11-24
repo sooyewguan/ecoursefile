@@ -65,7 +65,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
         </CardAction>
       </CardHeader>
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead className="w-16 px-4">Row</TableHead>
             <TableHead className="px-4">Email</TableHead>

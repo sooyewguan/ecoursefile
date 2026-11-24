@@ -142,7 +142,7 @@ export function StudentTimetables() {
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Program codes">
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead className="w-12 px-4">
                 <span className="sr-only">Ticked</span>

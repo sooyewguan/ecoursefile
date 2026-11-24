@@ -76,7 +76,7 @@ export function Departments() {
         {!empty && <ListSearch list={list} label="Search departments" />}
         <Card className="gap-0 overflow-hidden py-0">
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="w-40 px-4">Code</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Name</TableHead>

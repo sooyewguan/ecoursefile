@@ -281,7 +281,7 @@ export function Semester() {
         )}
         <Card className="gap-0 overflow-hidden py-0">
           <Table aria-labelledby="offerings-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Course</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Coordinator</TableHead>
@@ -326,7 +326,7 @@ export function Semester() {
         <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
         <Card className="gap-0 overflow-hidden py-0">
           <Table aria-labelledby="shared-files-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Section</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
@@ -377,7 +377,7 @@ export function Semester() {
         )}
         <Card className="gap-0 overflow-hidden py-0">
           <Table aria-labelledby="lecturer-timetables-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Lecturer</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
@@ -441,7 +441,7 @@ export function Semester() {
         )}
         <Card className="gap-0 overflow-hidden py-0">
           <Table aria-labelledby="student-timetables-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Program code</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>

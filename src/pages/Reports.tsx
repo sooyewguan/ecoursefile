@@ -296,7 +296,7 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table aria-labelledby="departments-heading">
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead className="px-4">{column.departmentName.header}</TableHead>
             <TableHead className={cn('w-28 px-4 text-right', WIDE)}>{column.offerings.header}</TableHead>
@@ -426,7 +426,7 @@ function HeatmapView({ semester }: ViewProps) {
       </Toolbar>
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label="Section heatmap">
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead className="px-4">{column.courseTitle.header}</TableHead>
               {SECTIONS.map((section) => (
@@ -548,7 +548,7 @@ function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table aria-label="Lecturers">
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead className="px-4 sm:w-2/5">{column.lecturer.header}</TableHead>
             <TableHead className={cn('px-4', WIDE)}>Courses</TableHead>

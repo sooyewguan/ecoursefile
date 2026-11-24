@@ -153,7 +153,7 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
 
       <Card className="gap-0 overflow-hidden py-0">
         <Table aria-label={semester ? `Course files of ${semester.label}` : 'Course files'}>
-          <TableHeader className="bg-muted/50">
+          <TableHeader>
             <TableRow>
               <TableHead className="px-4">Course</TableHead>
               <TableHead className={cn('w-2/5 px-4', WIDE)}>Department</TableHead>
