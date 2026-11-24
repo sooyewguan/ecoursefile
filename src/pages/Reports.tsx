@@ -482,7 +482,7 @@ function LecturersView({ semester, url }: ViewProps) {
   if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   const rows = report?.data ?? null
   if (semester && rows?.length === 0) return <NoOfferings semester={semester} />
-  const shown = rows && filterLecturers(rows, search)
+  const shown = rows && filterLecturers(rows, { search, departmentId: null })
   const searching = search.trim() !== ''
   const searchFor = (text: string) => {
     setSearch(text)
@@ -587,7 +587,7 @@ function LecturerCourses({ taught, className }: { taught: ReturnType<typeof lect
             {row.offering.coordinator && <Badge variant="secondary">{column.role.value(row)}</Badge>}
           </span>
           <div className="min-w-0 flex-1">
-            <SectionNumbers sections={row.offering.missing_sections} labelled />
+            <SectionNumbers offeringId={row.offering.offering_id} missing={row.offering.missing_sections} needsFix={row.offering.needs_fix_sections} />
           </div>
         </li>
       ))}
