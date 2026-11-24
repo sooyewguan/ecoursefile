@@ -2,9 +2,10 @@ import { BellIcon, BellOffIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { editsErrorField, FieldError, FormErrors, type ActionError } from '@/components/form-errors'
-import { Initials, RoleBadges } from '@/components/identity'
+import { RoleBadges } from '@/components/identity'
 import { PageHeader } from '@/components/page'
 import { confirmationError, NewPasswordFields, newPasswordError } from '@/components/password-fields'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,7 @@ import { MAX_TITLE_LENGTH } from '../../supabase/functions/_shared/user-import.t
 import type { Profile as SignedInProfile } from '../auth.ts'
 import { useAuth, useReloadAuth } from '../auth-provider.tsx'
 import { friendlyError } from '../errors.ts'
+import { initialsOf } from '../names.ts'
 import { pushStatus, turnOffPush, turnOnPush, type PushStatus } from '../push.ts'
 import type { GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
@@ -70,7 +72,9 @@ function AccountCard({ profile, roles }: { profile: SignedInProfile; roles: Glob
     <Card className="lg:sticky lg:top-20">
       <CardContent className="grid gap-5">
         <div className="flex items-center gap-4 lg:flex-col lg:items-start">
-          <Initials name={profile.fullName} className="size-16 text-xl font-semibold" />
+          <Avatar className="size-16">
+            <AvatarFallback className="text-xl font-semibold">{initialsOf(profile.fullName)}</AvatarFallback>
+          </Avatar>
           <p className="min-w-0 text-lg font-semibold break-words">{profile.displayName}</p>
         </div>
         <dl className="grid gap-3 text-sm">
