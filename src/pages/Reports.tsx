@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { EmptyState, LoadError, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import {
+  EmailLink,
   ExportMenu,
   loadOfferings,
   NUMBER_SKELETON,
@@ -548,6 +549,7 @@ function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
                   <TableCell className="px-4 py-3 align-top whitespace-normal">
                     <div className="grid gap-1">
                       <span className="font-medium">{column.lecturer.value(first)}</span>
+                      <EmailLink email={column.email.value(first)} />
                       {column.departmentCode.value(first) && (
                         <span className="text-muted-foreground text-xs">
                           {column.departmentCode.value(first)} {column.departmentName.value(first)}

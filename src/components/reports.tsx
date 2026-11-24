@@ -111,7 +111,7 @@ function SectionBadges({ offeringId, label, variant, sections }: { offeringId: s
           const title = SECTIONS.find((s) => s.number === section)!.title
           return (
             <li key={section}>
-              <Badge asChild variant={variant} className="tabular-nums hover:underline">
+              <Badge asChild variant={variant} className="tabular-nums hover:underline pointer-coarse:h-7 pointer-coarse:min-w-7">
                 <Link to={`/course-files/${offeringId}/sections/${section}`} title={`${section} ${title}`}>
                   {section}
                   <span className="sr-only"> {title}</span>
@@ -163,6 +163,16 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** A person's email as a link that starts a message to them. Nothing without one, as for a lecturer, who reads no one's email. */
+export function EmailLink({ email }: { email: string | null }) {
+  if (!email) return null
+  return (
+    <a href={`mailto:${email}`} className="text-muted-foreground w-fit text-xs wrap-anywhere hover:underline">
+      {email}
+    </a>
   )
 }
 
@@ -224,6 +234,9 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
                       <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
                       <span className="md:hidden"> · {column.coordinator.value(row)}</span>
                     </p>
+                    <div className="grid md:hidden">
+                      <EmailLink email={column.coordinatorEmail.value(row)} />
+                    </div>
                     <div className="mt-1 text-xs lg:hidden">
                       <SectionNumbers offeringId={row.offering_id} missing={row.missing_sections} needsFix={needsFixSections(row)} />
                     </div>
@@ -241,7 +254,12 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
                   <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>{column.coordinator.value(row)}</TableCell>
+                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>
+                  <div className="grid gap-0.5">
+                    {column.coordinator.value(row)}
+                    <EmailLink email={column.coordinatorEmail.value(row)} />
+                  </div>
+                </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top', SMALL)}>
                   <OfferingStatusBadge status={row.status} />
                 </TableCell>
