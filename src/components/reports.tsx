@@ -2,7 +2,7 @@ import { DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
-import { LoadError, TableSkeleton } from '@/components/page'
+import { LoadError, TableCard, TableSkeleton } from '@/components/page'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
 import { Badge } from '@/components/ui/badge'
@@ -173,7 +173,7 @@ const OFFERING_SKELETON = ['', LARGE, MEDIUM, SMALL, cn(SMALL, NUMBER_SKELETON),
 export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
   const column = OFFERING_COLUMNS
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <Table aria-label="Offerings">
         <TableHeader>
           <TableRow>
@@ -241,6 +241,6 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
           )}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }

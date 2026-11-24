@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
-import { LoadError, NotFound, PageHeader, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
 import { Button } from '@/components/ui/button'
@@ -192,7 +192,7 @@ export function CourseFile() {
                 <Skeleton className="h-5 w-40" />
               )}
             </div>
-            <Card className="gap-0 overflow-hidden py-0">
+            <TableCard>
               <Table aria-labelledby="sections-heading">
                 <TableHeader>
                   <TableRow>
@@ -254,7 +254,7 @@ export function CourseFile() {
                   )}
                 </TableBody>
               </Table>
-            </Card>
+            </TableCard>
           </section>
         </TabsContent>
         <TabsContent value="activity">

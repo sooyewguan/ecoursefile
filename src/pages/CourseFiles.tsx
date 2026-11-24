@@ -2,7 +2,7 @@ import { FolderOpenIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
-import { EmptyState, LoadError, PageHeader, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, PageHeader, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -151,7 +151,7 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
         />
       </div>
 
-      <Card className="gap-0 overflow-hidden py-0">
+      <TableCard>
         <Table aria-label={semester ? `Course files of ${semester.label}` : 'Course files'}>
           <TableHeader>
             <TableRow>
@@ -204,7 +204,7 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
           </TableBody>
         </Table>
         {offerings.total !== null && <Pager page={offerings.page} total={offerings.total} onPageChange={offerings.setPage} />}
-      </Card>
+      </TableCard>
     </>
   )
 }

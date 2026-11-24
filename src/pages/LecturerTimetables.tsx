@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { LoadError, NotFound, PageHeader, RowActions, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableSkeleton } from '@/components/page'
 import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -158,7 +158,7 @@ export function LecturerTimetables() {
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
 
-      <Card className="gap-0 overflow-hidden py-0">
+      <TableCard>
         <Table aria-label="Lecturer timetables">
           <TableHeader>
             <TableRow>
@@ -221,7 +221,7 @@ export function LecturerTimetables() {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </TableCard>
 
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
       <SectionPager offeringId={offeringId} section={SECTION.number} />

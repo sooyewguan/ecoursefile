@@ -3,10 +3,9 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { PageHeader, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
+import { PageHeader, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -69,7 +68,7 @@ export function Semesters() {
         />
       )}
 
-      <Card className="gap-0 overflow-hidden py-0">
+      <TableCard>
         <Table>
           <TableHeader>
             <TableRow>
@@ -107,7 +106,7 @@ export function Semesters() {
           </TableBody>
         </Table>
         {semesters.total !== null && <Pager page={semesters.page} total={semesters.total} onPageChange={semesters.setPage} />}
-      </Card>
+      </TableCard>
 
       {adding && <AddSemesterDialog onClose={() => setAdding(false)} onSubmit={add} />}
     </div>

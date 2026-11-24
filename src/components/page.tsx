@@ -40,6 +40,11 @@ export function PageHeader({ title, description, action }: { title: string; desc
   )
 }
 
+/** The card that holds a table edge to edge, with what belongs to the table, such as its pager. */
+export function TableCard({ children }: { children: ReactNode }) {
+  return <Card className="gap-0 overflow-hidden py-0">{children}</Card>
+}
+
 /** Placeholder rows while a table's data loads, one cell per column with that column's classes. */
 export function TableSkeleton({ columns, rows = 3 }: { columns: readonly string[]; rows?: number }) {
   return Array.from({ length: rows }, (_, row) => (

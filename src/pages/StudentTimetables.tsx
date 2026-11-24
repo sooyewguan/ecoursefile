@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -140,7 +140,7 @@ export function StudentTimetables() {
         action={backLink}
       />
 
-      <Card className="gap-0 overflow-hidden py-0">
+      <TableCard>
         <Table aria-label="Program codes">
           <TableHeader>
             <TableRow>
@@ -215,7 +215,7 @@ export function StudentTimetables() {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </TableCard>
 
       <SectionVerdict offeringId={offeringId} section={SECTION.number} sectionTitle={SECTION.title} status={data?.status ?? null} onRecorded={reload} />
       <SectionPager offeringId={offeringId} section={SECTION.number} />

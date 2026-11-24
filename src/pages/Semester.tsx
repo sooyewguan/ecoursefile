@@ -7,7 +7,7 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
-import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
@@ -279,7 +279,7 @@ export function Semester() {
             onChange={(event) => offerings.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="offerings-heading">
             <TableHeader>
               <TableRow>
@@ -316,7 +316,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {offerings.total !== null && <Pager page={offerings.page} total={offerings.total} onPageChange={offerings.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="shared-files-heading" className="grid gap-3">
@@ -324,7 +324,7 @@ export function Semester() {
           Shared files
         </h2>
         <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="shared-files-heading">
             <TableHeader>
               <TableRow>
@@ -360,7 +360,7 @@ export function Semester() {
               )}
             </TableBody>
           </Table>
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="lecturer-timetables-heading" className="grid gap-3">
@@ -375,7 +375,7 @@ export function Semester() {
             onChange={(event) => lecturerTimetables.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="lecturer-timetables-heading">
             <TableHeader>
               <TableRow>
@@ -424,7 +424,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {lecturerTimetables.total !== null && <Pager page={lecturerTimetables.page} total={lecturerTimetables.total} onPageChange={lecturerTimetables.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
@@ -439,7 +439,7 @@ export function Semester() {
             onChange={(event) => studentTimetables.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="student-timetables-heading">
             <TableHeader>
               <TableRow>
@@ -476,7 +476,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {studentTimetables.total !== null && <Pager page={studentTimetables.page} total={studentTimetables.total} onPageChange={studentTimetables.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       {dialog?.kind === 'add' && (

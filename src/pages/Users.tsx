@@ -7,12 +7,11 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
-import { PageHeader, RowActions, TableEmpty } from '@/components/page'
+import { PageHeader, RowActions, TableCard, TableEmpty } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
@@ -233,7 +232,7 @@ export function Users() {
           </div>
         </div>
 
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">
               <TableRow>
@@ -342,7 +341,7 @@ export function Users() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'create' && (

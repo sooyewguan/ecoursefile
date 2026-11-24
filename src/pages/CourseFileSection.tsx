@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
@@ -536,7 +536,7 @@ function FileTable({
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <Table aria-label={label}>
         <TableHeader>
           <TableRow>
@@ -636,6 +636,6 @@ function FileTable({
           )}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }

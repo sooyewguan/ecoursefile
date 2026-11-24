@@ -3,12 +3,11 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader } from '@/components/page'
+import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -66,7 +65,7 @@ export function CourseTypes() {
 
       <div className="grid gap-3">
         {!empty && <ListSearch list={list} label="Search course types" />}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">
               <TableRow>
@@ -105,7 +104,7 @@ export function CourseTypes() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'add' && (

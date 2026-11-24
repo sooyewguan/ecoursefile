@@ -1,7 +1,7 @@
 import { ChartColumnIcon, SearchIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { EmptyState, LoadError, PageHeader, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import {
   ExportMenu,
   loadOfferings,
@@ -294,7 +294,7 @@ const WIDE = 'hidden sm:table-cell'
 function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: ReportUrl }) {
   const column = SUMMARY_TABLE.columns
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <Table aria-labelledby="departments-heading">
         <TableHeader>
           <TableRow>
@@ -336,7 +336,7 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
           )}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }
 
@@ -424,7 +424,7 @@ function HeatmapView({ semester }: ViewProps) {
       <Toolbar start={<SectionStatusLegend className="self-center" />} count={rows ? plural(rows.length, 'offering') : undefined}>
         <ExportMenu table={HEATMAP_TABLE} rows={rows} semesterCode={semester?.code ?? null} />
       </Toolbar>
-      <Card className="gap-0 overflow-hidden py-0">
+      <TableCard>
         <Table aria-label="Section heatmap">
           <TableHeader>
             <TableRow>
@@ -464,7 +464,7 @@ function HeatmapView({ semester }: ViewProps) {
             )}
           </TableBody>
         </Table>
-      </Card>
+      </TableCard>
     </>
   )
 }
@@ -546,7 +546,7 @@ function LecturersView({ semester, url }: ViewProps) {
 function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
   const column = LECTURERS_TABLE.columns
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <Table aria-label="Lecturers">
         <TableHeader>
           <TableRow>
@@ -588,7 +588,7 @@ function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
           )}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }
 
