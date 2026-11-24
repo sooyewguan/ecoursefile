@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Dark mode follows the .dark class on <html>, which src/theme.tsx sets from the user's choice. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * Inter, the app's typeface, served with the app: the variable font cut by Google Fonts into its
  * Latin subsets (SIL Open Font License 1.1). The browser fetches latin-ext only for a page that
@@ -24,8 +27,10 @@
 }
 
 /*
- * The theme. Every color, radius and shadow comes from these variables, and the dark block below
- * redefines each one, so a rebrand changes only these two blocks.
+ * The theme. Every color, radius and shadow comes from these variables, and the .dark block below
+ * redefines each one, so a rebrand changes only these two blocks. The user picks Light, Dark or
+ * System with the theme button. src/theme.tsx puts the .dark class on <html> for Dark, and for
+ * System when the operating system is dark.
  *
  * - The brand is a deep institutional blue (primary) with a warm gold (highlight), used sparingly:
  *   the mark, the current page in the navigation, and the tint of a warning notice.
@@ -35,6 +40,8 @@
  *   src/components/section-status.tsx: Missing is destructive, Pending review info, Verified
  *   success and Needs fix warning.
  * - background is the page behind the cards. card and popover are the raised surfaces.
+ * - The sidebar is white in light mode and deep navy in dark mode. sidebar-primary marks the
+ *   current page: brand blue in light mode, gold in dark mode.
  */
 :root {
   color-scheme: light;
@@ -80,67 +87,76 @@
   --chart-4: oklch(0.55 0.17 305);
   --chart-5: oklch(0.6 0.18 15);
 
-  --sidebar: oklch(0.26 0.075 263);
-  --sidebar-foreground: oklch(0.96 0.01 258);
-  --sidebar-muted: oklch(0.74 0.035 260);
-  --sidebar-accent: oklch(0.32 0.08 263);
-  --sidebar-accent-foreground: oklch(0.99 0.003 255);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.8 0.14 80);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.22 0.03 262);
+  --sidebar-muted: oklch(0.48 0.022 260);
+  --sidebar-accent: oklch(0.95 0.022 262);
+  --sidebar-accent-foreground: oklch(0.36 0.15 263);
+  --sidebar-primary: oklch(0.42 0.15 263);
+  --sidebar-border: oklch(0.915 0.009 258);
+  --sidebar-ring: oklch(0.55 0.17 262);
+
+  /* The navy brand panel beside the sign-in form. It stays navy in both themes. */
+  --panel: oklch(0.26 0.075 263);
+  --panel-foreground: oklch(0.96 0.01 258);
+  --panel-muted: oklch(0.74 0.035 260);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
+.dark {
+  color-scheme: dark;
 
-    --background: oklch(0.16 0.014 263);
-    --foreground: oklch(0.95 0.008 258);
-    --card: oklch(0.2 0.018 263);
-    --card-foreground: oklch(0.95 0.008 258);
-    --popover: oklch(0.225 0.02 263);
-    --popover-foreground: oklch(0.95 0.008 258);
+  --background: oklch(0.16 0.014 263);
+  --foreground: oklch(0.95 0.008 258);
+  --card: oklch(0.2 0.018 263);
+  --card-foreground: oklch(0.95 0.008 258);
+  --popover: oklch(0.225 0.02 263);
+  --popover-foreground: oklch(0.95 0.008 258);
 
-    --primary: oklch(0.72 0.13 257);
-    --primary-foreground: oklch(0.18 0.04 263);
-    --secondary: oklch(0.265 0.025 263);
-    --secondary-foreground: oklch(0.93 0.012 258);
-    --muted: oklch(0.24 0.02 263);
-    --muted-foreground: oklch(0.71 0.02 260);
-    --accent: oklch(0.275 0.03 263);
-    --accent-foreground: oklch(0.96 0.01 258);
-    --highlight: oklch(0.8 0.14 80);
-    --highlight-foreground: oklch(0.22 0.05 263);
+  --primary: oklch(0.72 0.13 257);
+  --primary-foreground: oklch(0.18 0.04 263);
+  --secondary: oklch(0.265 0.025 263);
+  --secondary-foreground: oklch(0.93 0.012 258);
+  --muted: oklch(0.24 0.02 263);
+  --muted-foreground: oklch(0.71 0.02 260);
+  --accent: oklch(0.275 0.03 263);
+  --accent-foreground: oklch(0.96 0.01 258);
+  --highlight: oklch(0.8 0.14 80);
+  --highlight-foreground: oklch(0.22 0.05 263);
 
-    --destructive: oklch(0.7 0.17 24);
-    --destructive-foreground: oklch(0.18 0.04 25);
-    --success: oklch(0.74 0.14 158);
-    --success-foreground: oklch(0.18 0.04 158);
-    --warning: oklch(0.78 0.14 68);
-    --warning-foreground: oklch(0.2 0.05 60);
-    --info: oklch(0.75 0.11 240);
-    --info-foreground: oklch(0.18 0.04 240);
+  --destructive: oklch(0.7 0.17 24);
+  --destructive-foreground: oklch(0.18 0.04 25);
+  --success: oklch(0.74 0.14 158);
+  --success-foreground: oklch(0.18 0.04 158);
+  --warning: oklch(0.78 0.14 68);
+  --warning-foreground: oklch(0.2 0.05 60);
+  --info: oklch(0.75 0.11 240);
+  --info-foreground: oklch(0.18 0.04 240);
 
-    --border: oklch(0.29 0.02 263);
-    --input: oklch(0.34 0.025 263);
-    --ring: oklch(0.72 0.13 257);
-    --overlay: oklch(0.05 0.01 263 / 65%);
-    --shadow-faint: oklch(0 0 0 / 25%);
-    --shadow-strong: oklch(0 0 0 / 45%);
+  --border: oklch(0.29 0.02 263);
+  --input: oklch(0.34 0.025 263);
+  --ring: oklch(0.72 0.13 257);
+  --overlay: oklch(0.05 0.01 263 / 65%);
+  --shadow-faint: oklch(0 0 0 / 25%);
+  --shadow-strong: oklch(0 0 0 / 45%);
 
-    --chart-1: oklch(0.7 0.14 257);
-    --chart-2: oklch(0.8 0.13 80);
-    --chart-3: oklch(0.74 0.11 185);
-    --chart-4: oklch(0.72 0.14 305);
-    --chart-5: oklch(0.72 0.15 15);
+  --chart-1: oklch(0.7 0.14 257);
+  --chart-2: oklch(0.8 0.13 80);
+  --chart-3: oklch(0.74 0.11 185);
+  --chart-4: oklch(0.72 0.14 305);
+  --chart-5: oklch(0.72 0.15 15);
 
-    --sidebar: oklch(0.2 0.04 263);
-    --sidebar-foreground: oklch(0.95 0.008 258);
-    --sidebar-muted: oklch(0.7 0.025 260);
-    --sidebar-accent: oklch(0.275 0.055 263);
-    --sidebar-accent-foreground: oklch(0.99 0.003 255);
-    --sidebar-border: oklch(1 0 0 / 7%);
-    --sidebar-ring: oklch(0.8 0.14 80);
-  }
+  --sidebar: oklch(0.2 0.04 263);
+  --sidebar-foreground: oklch(0.95 0.008 258);
+  --sidebar-muted: oklch(0.7 0.025 260);
+  --sidebar-accent: oklch(0.275 0.055 263);
+  --sidebar-accent-foreground: oklch(0.99 0.003 255);
+  --sidebar-primary: oklch(0.8 0.14 80);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.8 0.14 80);
+
+  --panel: oklch(0.2 0.04 263);
+  --panel-foreground: oklch(0.95 0.008 258);
+  --panel-muted: oklch(0.7 0.025 260);
 }
 
 @theme {
@@ -194,8 +210,12 @@
   --color-sidebar-muted: var(--sidebar-muted);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-muted: var(--panel-muted);
 }
 
 @layer base {

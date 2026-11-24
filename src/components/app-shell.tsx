@@ -30,6 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { canOpen, ROLE_PAGES, type Profile } from '../auth.ts'
@@ -79,9 +80,10 @@ function navGroups(roles: readonly GlobalRole[]): NavGroup[] {
 }
 
 /**
- * The frame around every page of a signed-in user. From lg up, a navy sidebar holds the brand, the
- * navigation and the account menu, and a slim bar above the page names where the user is. Below lg,
- * the bar holds the brand and the account menu, and the navigation opens in a sheet from the left.
+ * The frame around every page of a signed-in user. From lg up, a sidebar holds the brand, the
+ * navigation and the account menu, and a slim bar above the page names where the user is and holds
+ * the theme button. Below lg, the bar holds the brand, the theme button and the account menu, and
+ * the navigation opens in a sheet from the left.
  */
 export function AppShell() {
   const state = useAuth()
@@ -120,8 +122,11 @@ export function AppShell() {
                 <Brand />
               </Link>
               <Breadcrumb groups={groups} pathname={pathname} page={current} />
-              <div className="ml-auto lg:hidden">
-                <AccountMenu profile={state.profile} roles={state.roles} placement="bar" />
+              <div className="ml-auto flex items-center gap-1">
+                <ThemeToggle />
+                <div className="lg:hidden">
+                  <AccountMenu profile={state.profile} roles={state.roles} placement="bar" />
+                </div>
               </div>
             </div>
           </header>
@@ -144,7 +149,7 @@ function SidebarBrand({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
-/** The groups of links. The current page has a gold bar at its start and a brighter row. Following a link calls onNavigate. */
+/** The groups of links. The current page has a bar in sidebar-primary at its start and a tinted row. Following a link calls onNavigate. */
 function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: () => void }) {
   return (
     <nav aria-label="Main" className="grid flex-1 content-start gap-6 overflow-y-auto px-3 py-4">
@@ -163,13 +168,13 @@ function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: (
                 cn(
                   'text-sidebar-muted hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:ring-sidebar-ring/60 relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors outline-none focus-visible:ring-[3px] pointer-coarse:py-3',
                   isActive &&
-                    'bg-sidebar-accent text-sidebar-accent-foreground before:bg-highlight before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r-full',
+                    'bg-sidebar-accent text-sidebar-accent-foreground before:bg-sidebar-primary before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-r-full',
                 )
               }
             >
               {({ isActive }) => (
                 <>
-                  <link.icon className={cn('size-4 shrink-0', isActive && 'text-highlight')} />
+                  <link.icon className={cn('size-4 shrink-0', isActive && 'text-sidebar-primary')} />
                   {link.label}
                 </>
               )}
