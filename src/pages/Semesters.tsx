@@ -3,14 +3,14 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { PageHeader, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
-import { Pager, usePagedList } from '@/components/paged-list'
+import { PageHeader, TableCard } from '@/components/page'
+import { usePagedList } from '@/components/paged-list'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { friendlyError } from '../errors.ts'
 import { containsFilter } from '../paging.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
@@ -20,10 +20,10 @@ type Semester = { id: string; code: string; offerings: { count: number }[] }
 /** The table's columns: code and the number of offerings. */
 const COLUMNS = ['', '']
 
-/** The semesters, newest first, a page at a time, searched by code. */
+/** The semesters, newest first, a page at a time, searched by code. Each opens its own page. */
 export function Semesters() {
   const [adding, setAdding] = useState(false)
-  const semesters = usePagedList((range, search) => {
+  const list = usePagedList((range, search) => {
     let query = supabase.from('semesters').select('id, code, offerings(count)', { count: 'exact' })
     const filter = containsFilter(['code'], search)
     if (filter) query = query.or(filter)
@@ -33,7 +33,7 @@ export function Semesters() {
       .range(range.from, range.to)
       .overrideTypes<Semester[], { merge: false }>()
   })
-  const isEmpty = semesters.total === 0 && !semesters.query
+  const empty = isEmptyList(list)
 
   async function add(form: FormData) {
     const { data, error } = await supabase
@@ -41,7 +41,7 @@ export function Semesters() {
       .insert({ start_year: Number(form.get('start_year')), number: Number(form.get('number')) })
       .select('code')
       .single()
-    semesters.retry()
+    list.retry()
     if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'That semester already exists.' } })
     toast.success(`Added ${data.code}`)
     return null
@@ -56,58 +56,39 @@ export function Semesters() {
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Semesters" action={semesters.total !== null && !isEmpty && addButton} />
+      <PageHeader title="Semesters" action={!empty && addButton} />
 
-      {semesters.total !== null && !isEmpty && (
-        <Input
-          type="search"
-          aria-label="Search semesters"
-          placeholder="Search by code"
-          className="max-w-sm"
-          value={semesters.query}
-          onChange={(event) => semesters.setQuery(event.target.value)}
-        />
-      )}
-
-      <Card className="gap-0 overflow-hidden py-0">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="px-4">Semester</TableHead>
-              <TableHead className="w-32 px-4 text-right">Offerings</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {semesters.failed ? (
-              <TableLoadError columns={COLUMNS.length} title="Couldn't load semesters" onRetry={semesters.retry} />
-            ) : !semesters.rows ? (
-              <TableSkeleton columns={COLUMNS} />
-            ) : semesters.rows.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={CalendarRangeIcon}
-                title={isEmpty ? 'No semesters yet' : 'No matching semesters'}
-                action={isEmpty ? addButton : undefined}
-              />
-            ) : (
-              semesters.rows.map((semester) => (
+      <div className="grid gap-3">
+        {!empty && <ListToolbar list={list} label="Search semesters" noun="semester" />}
+        <TableCard>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="px-4">Semester</TableHead>
+                <TableHead className="w-32 px-4 text-right">Offerings</TableHead>
+              </TableRow>
+            </TableHeader>
+            <PagedTableBody
+              list={list}
+              columns={COLUMNS}
+              loadError="Couldn't load semesters"
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={CalendarRangeIcon} noun="semesters" addButton={addButton} />}
+            >
+              {(semester) => (
                 <TableRow key={semester.id} className="relative">
                   <TableCell className="px-4 py-3">
-                    <Link
-                      to={`/semesters/${semester.id}`}
-                      className="font-medium after:absolute after:inset-0 hover:underline"
-                    >
+                    <Link to={`/semesters/${semester.id}`} className="font-medium after:absolute after:inset-0 hover:underline">
                       {semester.code}
                     </Link>
                   </TableCell>
                   <TableCell className="px-4 py-3 text-right tabular-nums">{semester.offerings[0]?.count ?? 0}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        {semesters.total !== null && <Pager page={semesters.page} total={semesters.total} onPageChange={semesters.setPage} />}
-      </Card>
+              )}
+            </PagedTableBody>
+          </Table>
+          <TablePager list={list} />
+        </TableCard>
+      </div>
 
       {adding && <AddSemesterDialog onClose={() => setAdding(false)} onSubmit={add} />}
     </div>

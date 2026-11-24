@@ -7,7 +7,7 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
-import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
@@ -279,9 +279,9 @@ export function Semester() {
             onChange={(event) => offerings.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="offerings-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Course</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Coordinator</TableHead>
@@ -316,7 +316,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {offerings.total !== null && <Pager page={offerings.page} total={offerings.total} onPageChange={offerings.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="shared-files-heading" className="grid gap-3">
@@ -324,9 +324,9 @@ export function Semester() {
           Shared files
         </h2>
         <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="shared-files-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Section</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
@@ -360,7 +360,7 @@ export function Semester() {
               )}
             </TableBody>
           </Table>
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="lecturer-timetables-heading" className="grid gap-3">
@@ -375,9 +375,9 @@ export function Semester() {
             onChange={(event) => lecturerTimetables.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="lecturer-timetables-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Lecturer</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
@@ -424,7 +424,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {lecturerTimetables.total !== null && <Pager page={lecturerTimetables.page} total={lecturerTimetables.total} onPageChange={lecturerTimetables.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
@@ -439,9 +439,9 @@ export function Semester() {
             onChange={(event) => studentTimetables.setQuery(event.target.value)}
           />
         )}
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table aria-labelledby="student-timetables-heading">
-            <TableHeader className="bg-muted/50">
+            <TableHeader>
               <TableRow>
                 <TableHead className="px-4">Program code</TableHead>
                 <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
@@ -476,7 +476,7 @@ export function Semester() {
             </TableBody>
           </Table>
           {studentTimetables.total !== null && <Pager page={studentTimetables.page} total={studentTimetables.total} onPageChange={studentTimetables.setPage} />}
-        </Card>
+        </TableCard>
       </section>
 
       {dialog?.kind === 'add' && (
@@ -611,11 +611,6 @@ function SharedFileRow({
   onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
-  const uploaded = file && (
-    <>
-      {file.uploader_name}, <Time value={file.uploaded_at} />
-    </>
-  )
   return (
     <TableRow>
       <TableCell className="px-4 py-3 whitespace-normal">
@@ -623,10 +618,25 @@ function SharedFileRow({
           <span className="font-medium">{name}</span>
           {file ? <FileLink file={file} className="font-normal" /> : <SectionStatusBadge status="missing" />}
           {detail}
-          {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
+          {file && (
+            <span className="text-muted-foreground text-xs md:hidden">
+              {file.uploader_name} · <Time value={file.uploaded_at} />
+            </span>
+          )}
         </div>
       </TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{uploaded ?? <span className="text-muted-foreground">—</span>}</TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        {file ? (
+          <div className="grid gap-0.5">
+            <span>{file.uploader_name}</span>
+            <span className="text-muted-foreground text-xs">
+              <Time value={file.uploaded_at} />
+            </span>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
       <TableCell className="px-4 py-2 text-right">
         {file ? (
           <RowActions label={actionLabel}>

@@ -3,11 +3,10 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader } from '@/components/page'
+import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -58,10 +57,10 @@ export function ProgramCodes() {
       <PageHeader title="Program codes" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search program codes" />}
-        <Card className="gap-0 overflow-hidden py-0">
+        {!empty && <ListToolbar list={list} label="Search program codes" noun="program code" />}
+        <TableCard>
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="px-4">Code</TableHead>
                 <TableHead className="w-24 px-4">
@@ -89,7 +88,7 @@ export function ProgramCodes() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'add' && (

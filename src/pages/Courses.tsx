@@ -4,11 +4,10 @@ import { toast } from 'sonner'
 import { FormDialog, type Action } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader } from '@/components/page'
+import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -82,10 +81,10 @@ export function Courses() {
       <PageHeader title="Courses" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search courses" />}
-        <Card className="gap-0 overflow-hidden py-0">
+        {!empty && <ListToolbar list={list} label="Search courses" noun="course" />}
+        <TableCard>
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="px-4">Course</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Department</TableHead>
@@ -126,7 +125,7 @@ export function Courses() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'add' && (

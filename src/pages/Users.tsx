@@ -7,12 +7,11 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
-import { PageHeader, RowActions, TableEmpty } from '@/components/page'
+import { PageActions, PageHeader, RowActions, TableCard, TableEmpty } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
@@ -173,7 +172,7 @@ export function Users() {
         title="Users"
         action={
           granted.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <PageActions>
               {!forRoot && (
                 <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
                   <FileUpIcon />
@@ -184,7 +183,7 @@ export function Users() {
                 <UserPlusIcon />
                 {forRoot ? 'Add admin' : 'Add user'}
               </Button>
-            </div>
+            </PageActions>
           )
         }
       />
@@ -233,9 +232,9 @@ export function Users() {
           </div>
         </div>
 
-        <Card className="gap-0 overflow-hidden py-0">
+        <TableCard>
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="px-4">Name</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Department</TableHead>
@@ -284,7 +283,7 @@ export function Users() {
                           {user.id === me && <Badge variant="outline">You</Badge>}
                           {!user.active && <Badge variant="outline">Deactivated</Badge>}
                         </span>
-                        <span className="text-muted-foreground">{user.email}</span>
+                        <span className="text-muted-foreground lg:whitespace-nowrap">{user.email}</span>
                         <div className="mt-2 grid gap-2 md:hidden">
                           {department && <span className="text-muted-foreground text-xs">{department}</span>}
                           <RoleBadges roles={roles} />
@@ -342,7 +341,7 @@ export function Users() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'create' && (

@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { FileLink, FileMenuItems } from '@/components/file-link'
-import { EmptyState, LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableSkeleton } from '@/components/page'
+import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
@@ -380,13 +380,14 @@ export function CourseFileSection() {
     <div className="grid gap-6">
       <PageHeader
         title={section.title}
+        parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
         description={
           data
             ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`
             : `Section ${section.number}`
         }
         action={
-          <div className="flex flex-wrap gap-2">
+          <PageActions>
             {backLink}
             {section.itemTitle
               ? addItemButton
@@ -396,7 +397,7 @@ export function CourseFileSection() {
                     {uploadButton({ item: null, slot: null })}
                   </>
                 )}
-          </div>
+          </PageActions>
         }
       />
       <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
@@ -536,9 +537,9 @@ function FileTable({
   }
 
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <Table aria-label={label}>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             {reorderable && (
               <TableHead className={cn('w-10 px-2', WIDE)}>
@@ -597,7 +598,7 @@ function FileTable({
                       <FileLink file={file} />
                       <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
                       <span className="text-muted-foreground text-xs md:hidden">
-                        {file.uploader_name}, {uploadedAt}
+                        {file.uploader_name} · {uploadedAt}
                       </span>
                     </div>
                   </TableCell>
@@ -636,6 +637,6 @@ function FileTable({
           )}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }

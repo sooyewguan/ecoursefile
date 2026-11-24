@@ -1,61 +1,82 @@
 import { CheckIcon, ClockIcon, MinusIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
+import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { OFFERING_STATUS_LABELS, type OfferingStatus } from '../reports.ts'
 import { SECTION_STATUS_LABELS, sectionName, type SectionStatus } from '../sections.ts'
 
-const STATUS_STYLES: Record<SectionStatus, string> = {
-  missing: 'border-destructive/30 bg-destructive/10 text-destructive',
-  pending_review: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-  verified: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-  needs_fix: 'bg-destructive dark:bg-destructive/60 border-transparent text-white',
-  empty: 'text-muted-foreground',
-  off: 'text-muted-foreground border-dashed',
-}
-
-/** The heatmap's mark for each status, so a cell never tells its status by color alone. Empty has none. */
-const STATUS_ICONS: Record<SectionStatus, LucideIcon | null> = {
-  missing: XIcon,
-  pending_review: ClockIcon,
-  verified: CheckIcon,
-  needs_fix: WrenchIcon,
-  empty: null,
-  off: MinusIcon,
+/**
+ * How each status looks: its colors and its mark, so that no status is told by color alone. Missing
+ * is destructive, Pending review info, Verified success, and Needs fix a solid warning, which stands
+ * out as the one an auditor sent back. Empty has no mark.
+ */
+const STATUS_LOOK: Record<SectionStatus, { className: string; icon: LucideIcon | null }> = {
+  missing: { className: 'border-destructive/25 bg-destructive/10 text-destructive', icon: XIcon },
+  pending_review: { className: 'border-info/25 bg-info/10 text-info', icon: ClockIcon },
+  verified: { className: 'border-success/25 bg-success/10 text-success', icon: CheckIcon },
+  needs_fix: { className: 'border-transparent bg-warning text-warning-foreground', icon: WrenchIcon },
+  empty: { className: 'text-muted-foreground', icon: null },
+  off: { className: 'text-muted-foreground bg-muted/60 border-dashed', icon: MinusIcon },
 }
 
 /**
- * An offering's status in the colors of the section status it stands for. Incomplete stays plain,
- * so that red marks only the offerings that an auditor sent back.
+ * An offering's status in the look of the section status it stands for. Incomplete stays plain, so
+ * that color marks only what an auditor has seen.
  */
-const OFFERING_STATUS_STYLES: Record<OfferingStatus, string> = {
-  incomplete: 'text-foreground',
-  needs_fix: STATUS_STYLES.needs_fix,
-  pending_review: STATUS_STYLES.pending_review,
-  verified: STATUS_STYLES.verified,
+const OFFERING_STATUS_LOOK: Record<OfferingStatus, { className: string; icon: LucideIcon | null }> = {
+  incomplete: { className: 'text-foreground', icon: null },
+  needs_fix: STATUS_LOOK.needs_fix,
+  pending_review: STATUS_LOOK.pending_review,
+  verified: STATUS_LOOK.verified,
 }
 
 export function SectionStatusBadge({ status }: { status: SectionStatus }) {
+  const { className, icon: Icon } = STATUS_LOOK[status]
   return (
-    <Badge variant="outline" className={STATUS_STYLES[status]}>
+    <Badge variant="outline" className={className}>
+      {Icon && <Icon aria-hidden="true" />}
       {SECTION_STATUS_LABELS[status]}
     </Badge>
   )
 }
 
 export function OfferingStatusBadge({ status }: { status: OfferingStatus }) {
+  const { className, icon: Icon } = OFFERING_STATUS_LOOK[status]
   return (
-    <Badge variant="outline" className={OFFERING_STATUS_STYLES[status]}>
+    <Badge variant="outline" className={className}>
+      {Icon && <Icon aria-hidden="true" />}
       {OFFERING_STATUS_LABELS[status]}
     </Badge>
   )
 }
 
+/**
+ * A section by number and title in the look of its status, such as 4 Lecturer Timetable as Missing.
+ * With to, it links to the section's page. What the status is comes from the list it sits in, such as
+ * one labelled Missing.
+ */
+export function SectionStatusChip({ section, status, to }: { section: number; status: SectionStatus; to?: string }) {
+  const { className, icon: Icon } = STATUS_LOOK[status]
+  const chip = (
+    <Badge variant="outline" className={cn('h-7 gap-1.5 px-2.5 text-sm font-normal', to && 'underline-offset-2 group-hover:underline', className)}>
+      {Icon && <Icon aria-hidden="true" />}
+      {sectionName(section)}
+    </Badge>
+  )
+  if (!to) return chip
+  return (
+    <Link to={to} className="group focus-visible:ring-ring/40 inline-flex rounded-md outline-none focus-visible:ring-[3px]">
+      {chip}
+    </Link>
+  )
+}
+
 /** A section's status as one small square with its mark, named in full for screen readers and on hover. */
 export function SectionStatusSquare({ section, status }: { section: number; status: SectionStatus }) {
-  const Icon = STATUS_ICONS[status]
+  const { className, icon: Icon } = STATUS_LOOK[status]
   const label = `${sectionName(section)}: ${SECTION_STATUS_LABELS[status]}`
   return (
-    <span title={label} className={cn('inline-flex size-6 items-center justify-center rounded-md border', STATUS_STYLES[status])}>
+    <span title={label} className={cn('inline-flex size-6 items-center justify-center rounded-md border', className)}>
       {Icon && <Icon aria-hidden="true" className="size-3.5" />}
       <span className="sr-only">{label}</span>
     </span>
@@ -67,10 +88,10 @@ export function SectionStatusLegend({ className }: { className?: string }) {
   return (
     <ul aria-label="Legend" className={cn('text-muted-foreground flex flex-wrap gap-x-4 gap-y-2 text-sm', className)}>
       {(Object.keys(SECTION_STATUS_LABELS) as SectionStatus[]).map((status) => {
-        const Icon = STATUS_ICONS[status]
+        const { className, icon: Icon } = STATUS_LOOK[status]
         return (
           <li key={status} className="flex items-center gap-1.5">
-            <span aria-hidden="true" className={cn('inline-flex size-5 items-center justify-center rounded-md border', STATUS_STYLES[status])}>
+            <span aria-hidden="true" className={cn('inline-flex size-5 items-center justify-center rounded-md border', className)}>
               {Icon && <Icon className="size-3" />}
             </span>
             {SECTION_STATUS_LABELS[status]}

@@ -1,8 +1,9 @@
 import { XIcon } from 'lucide-react'
 import { FormDialog, type Action } from '@/components/action-dialogs'
+import { TableCard } from '@/components/page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -52,7 +53,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
   const rejected = rows.filter((row) => row.status === 'rejected')
   const created = rows.filter((row) => row.status === 'created')
   return (
-    <Card className="gap-0 overflow-hidden py-0">
+    <TableCard>
       <CardHeader className="border-b px-4 py-4">
         <CardTitle>Import results</CardTitle>
         <CardDescription>
@@ -65,7 +66,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
         </CardAction>
       </CardHeader>
       <Table>
-        <TableHeader className="bg-muted/50">
+        <TableHeader>
           <TableRow>
             <TableHead className="w-16 px-4">Row</TableHead>
             <TableHead className="px-4">Email</TableHead>
@@ -81,12 +82,12 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
               </TableCell>
               <TableCell className="px-4 py-3 whitespace-normal">
                 {row.status === 'created' ? (
-                  <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
+                  <Badge variant="success">
                     Added
                   </Badge>
                 ) : (
                   <div className="grid gap-1">
-                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                    <Badge variant="destructive">
                       Rejected
                     </Badge>
                     <span>{row.reason}</span>
@@ -97,7 +98,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
           ))}
         </TableBody>
       </Table>
-    </Card>
+    </TableCard>
   )
 }
 

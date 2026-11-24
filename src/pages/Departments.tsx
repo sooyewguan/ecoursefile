@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader, RowActions } from '@/components/page'
+import { PageHeader, RowActions, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -16,7 +16,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -73,10 +72,10 @@ export function Departments() {
       <PageHeader title="Departments" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search departments" />}
-        <Card className="gap-0 overflow-hidden py-0">
+        {!empty && <ListToolbar list={list} label="Search departments" noun="department" />}
+        <TableCard>
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="w-40 px-4">Code</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Name</TableHead>
@@ -118,7 +117,7 @@ export function Departments() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'add' && (

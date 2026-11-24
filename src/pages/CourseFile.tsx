@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
-import { LoadError, NotFound, PageHeader, TableSkeleton } from '@/components/page'
+import { LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
 import { Button } from '@/components/ui/button'
@@ -146,7 +146,7 @@ export function CourseFile() {
           title={`${offering.course.code} ${offering.course.title}`}
           description={`${offering.semester.code} · ${offering.course.department.code} ${offering.course.department.name}`}
           action={
-            <div className="flex flex-wrap gap-2">
+            <PageActions>
               {backLink}
               <Button disabled={compiling !== null} onClick={() => void downloadCompiledPdf(`${offering.course.code} ${offering.semester.code.replace('/', '-')}.pdf`)}>
                 {compiling ? <Spinner /> : <FileDownIcon />}
@@ -154,7 +154,7 @@ export function CourseFile() {
                   {!compiling ? 'Download compiled PDF' : compiling.files ? `Compiling ${compiling.files.done}/${compiling.files.total}…` : 'Compiling…'}
                 </span>
               </Button>
-            </div>
+            </PageActions>
           }
         />
       ) : (
@@ -192,9 +192,9 @@ export function CourseFile() {
                 <Skeleton className="h-5 w-40" />
               )}
             </div>
-            <Card className="gap-0 overflow-hidden py-0">
+            <TableCard>
               <Table aria-labelledby="sections-heading">
-                <TableHeader className="bg-muted/50">
+                <TableHeader>
                   <TableRow>
                     <TableHead className="w-12 px-4 text-right">#</TableHead>
                     <TableHead className="px-4">Section</TableHead>
@@ -254,7 +254,7 @@ export function CourseFile() {
                   )}
                 </TableBody>
               </Table>
-            </Card>
+            </TableCard>
           </section>
         </TabsContent>
         <TabsContent value="activity">

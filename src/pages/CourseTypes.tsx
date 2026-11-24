@@ -3,12 +3,11 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader } from '@/components/page'
+import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -65,10 +64,10 @@ export function CourseTypes() {
       <PageHeader title="Course types" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search course types" />}
-        <Card className="gap-0 overflow-hidden py-0">
+        {!empty && <ListToolbar list={list} label="Search course types" noun="course type" />}
+        <TableCard>
           <Table>
-            <TableHeader className="bg-muted/50 max-md:hidden">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="w-1/3 px-4">Name</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>On by default</TableHead>
@@ -105,7 +104,7 @@ export function CourseTypes() {
             </PagedTableBody>
           </Table>
           <TablePager list={list} />
-        </Card>
+        </TableCard>
       </div>
 
       {dialog?.kind === 'add' && (
