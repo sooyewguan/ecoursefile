@@ -602,7 +602,7 @@ A list with nothing in it says so in one line. Below the lists, management, audi
 
 ## Reports
 
-Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows. The migration is `supabase/migrations/20261120070100_reports.sql`.
+Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows, with one exception that [What the numbers mean](#what-the-numbers-mean) gives. The migrations are `supabase/migrations/20261120070100_reports.sql` and `supabase/migrations/20261125000300_report_readiness.sql`.
 
 | RPC | View | One row for each |
 | --- | --- | --- |
@@ -611,16 +611,16 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
 | `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by full name |
 
-The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
+The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file. Emails are the exception: `coordinator_email` and `lecturer_email` hold the person's email for the admin, auditors, HoDs, deans and deputy deans, who open the **Reports** page to chase people, and are null for a lecturer, who cannot read other profiles.
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
-- **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
-- **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. The Offerings figure, and each department, say how many offerings are complete and how many are verified. Each department links to its offerings on the **Offerings** tab.
+- **Offerings**: the offering list, which you can filter by department and by `status`, or by **Not ready** (`not_ready`), which keeps the offerings that are `incomplete` or `needs_fix`. The **See all** link of the home page's least complete offerings opens it with Not ready. Each offering shows its missing and Needs fix sections, each linked to its section page, and its coordinator's email as a link that starts a message.
+- **Heatmap**: one row for each offering that the department and status filters keep, which it shares with the **Offerings** tab, and one column for each section. Each cell shows the section's status as a color and an icon, and opens the section's page. The last row, **Missing**, counts the offerings that miss each section. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone, and so does the Missing row.
+- **Lecturers**: each lecturer with their email, as a link that starts a message, and their offerings with the missing and Needs fix sections linked to them, each linked to its section page. You can search it by name, and filter it by department, which keeps the lecturers who teach an offering of the department, with only those offerings, whatever their own department.
 
-The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. Choosing another semester drops the department. A semester, tab, status or department that the page cannot show gives way to what it shows, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
+The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. An HoD's department is their own department until they choose another, and **All departments** is then `department=all`, so it lasts across a reload. Everyone else starts with every department. Choosing another semester keeps the department. A semester, tab, status or department that the page cannot show gives way to what it shows, or to the HoD's own department, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
 
 Each tab loads its report once. A failed load shows "Couldn't load this report" with **Try again** under the tabs. A semester whose report has no offerings shows "No offerings in" and the semester code, in place of the tab's controls.
 
@@ -630,17 +630,20 @@ The **My completeness** page shows lecturers each course file they teach or coor
 
 A section **counts** when `counts_toward_completeness` is true and its status is not `empty`. A switched-off section therefore counts only while its latest verdict is Needs fix, and sections 7 to 9 count once they hold a file or a verdict. A section that counts is `missing`, `pending_review`, `verified` or `needs_fix`.
 
+In the reports, a switched-off section that counts and has no file is `missing`, as a section that is on and has no files is. The auditor's Needs fix asks for its files, and a verdict never hides missing. The course file page still shows it as `needs_fix`, or `pending_review` after a change. So the reports count it neither as uploaded nor as Needs fix, and list it with the missing sections. With a file, it is uploaded.
+
 | Column | What it counts |
 | --- | --- |
 | `counted_sections` | The sections that count |
-| `uploaded_sections` | The sections that count and are not `missing`. A section marked Needs fix has its files, so it is uploaded. |
+| `uploaded_sections` | The sections that count and are not `missing` |
 | `verified_sections`, `needs_fix_sections` | The sections that count whose status is `verified` or `needs_fix`. A verdict counts only while the section is as the auditor judged it. |
 | `percent_complete` | Of one offering, `uploaded_sections` as a percentage of `counted_sections` |
+| `complete_offerings`, `verified_offerings` | Of a department or the faculty, the offerings that are complete, and those whose `status` is `verified` |
 | `percent_uploaded`, `percent_verified`, `percent_needs_fix` | Of a department or the faculty, the sum of `uploaded_sections`, `verified_sections` or `needs_fix_sections` over its offerings, as a percentage of the sum of their `counted_sections`. Every section weighs the same, so an offering with more sections weighs more. It is not the average of the offerings' percentages. |
 
 Percentages have one decimal place, and are null when no section counts, as for a semester without offerings.
 
-An offering is **complete** when no section that counts is missing, which is `percent_complete` 100. So every section that is on has at least one file, except sections 7 to 9, which never count as missing. Section 4 needs the timetable of every lecturer of the offering, the coordinator included. Section 5 needs at least one ticked program code, and a timetable for each ticked code, since a code whose timetable was deleted leaves the section missing. For example, an offering with Lecture Notes on and nothing uploaded counts 10 sections, 1 to 6, 10 and 17 to 19, and is 0% complete. Uploading every one of them makes it 100%. A file in section 7 then makes 11 that count, all uploaded.
+An offering is **complete** when no section that counts is missing, which is `percent_complete` 100. So every section that is on has at least one file, except sections 7 to 9, which never count as missing, and so does every switched-off section that an auditor marked Needs fix. Section 4 needs the timetable of every lecturer of the offering, the coordinator included. Section 5 needs at least one ticked program code, and a timetable for each ticked code, since a code whose timetable was deleted leaves the section missing. For example, an offering with Lecture Notes on and nothing uploaded counts 10 sections, 1 to 6, 10 and 17 to 19, and is 0% complete. Uploading every one of them makes it 100%. A file in section 7 then makes 11 that count, all uploaded.
 
 `report_offerings` also gives each offering's `status`, which the offering list filters on:
 
@@ -651,9 +654,9 @@ An offering is **complete** when no section that counts is missing, which is `pe
 | `pending_review` | None is missing or Needs fix, and one is Pending review |
 | `verified` | Every section that counts is Verified |
 
-Each `report_offerings` row also has the course, its department, the coordinator's `coordinator_name`, `missing_sections` in section order, `section_statuses`, the 19 statuses in section order for the heatmap, and `last_upload_at`. That is the latest upload or reuse into the offering's own sections, or null. The shared files it links, such as the calendar and the timetables, are left out, because each is uploaded once for many course files.
+Each `report_offerings` row also has the course, its department, the coordinator's `coordinator_name` and `coordinator_email`, `missing_sections` in section order, `section_statuses`, the 19 statuses in section order for the heatmap, and `last_upload_at`. That is the latest upload or reuse into the offering's own sections, or null. The shared files it links, such as the calendar and the timetables, are left out, because each is uploaded once for many course files.
 
-Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
+Each `report_lecturers` row has the lecturer's id, name, `lecturer_email` and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, the offering's `department_id`, `department_code` and `department_name`, `coordinator`, true for the one they coordinate, and the `missing_sections` and `needs_fix_sections` linked to the lecturer. Those are the offering's missing and Needs fix sections, without sections 1 and 3, which the admin uploads, and without a missing section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
 
 The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which reads it with `readAll`: it asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until a page comes back with fewer than 1,000 rows. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. The **Reports** page reads its list of semesters, and **My completeness** the lecturer's offerings, the same way. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
@@ -665,11 +668,11 @@ Each tab of the **Reports** page has one **Export** menu, at the end of the tab'
 
 | View | Columns |
 | --- | --- |
-| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
-| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| Summary | Department code, Department, Offerings, Offerings complete, Offerings verified, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Coordinator email, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Lecturers | Lecturer, Email, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections, Sections needing fix. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
 - Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.

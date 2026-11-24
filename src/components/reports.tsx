@@ -14,7 +14,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { ExportFormat } from '../report-export.ts'
-import { OFFERING_COLUMNS, type ReportTable } from '../report-tables.ts'
+import { needsFixSections, OFFERING_COLUMNS, type ReportTable } from '../report-tables.ts'
 import { fetchReport, formatPercent, readAll, type OfferingRow } from '../reports.ts'
 import { SECTIONS } from '../sections.ts'
 import { supabase } from '../supabase.ts'
@@ -114,22 +114,37 @@ export function ReportLoadError({ onRetry }: { onRetry: () => void }) {
 }
 
 /**
- * Missing sections as small badges of their numbers, each named in full for screen readers and on
- * hover. labelled puts Missing before them, where no column header names them.
+ * An offering's missing sections and its sections marked Needs fix, each under its label as small
+ * badges of their numbers, named in full for screen readers and on hover, and linked to the
+ * section's page. None missing when there are neither.
  */
-export function SectionNumbers({ sections, labelled = false }: { sections: number[]; labelled?: boolean }) {
-  if (sections.length === 0) return <span className="text-muted-foreground">None missing</span>
+export function SectionNumbers({ offeringId, missing, needsFix }: { offeringId: string; missing: number[]; needsFix: number[] }) {
+  if (missing.length === 0 && needsFix.length === 0) return <span className="text-muted-foreground">None missing</span>
+  return (
+    <div className="grid gap-1">
+      <SectionBadges offeringId={offeringId} label="Missing" variant="outline" sections={missing} />
+      <SectionBadges offeringId={offeringId} label="Needs fix" variant="warning" sections={needsFix} />
+    </div>
+  )
+}
+
+function SectionBadges({ offeringId, label, variant, sections }: { offeringId: string; label: string; variant: 'outline' | 'warning'; sections: number[] }) {
+  if (sections.length === 0) return null
   return (
     <div className="flex items-baseline gap-2">
-      {labelled && <span className="text-muted-foreground shrink-0 text-xs">Missing</span>}
-      <ul className="flex min-w-0 flex-1 flex-wrap gap-1">
+      <span aria-hidden="true" className="text-muted-foreground w-14 shrink-0 text-xs">
+        {label}
+      </span>
+      <ul aria-label={label} className="flex min-w-0 flex-1 flex-wrap gap-1">
         {sections.map((section) => {
           const title = SECTIONS.find((s) => s.number === section)!.title
           return (
             <li key={section}>
-              <Badge variant="outline" title={`${section} ${title}`} className="tabular-nums">
-                {section}
-                <span className="sr-only"> {title}</span>
+              <Badge asChild variant={variant} className="tabular-nums hover:underline pointer-coarse:h-7 pointer-coarse:min-w-7">
+                <Link to={`/course-files/${offeringId}/sections/${section}`} title={`${section} ${title}`}>
+                  {section}
+                  <span className="sr-only"> {title}</span>
+                </Link>
               </Badge>
             </li>
           )
@@ -180,6 +195,16 @@ export function ExportMenu<Row>({ table, rows, semesterCode }: { table: ReportTa
   )
 }
 
+/** A person's email as a link that starts a message to them. Nothing without one, as for a lecturer, who reads no one's email. */
+export function EmailLink({ email }: { email: string | null }) {
+  if (!email) return null
+  return (
+    <a href={`mailto:${email}`} className="text-muted-foreground w-fit text-xs wrap-anywhere hover:underline">
+      {email}
+    </a>
+  )
+}
+
 /** A skeleton bar at the end of its cell, for a column of numbers. */
 export const NUMBER_SKELETON = '[&>*]:ml-auto'
 
@@ -196,8 +221,9 @@ const OFFERING_SKELETON = ['', LARGE, MEDIUM, SMALL, cn(SMALL, NUMBER_SKELETON),
 
 /**
  * The offering list: each offering with its department, coordinator, status, completeness, missing
- * sections and last upload. Its headers and values are OFFERING_COLUMNS, which its export writes,
- * with the course's code and title in one cell, and the department as its code, named on hover.
+ * and Needs fix sections, and last upload. Its headers and values are OFFERING_COLUMNS, which its
+ * export writes, with the course's code and title in one cell, the department as its code, named on
+ * hover, and the missing and Needs fix sections in one cell.
  */
 export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
   const column = OFFERING_COLUMNS
@@ -211,7 +237,7 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
             <TableHead className={cn('w-44 px-4', MEDIUM)}>{column.coordinator.header}</TableHead>
             <TableHead className={cn('w-36 px-4', SMALL)}>{column.status.header}</TableHead>
             <TableHead className={cn('w-24 px-4 text-right', SMALL)}>{column.complete.header}</TableHead>
-            <TableHead className={cn('w-48 px-4', LARGE)}>{column.missingSections.header}</TableHead>
+            <TableHead className={cn('w-52 px-4', LARGE)}>Sections</TableHead>
             <TableHead className={cn('w-32 px-4', XLARGE)}>{column.lastUpload.header}</TableHead>
           </TableRow>
         </TableHeader>
@@ -237,8 +263,11 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
                       <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
                       <span className="md:hidden"> · {column.coordinator.value(row)}</span>
                     </p>
+                    <div className="grid md:hidden">
+                      <EmailLink email={column.coordinatorEmail.value(row)} />
+                    </div>
                     <div className="mt-1 text-xs lg:hidden">
-                      <SectionNumbers sections={row.missing_sections} labelled />
+                      <SectionNumbers offeringId={row.offering_id} missing={row.missing_sections} needsFix={needsFixSections(row)} />
                     </div>
                     <p className="text-muted-foreground mt-1 text-xs xl:hidden">
                       {row.last_upload_at ? (
@@ -254,13 +283,18 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
                   <span title={column.departmentName.value(row) ?? undefined}>{column.departmentCode.value(row)}</span>
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>{column.coordinator.value(row)}</TableCell>
+                <TableCell className={cn('px-4 py-3 align-top whitespace-normal', MEDIUM)}>
+                  <div className="grid gap-0.5">
+                    {column.coordinator.value(row)}
+                    <EmailLink email={column.coordinatorEmail.value(row)} />
+                  </div>
+                </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top', SMALL)}>
                   <OfferingStatusBadge status={row.status} />
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', SMALL)}>{formatPercent(column.complete.value(row))}</TableCell>
                 <TableCell className={cn('px-4 py-3 align-top whitespace-normal', LARGE)}>
-                  <SectionNumbers sections={row.missing_sections} />
+                  <SectionNumbers offeringId={row.offering_id} missing={row.missing_sections} needsFix={needsFixSections(row)} />
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 align-top', XLARGE)}>
                   {row.last_upload_at ? <Time value={row.last_upload_at} dateOnly /> : <span className="text-muted-foreground">—</span>}

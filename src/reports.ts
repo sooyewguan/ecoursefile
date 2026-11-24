@@ -72,12 +72,14 @@ type PooledPercentages = {
   percent_needs_fix: number | null
 }
 
+/** How many offerings a department or the faculty has, and how many of them are complete and verified. */
+type OfferingCounts = { offerings: number; complete_offerings: number; verified_offerings: number }
+
 /** The one row of report_faculty_summary. */
-export type FacultySummary = SectionCounts & PooledPercentages & { offerings: number }
+export type FacultySummary = SectionCounts & PooledPercentages & OfferingCounts
 
 /** A row of report_departments. */
-export type DepartmentRow = SectionCounts &
-  PooledPercentages & { department_id: string; department_code: string; department_name: string; offerings: number }
+export type DepartmentRow = SectionCounts & PooledPercentages & OfferingCounts & { department_id: string; department_code: string; department_name: string }
 
 /** A row of report_offerings: one offering, for the offering list and the heatmap. */
 export type OfferingRow = SectionCounts & {
@@ -89,10 +91,15 @@ export type OfferingRow = SectionCounts & {
   department_name: string
   coordinator_id: string
   coordinator_name: string
+  /** Null for a reader who does not open the Reports page, such as a lecturer. */
+  coordinator_email: string | null
   status: OfferingStatus
   percent_complete: number
   missing_sections: number[]
-  /** The 19 statuses, in section order. */
+  /**
+   * The 19 statuses, in section order, as the course file page shows them, except that a
+   * switched-off section that counts and has no file is missing.
+   */
   section_statuses: SectionStatus[]
   last_upload_at: string | null
 }
@@ -101,6 +108,8 @@ export type OfferingRow = SectionCounts & {
 export type LecturerRow = {
   lecturer_id: string
   lecturer_name: string
+  /** Null for a reader who does not open the Reports page, such as a lecturer. */
+  lecturer_email: string | null
   department_id: string | null
   department_code: string | null
   department_name: string | null
@@ -109,9 +118,14 @@ export type LecturerRow = {
     offering_id: string
     course_code: string
     course_title: string
+    department_id: string
+    department_code: string
+    department_name: string
     coordinator: boolean
     /** The offering's missing sections linked to this lecturer. */
     missing_sections: number[]
+    /** The offering's Needs fix sections linked to this lecturer. */
+    needs_fix_sections: number[]
   }[]
 }
 

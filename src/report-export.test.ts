@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest'
 import { exportReport, type ExportFormat } from './report-export.ts'
 import { REPORT_FIXTURE } from './report-fixture.ts'
 import {
+  departmentsOf,
   filterLecturers,
   filterOfferings,
   HEATMAP_TABLE,
@@ -39,6 +40,8 @@ function sections(numbers: number[]) {
 
 const POOLED_HEADERS = [
   'Offerings',
+  'Offerings complete',
+  'Offerings verified',
   'Sections',
   'Sections uploaded',
   'Uploaded (%)',
@@ -51,6 +54,8 @@ const POOLED_HEADERS = [
 function pooled(row: FacultySummary): Expected[] {
   return [
     row.offerings,
+    row.complete_offerings,
+    row.verified_offerings,
     row.counted_sections,
     row.uploaded_sections,
     row.percent_uploaded,
@@ -61,7 +66,19 @@ function pooled(row: FacultySummary): Expected[] {
   ]
 }
 
-const OFFERING_HEADERS = ['Course code', 'Course', 'Department code', 'Department', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Last upload']
+const OFFERING_HEADERS = [
+  'Course code',
+  'Course',
+  'Department code',
+  'Department',
+  'Coordinator',
+  'Coordinator email',
+  'Status',
+  'Complete (%)',
+  'Missing sections',
+  'Sections needing fix',
+  'Last upload',
+]
 
 function offering(row: OfferingRow): Expected[] {
   return [
@@ -70,25 +87,29 @@ function offering(row: OfferingRow): Expected[] {
     row.department_code,
     row.department_name,
     row.coordinator_name,
+    row.coordinator_email,
     OFFERING_STATUS_LABELS[row.status],
     row.percent_complete,
     sections(row.missing_sections),
+    sections(row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))),
     day(row.last_upload_at),
   ]
 }
 
 const MY_COMPLETENESS_HEADERS = ['Course code', 'Course', 'Coordinator', 'Status', 'Complete (%)', 'Missing sections', 'Sections needing fix', 'Last upload']
 
-/** An offering as My completeness exports it: the offering list without the department, and with its sections to fix. */
+/** An offering as My completeness exports it: the offering list without the department and the coordinator's email. */
 function ownOffering(row: OfferingRow): Expected[] {
-  const [code, title, , , coordinator, status, complete, missing, lastUpload] = offering(row)
-  const needsFix = row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))
-  return [code, title, coordinator, status, complete, missing, sections(needsFix), lastUpload]
+  const [code, title, , , coordinator, , status, complete, missing, needsFix, lastUpload] = offering(row)
+  return [code, title, coordinator, status, complete, missing, needsFix, lastUpload]
 }
+
+const LECTURER_HEADERS = ['Lecturer', 'Email', 'Department code', 'Department', 'Timetable', 'Course code', 'Course', 'Role', 'Missing sections', 'Sections needing fix']
 
 function lecturer(row: LecturerRow): Expected[][] {
   return row.offerings.map((taught) => [
     row.lecturer_name,
+    row.lecturer_email,
     row.department_code,
     row.department_name,
     row.timetable_missing ? 'Missing' : 'Uploaded',
@@ -96,6 +117,7 @@ function lecturer(row: LecturerRow): Expected[][] {
     taught.course_title,
     taught.coordinator ? 'Coordinator' : 'Lecturer',
     sections(taught.missing_sections),
+    sections(taught.needs_fix_sections),
   ])
 }
 
@@ -126,7 +148,7 @@ const VIEWS: { name: string; export: (format: ExportFormat) => Promise<File>; he
   {
     name: 'Lecturers',
     export: (format) => exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, format),
-    headers: ['Lecturer', 'Department code', 'Department', 'Timetable', 'Course code', 'Course', 'Role', 'Missing sections'],
+    headers: LECTURER_HEADERS,
     rows: REPORT_FIXTURE.lecturers.flatMap(lecturer),
   },
   {
@@ -193,6 +215,9 @@ test.each(FORMATS)('the offering list exports only the offerings that its depart
   expect(await exported({ departmentId: null, status: 'incomplete' })).toEqual(['BITI2233', 'BITU3973'].map(courseCode))
   expect(await exported({ departmentId: ftmk, status: 'incomplete' })).toEqual(['BITI2233'].map(courseCode))
   expect(await exported({ departmentId: ftmk, status: 'needs_fix' })).toEqual([])
+  // Not ready is Incomplete or Needs fix: BITS3343 has a section that needs a fix.
+  expect(await exported({ departmentId: null, status: 'not_ready' })).toEqual(['BITI2233', 'BITS3343', 'BITU3973'].map(courseCode))
+  expect(await exported({ departmentId: ftmk, status: 'not_ready' })).toEqual(['BITI2233'].map(courseCode))
 })
 
 test('My completeness exports the offerings that the lecturer teaches or coordinates', async () => {
@@ -205,18 +230,22 @@ test('My completeness exports the offerings that the lecturer teaches or coordin
 
 test('the lecturer view exports one row for each offering of each lecturer', async () => {
   const [, ...rows] = await readBack(await exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, 'xlsx'))
-  expect(rows.filter((row) => row[0] === 'Chloé Lefèvre').map((row) => [row[4], row[6]])).toEqual([
+  expect(rows.filter((row) => row[0] === 'Chloé Lefèvre').map((row) => [row[5], row[7]])).toEqual([
     [courseCode('BITP1113'), 'Lecturer'],
     [courseCode('BITS3343'), 'Coordinator'],
   ])
-  // Chen has no department and no timetable.
+  // Chen has no department and no timetable, and the Teaching Plan of the course he teaches needs a fix.
   const chen = rows.find((row) => row[0] === '陈伟明')!
-  expect(chen.slice(1, 4)).toEqual([null, null, 'Missing'])
-  expect(chen[7]).toBe('4 Lecturer Timetable, 5 Student Timetable, 6 Attendance Record, 10 Lecture Notes, 17 Week 12 Marks, 18 Grade List, 19 LO/PO Analysis')
+  expect(chen[1]).toMatch(/@seam1\.test$/)
+  expect(chen.slice(2, 5)).toEqual([null, null, 'Missing'])
+  expect(chen.slice(8)).toEqual([
+    '4 Lecturer Timetable, 5 Student Timetable, 6 Attendance Record, 10 Lecture Notes, 17 Week 12 Marks, 18 Grade List, 19 LO/PO Analysis',
+    '2 Teaching Plan',
+  ])
 })
 
 test('the lecturer search keeps the lecturers whose name holds it, in any case and with or without accents', () => {
-  const names = (query: string) => filterLecturers(REPORT_FIXTURE.lecturers, query).map((row) => row.lecturer_name)
+  const names = (search: string) => filterLecturers(REPORT_FIXTURE.lecturers, { search, departmentId: null }).map((row) => row.lecturer_name)
   expect(names('')).toEqual(REPORT_FIXTURE.lecturers.map((row) => row.lecturer_name))
   expect(names('chloe')).toEqual(['Chloé Lefèvre'])
   expect(names('  LEFÈVRE ')).toEqual(['Chloé Lefèvre'])
@@ -225,13 +254,26 @@ test('the lecturer search keeps the lecturers whose name holds it, in any case a
   expect(names('nobody')).toEqual([])
 })
 
+test('the lecturer view by department keeps the lecturers who teach an offering of it, with only those offerings', () => {
+  const [ftmk, jkp] = departmentsOf(REPORT_FIXTURE.lecturers.flatMap((row) => row.offerings))
+  expect([ftmk.department_code, jkp.department_code].map((code) => code.split('-')[0])).toEqual(['FTMK', 'JKP'])
+
+  const inJkp = filterLecturers(REPORT_FIXTURE.lecturers, { search: '', departmentId: jkp.department_id })
+  // Chloé teaches BITP1113 in FTMK and coordinates BITS3343 in JKP. Aisyah, Chen and the HYPERLINK coordinator teach only in FTMK.
+  expect(inJkp.map((row) => row.lecturer_name).toSorted()).toEqual(['\tTabbed Name', '\rReturned Name', '-2+3 Dash', '@SUM(1+1)', 'Chloé Lefèvre'].toSorted())
+  expect(inJkp.find((row) => row.lecturer_name === 'Chloé Lefèvre')!.offerings.map((offering) => offering.course_code)).toEqual([courseCode('BITS3343')])
+  expect(filterLecturers(REPORT_FIXTURE.lecturers, { search: 'chloe', departmentId: ftmk.department_id }).map((row) => row.offerings.map((offering) => offering.course_code))).toEqual([
+    [courseCode('BITP1113')],
+  ])
+})
+
 test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows a text that starts like a formula as text', async () => {
   const file = await exportReport(LECTURERS_TABLE, REPORT_FIXTURE.lecturers.flatMap(lecturerOfferings), REPORT_FIXTURE.semesterCode, 'csv')
   const bytes = new Uint8Array(await file.arrayBuffer())
   expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
   const text = new TextDecoder().decode(bytes.slice(3))
   expect(text.endsWith('\r\n')).toBe(true)
-  expect(text.split('\r\n')[0]).toBe('Lecturer,Department code,Department,Timetable,Course code,Course,Role,Missing sections')
+  expect(text.split('\r\n')[0]).toBe(LECTURER_HEADERS.join(','))
 
   // Quotes double inside a quoted field, and a comma or line break is quoted.
   expect(text).toContain('"\'=HYPERLINK(""https://example.com"",""Open"")"')
@@ -241,7 +283,7 @@ test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows 
   expect(text).toContain('"Jabatan Kejuruteraan Perisian, ""Pusat"" Ünïcode"')
   const names = (parse(text) as string[][]).map((row) => row[0])
   expect(names).toEqual(expect.arrayContaining(["'\tTabbed Name", "'\rReturned Name", "'-2+3 Dash", "'@SUM(1+1)", '陈伟明', 'Chloé Lefèvre']))
-  const titles = (parse(text) as string[][]).map((row) => row[5])
+  const titles = (parse(text) as string[][]).map((row) => row[6])
   expect(titles).toContain("'+Statistik Asas")
 })
 
