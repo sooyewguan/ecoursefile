@@ -380,6 +380,7 @@ export function CourseFileSection() {
     <div className="grid gap-6">
       <PageHeader
         title={section.title}
+        parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
         description={
           data
             ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`

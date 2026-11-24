@@ -10,25 +10,40 @@ import { Spinner } from '@/components/ui/spinner'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
-/** The title of the page at a path, which the app shell's top bar names. */
-export type PageTitle = { path: string; title: string }
+/** A page that a page sits under, below the navigation's page, such as a section's course file. */
+export type ParentPage = { title: string; to: string }
+
+/** The title of the page at a path, and any page it sits under, which the app shell's top bar names. */
+export type PageTitle = { path: string; title: string; parent?: ParentPage }
 
 /** How a page inside the app shell tells the shell its title. Pages outside the shell have none. */
 export const PageTitleContext = createContext<((title: PageTitle) => void) | null>(null)
 
-/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, while the page shows. */
-export function useDocumentTitle(title: string) {
+/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, with any parent, while the page shows. */
+export function useDocumentTitle(title: string, parent?: ParentPage | null) {
   const setPageTitle = use(PageTitleContext)
   const { pathname } = useLocation()
+  const parentTitle = parent?.title
+  const parentTo = parent?.to
   useEffect(() => {
     document.title = `${title} · eCourseFile`
-    setPageTitle?.({ path: pathname, title })
-  }, [title, pathname, setPageTitle])
+    setPageTitle?.({ path: pathname, title, parent: parentTitle && parentTo ? { title: parentTitle, to: parentTo } : undefined })
+  }, [title, parentTitle, parentTo, pathname, setPageTitle])
 }
 
-/** A page's title, with an optional line under it and the page's actions at its end. */
-export function PageHeader({ title, description, action }: { title: string; description?: ReactNode; action?: ReactNode }) {
-  useDocumentTitle(title)
+/** A page's title, with an optional line under it and the page's actions at its end. parent names the page it sits under in the top bar. */
+export function PageHeader({
+  title,
+  description,
+  action,
+  parent,
+}: {
+  title: string
+  description?: ReactNode
+  action?: ReactNode
+  parent?: ParentPage | null
+}) {
+  useDocumentTitle(title, parent)
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">

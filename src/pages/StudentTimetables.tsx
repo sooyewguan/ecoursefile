@@ -134,6 +134,7 @@ export function StudentTimetables() {
     <div className="grid gap-6">
       <PageHeader
         title={SECTION.title}
+        parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
         description={
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }

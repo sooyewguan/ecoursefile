@@ -98,7 +98,7 @@ export function AppShell() {
   if (state.kind !== 'ready') return null
 
   const groups = navGroups(state.roles)
-  const title = pageTitle?.path === pathname ? pageTitle.title : null
+  const current = pageTitle?.path === pathname ? pageTitle : null
 
   return (
     <PageTitleContext value={setPageTitle}>
@@ -119,7 +119,7 @@ export function AppShell() {
               <Link to="/" className="focus-visible:ring-ring/40 rounded-md outline-none focus-visible:ring-[3px] lg:hidden">
                 <Brand />
               </Link>
-              <Breadcrumb groups={groups} pathname={pathname} title={title} />
+              <Breadcrumb groups={groups} pathname={pathname} page={current} />
               <div className="ml-auto lg:hidden">
                 <AccountMenu profile={state.profile} roles={state.roles} placement="bar" />
               </div>
@@ -183,15 +183,18 @@ function SidebarNav({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: (
 
 /**
  * Where the user is, from lg up: the navigation's page that holds the current path, then the
- * page's own title when the path is below that page, such as a course file under Course files.
+ * page's own title when the path is below that page, such as a course file under Course files,
+ * with the page it sits under between them, such as a section's course file.
  */
-function Breadcrumb({ groups, pathname, title }: { groups: NavGroup[]; pathname: string; title: string | null }) {
+function Breadcrumb({ groups, pathname, page }: { groups: NavGroup[]; pathname: string; page: PageTitle | null }) {
   const area = groups
     .flatMap((group) => group.links)
     .find((link) => link.path !== '/' && (pathname === link.path || pathname.startsWith(`${link.path}/`)))
+  const below = page && pathname !== area?.path
   const crumbs = [
     ...(area ? [{ label: area.label, to: area.path, icon: area.icon }] : []),
-    ...(title && pathname !== area?.path ? [{ label: title, to: null, icon: null }] : []),
+    ...(below && page.parent ? [{ label: page.parent.title, to: page.parent.to, icon: null }] : []),
+    ...(below ? [{ label: page.title, to: null, icon: null }] : []),
   ]
   return (
     <nav aria-label="Breadcrumb" className="hidden min-w-0 lg:block">
