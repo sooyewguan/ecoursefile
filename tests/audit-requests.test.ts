@@ -44,6 +44,8 @@ type AuditRequest = {
   checklist_complete: boolean
   notification_pending: boolean
   notified_browsers: number | null
+  round_number: number
+  closed_at: string | null
   items: Item[]
 }
 
@@ -84,7 +86,7 @@ async function requestsOf(client: SupabaseClient, offeringId: string): Promise<A
   const { data, error } = await client
     .from('audit_requests')
     .select(
-      'id, state, auditor_id, auditor_name, auditor_email, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
+      'id, state, auditor_id, auditor_name, auditor_email, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, round_number, closed_at, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
     )
     .eq('offering_id', offeringId)
     .order('created_at')
@@ -125,7 +127,7 @@ async function requestActivity(client: SupabaseClient, offeringId: string) {
     .from('activity_log')
     .select('action, section, actor_id, audit_request_id, comment')
     .eq('offering_id', offeringId)
-    .in('action', ['send', 'comment', 'reply'])
+    .in('action', ['send', 'comment', 'reply', 'close'])
     .order('id')
   if (error) throw error
   return data
@@ -579,6 +581,85 @@ test('Send and Reply say how many browsers their notification reached, and the r
   // A draft has sent nothing yet.
   await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
   expect(await requestIn(auditor, offeringId, 'draft')).toMatchObject({ notification_pending: false, notified_browsers: null })
+})
+
+function close(client: SupabaseClient, requestId: string) {
+  return client.rpc('close_audit_request', { request_id: requestId })
+}
+
+test('the auditor closes a replied request once they have reviewed it, which logs the close, and a closed request changes no further', async () => {
+  const course = await createCourse()
+  const { offeringId, coordinator, lecturer } = course
+  const auditor = await createPerson('auditor')
+  const otherAuditor = await createPerson('auditor')
+  await mark(auditor, offeringId, ATTENDANCE, 'needs_fix', 'Upload the attendance.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  // Only a replied request closes.
+  expect((await close(auditor.client, id)).error?.code).toBe(PERMISSION_DENIED)
+  await sendAuditRequest(auditor.client, id)
+  expect((await close(auditor.client, id)).error?.code).toBe(PERMISSION_DENIED)
+  expect((await comment(lecturer.client, id, ATTENDANCE, 'Week 3 was a holiday.')).error).toBeNull()
+  await replyToAuditRequest(coordinator.client, id, 'Answered.')
+
+  // Only its auditor closes it.
+  for (const client of [coordinator.client, lecturer.client, otherAuditor.client, await signInAs('admin'), await signInAs('hod')]) {
+    expect((await close(client, id)).error?.code).toBe(PERMISSION_DENIED)
+  }
+  expect(await requestIn(auditor, offeringId, 'replied')).toMatchObject({ id, closed_at: null })
+
+  const results = await Promise.all([close(auditor.client, id), close(auditor.client, id)])
+  for (const result of results) expect(result).toMatchObject({ error: null, data: { id, state: 'closed' } })
+  expect((await close(auditor.client, id)).error).toBeNull()
+  for (const user of [auditor, coordinator]) {
+    const [closed] = await requestsOf(user.client, offeringId)
+    expect(closed).toMatchObject({ id, state: 'closed', reply_message: 'Answered.', notification_pending: false, notified_browsers: null })
+    expect(closed.closed_at).not.toBeNull()
+    expect(closed.items).toMatchObject([{ section: ATTENDANCE, comment: 'Week 3 was a holiday.' }])
+  }
+  expect((await requestActivity(lecturer.client, offeringId)).map(({ action, section, actor_id, audit_request_id }) => ({ action, section, actor_id, audit_request_id }))).toEqual([
+    { action: 'send', section: null, actor_id: auditor.id, audit_request_id: id },
+    { action: 'comment', section: ATTENDANCE, actor_id: lecturer.id, audit_request_id: id },
+    { action: 'reply', section: null, actor_id: coordinator.id, audit_request_id: id },
+    { action: 'close', section: null, actor_id: auditor.id, audit_request_id: id },
+  ])
+
+  // A closed request takes no comment, and a send or reply of it again changes and sends nothing.
+  expect((await comment(lecturer.client, id, ATTENDANCE, 'Later.')).error?.code).toBe(PERMISSION_DENIED)
+  expect(await replyToAuditRequest(lecturer.client, id, 'Again.')).toEqual({ request: { id, state: 'closed' }, notified: null })
+  expect(await sendAuditRequest(auditor.client, id)).toEqual({ request: { id, state: 'closed' }, notified: null })
+  expect(await outboxOf(auditor)).toHaveLength(1)
+  expect((await requestActivity(adminClient(), offeringId)).map((row) => row.action)).toEqual(['send', 'comment', 'reply', 'close'])
+})
+
+test('each auditor’s requests on a course file are numbered by round in the order they were sent, and a draft takes the next number', async () => {
+  const course = await createCourse()
+  const { offeringId, coordinator, lecturer } = course
+  const [first, second] = await Promise.all([createPerson('auditor'), createPerson('auditor')])
+  await mark(first, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  const round1 = await requestIn(first, offeringId, 'draft')
+  expect(round1.round_number).toBe(1)
+  await sendAuditRequest(first.client, round1.id)
+  await mark(first, offeringId, ATTENDANCE, 'needs_fix', 'Upload the attendance.')
+  await mark(second, offeringId, ATTENDANCE, 'needs_fix', 'Second: upload the attendance.')
+  const round2 = await requestIn(first, offeringId, 'draft')
+  expect(round2.round_number).toBe(2)
+  expect((await requestIn(second, offeringId, 'draft')).round_number).toBe(1)
+  await sendAuditRequest(first.client, round2.id)
+  await upload(lecturer.client, { offeringId, section: TEACHING_PLAN }, 'plan.pdf')
+  await replyToAuditRequest(coordinator.client, round1.id)
+  await mark(first, offeringId, TEACHING_PLAN, 'needs_fix', 'Sign the plan.')
+
+  // Staff read the sent rounds, and the auditor their draft as the next one.
+  expect((await requestsOf(lecturer.client, offeringId)).map(({ id, round_number }) => ({ id, round_number }))).toEqual([
+    { id: round1.id, round_number: 1 },
+    { id: round2.id, round_number: 2 },
+  ])
+  expect((await requestIn(first, offeringId, 'draft')).round_number).toBe(3)
+  // Another course file counts its own rounds.
+  const other = await createCourse()
+  await mark(first, other.offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  expect((await requestIn(first, other.offeringId, 'draft')).round_number).toBe(1)
 })
 
 /** Makes the fake push service answer for this token as FCM does for a token it no longer knows. */

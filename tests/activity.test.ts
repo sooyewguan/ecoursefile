@@ -129,19 +129,30 @@ test('the activity lists every kind of logged event of the course file, newest f
   await tick(coordinator, offeringId, unticked, false)
   await mark(auditor, offeringId, LECTURER_TIMETABLE, 'verified', 'Both timetables are in.')
   await mark(auditor, offeringId, ATTENDANCE, 'needs_fix', 'Week 3 is missing.')
+  await mark(auditor, offeringId, LECTURER_TIMETABLE, 'needs_fix', 'The coordinator’s timetable is for another semester.')
   const { data: request } = await auditor.client.from('audit_requests').select('id').eq('offering_id', offeringId).single()
   await sendAuditRequest(auditor.client, request!.id)
   expect((await lecturer.client.rpc('comment_on_audit_item', { request_id: request!.id, section: ATTENDANCE, comment: 'Week 3 was a holiday.' })).error).toBeNull()
+  expect((await coordinator.client.rpc('comment_on_audit_item', { request_id: request!.id, section: LECTURER_TIMETABLE, comment: 'It is the current one.' })).error).toBeNull()
   await replyToAuditRequest(coordinator.client, request!.id, 'Every section is answered.')
+  expect((await auditor.client.rpc('close_audit_request', { request_id: request!.id })).error).toBeNull()
   // A deactivated user keeps their name in the activity.
   expect((await adminClient().from('profiles').update({ active: false }).eq('id', lecturer.id)).error).toBeNull()
 
   const entries = await activityOf(coordinator.client, offeringId)
   const adminName = 'Seam1 admin'
   expect(shown(entries)).toEqual([
-    { action: 'reply', actor: coordinator.name, description: 'Replied to an audit request', note: 'Every section is answered.' },
-    { action: 'comment', actor: lecturer.name, description: 'Commented on 6 Attendance Record in an audit request', note: 'Week 3 was a holiday.' },
-    { action: 'send', actor: auditor.name, description: 'Sent an audit request to the coordinator and lecturers', note: null },
+    { action: 'close', actor: auditor.name, description: 'Closed audit request round 1 on 4 Lecturer Timetable and 6 Attendance Record', note: null },
+    {
+      action: 'reply',
+      actor: coordinator.name,
+      description: `Replied to ${auditor.name}’s audit request round 1 on 4 Lecturer Timetable and 6 Attendance Record`,
+      note: 'Every section is answered.',
+    },
+    { action: 'comment', actor: coordinator.name, description: `Commented on 4 Lecturer Timetable in ${auditor.name}’s audit request round 1`, note: 'It is the current one.' },
+    { action: 'comment', actor: lecturer.name, description: `Commented on 6 Attendance Record in ${auditor.name}’s audit request round 1`, note: 'Week 3 was a holiday.' },
+    { action: 'send', actor: auditor.name, description: 'Sent audit request round 1 on 4 Lecturer Timetable and 6 Attendance Record', note: null },
+    { action: 'needs_fix', actor: auditor.name, description: 'Marked 4 Lecturer Timetable Needs fix', note: 'The coordinator’s timetable is for another semester.' },
     { action: 'needs_fix', actor: auditor.name, description: 'Marked 6 Attendance Record Needs fix', note: 'Week 3 is missing.' },
     { action: 'verified', actor: auditor.name, description: 'Marked 4 Lecturer Timetable Verified', note: 'Both timetables are in.' },
     { action: 'untick', actor: coordinator.name, description: `Unticked program code ${unticked.code} in 5 Student Timetable`, note: null },
@@ -177,6 +188,16 @@ test('the activity lists every kind of logged event of the course file, newest f
     source_semester_code: pastSemester.code,
     reason: null,
     comment: null,
+    request_auditor_name: null,
+    request_round: null,
+    request_sections: null,
+  })
+  // An entry of an audit request names its auditor, round and sections.
+  expect(entries.find((entry) => entry.action === 'reply')).toMatchObject({
+    section: null,
+    request_auditor_name: auditor.name,
+    request_round: 1,
+    request_sections: [LECTURER_TIMETABLE, ATTENDANCE],
   })
   expect((await lecturer.client.from('offerings').select('id').eq('id', pastId)).data).toEqual([])
 })

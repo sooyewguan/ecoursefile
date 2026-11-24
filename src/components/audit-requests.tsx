@@ -1,5 +1,16 @@
-import { BellOffIcon, CircleCheckIcon, CircleIcon, MailIcon, MessageSquareIcon, ReplyIcon, SendIcon, UploadIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import {
+  ArchiveIcon,
+  BellOffIcon,
+  ChevronRightIcon,
+  CircleCheckIcon,
+  CircleIcon,
+  MailIcon,
+  MessageSquareIcon,
+  ReplyIcon,
+  SendIcon,
+  UploadIcon,
+} from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
@@ -37,17 +48,22 @@ type AuditRequest = {
   auditor_email: string
   sent_at: string | null
   replied_at: string | null
+  closed_at: string | null
   replier_name: string | null
   reply_message: string | null
   checklist_complete: boolean
   notification_pending: boolean
   /** How many browsers the latest step's notification reached, once it has gone. */
   notified_browsers: number | null
+  /** Its number among its auditor's requests on the course file, in the order they were sent. A draft takes the next. */
+  round_number: number
   items: RequestItem[]
 }
 
 const SELECT =
-  'id, state, auditor_id, auditor_name, auditor_email, sent_at, replied_at, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
+  'id, state, auditor_id, auditor_name, auditor_email, sent_at, replied_at, closed_at, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, round_number, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
+
+const STATE_LABELS: Record<AuditRequestState, string> = { draft: 'Draft', sent: 'Waiting for reply', replied: 'Replied', closed: 'Closed' }
 
 /** A mailto link to these addresses, with a subject. */
 function mailto(emails: string[], subject: string) {
@@ -92,6 +108,7 @@ export function AuditRequests({
   const [sending, setSending] = useState<AuditRequest | null>(null)
   const [replying, setReplying] = useState<AuditRequest | null>(null)
   const [commenting, setCommenting] = useState<Commenting | null>(null)
+  const [closing, setClosing] = useState<AuditRequest | null>(null)
   const [retrying, setRetrying] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -200,33 +217,31 @@ export function AuditRequests({
             </Button>
           </div>
         ) : null
+        /** Whether the request waits on the user: their draft, a sent one they answer, or a reply they review. */
+        const waitsOnUser = request.state === 'draft' || canReply || (request.state === 'replied' && own)
         return (
-          <Card
-            key={request.id}
-            id={`audit-request-${request.id}`}
-            aria-label={request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}
-            className={cn('scroll-mt-20 gap-4 px-4 py-4 md:px-6', hash === `#audit-request-${request.id}` && 'ring-primary/50 ring-2')}
+          // A step remounts the card, so a request that no longer waits on the user folds.
+          <RequestCard
+            key={`${request.id} ${request.state}`}
+            request={request}
+            targeted={hash === `#audit-request-${request.id}`}
+            waitsOnUser={waitsOnUser}
+            actions={
+              request.state === 'draft' ? (
+                <Button onClick={() => setSending(request)}>
+                  <SendIcon />
+                  Send to staff
+                </Button>
+              ) : request.state === 'replied' && own ? (
+                <Button variant="outline" onClick={() => setClosing(request)}>
+                  <ArchiveIcon />
+                  Close request
+                </Button>
+              ) : (
+                <Badge variant={request.state === 'sent' ? 'outline' : 'secondary'}>{STATE_LABELS[request.state]}</Badge>
+              )
+            }
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="grid min-w-0 gap-1">
-                <h3 className="font-semibold">{request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}</h3>
-                <p className="text-muted-foreground text-sm">
-                  {request.state === 'draft'
-                    ? `${plural(request.items.length, 'section')} · Not sent yet`
-                    : <>Sent <Time value={request.sent_at!} /></>}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {request.state === 'draft' ? (
-                  <Button onClick={() => setSending(request)}>
-                    <SendIcon />
-                    Send to staff
-                  </Button>
-                ) : (
-                  <Badge variant={request.state === 'replied' ? 'secondary' : 'outline'}>{request.state === 'replied' ? 'Replied' : 'Waiting for reply'}</Badge>
-                )}
-              </div>
-            </div>
             {notice}
 
             <ul className="grid gap-3">
@@ -258,15 +273,15 @@ export function AuditRequests({
                 </span>
               </div>
             )}
-            {request.state === 'replied' && (
+            {request.replied_at && (
               <div className="bg-muted/50 grid gap-1 rounded-lg border px-3 py-2 text-sm">
                 <span className="text-muted-foreground">
-                  Reply from {request.replier_name}, <Time value={request.replied_at!} />
+                  Reply from {request.replier_name}, <Time value={request.replied_at} />
                 </span>
                 <p className="whitespace-pre-wrap">{request.reply_message ?? 'No message.'}</p>
               </div>
             )}
-          </Card>
+          </RequestCard>
         )
       })}
 
@@ -311,6 +326,22 @@ export function AuditRequests({
         </FormDialog>
       )}
 
+      {closing && (
+        <ConfirmDialog
+          title={`Close round ${closing.round_number}?`}
+          description="Close it once you have checked its sections again. It leaves Replies to review on your Home page. A section you mark Needs fix goes into your next request."
+          confirmLabel="Close request"
+          onClose={() => setClosing(null)}
+          onConfirm={async () => {
+            const { error } = await supabase.rpc('close_audit_request', { request_id: closing.id })
+            await load()
+            if (error) return friendlyError(error)
+            toast.success(`Closed round ${closing.round_number}`)
+            return null
+          }}
+        />
+      )}
+
       {commenting && (
         <FormDialog
           title={`Comment on ${sectionName(commenting.item.section)}`}
@@ -336,6 +367,81 @@ export function AuditRequests({
         </FormDialog>
       )}
     </section>
+  )
+}
+
+/**
+ * One request's card: its round, auditor and dates, with actions at its end, and its checklist as
+ * children. A replied or closed request folds to one line, unless it waits on the user, as a reply
+ * waits on its auditor, or the address targets it. The title opens and folds it.
+ */
+function RequestCard({
+  request,
+  targeted,
+  waitsOnUser,
+  actions,
+  children,
+}: {
+  request: AuditRequest
+  targeted: boolean
+  waitsOnUser: boolean
+  actions: ReactNode
+  children: ReactNode
+}) {
+  const foldable = request.state === 'replied' || request.state === 'closed'
+  const [open, setOpen] = useState(!foldable || waitsOnUser || targeted)
+  useEffect(() => {
+    if (targeted) setOpen(true)
+  }, [targeted])
+  const title = request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`
+  const sections = plural(request.items.length, 'section')
+  return (
+    <Card
+      id={`audit-request-${request.id}`}
+      aria-label={`${title}, round ${request.round_number}`}
+      className={cn('scroll-mt-20 px-4 md:px-6', open ? 'gap-4 py-4' : 'gap-0 py-3', targeted && 'ring-primary/50 ring-2')}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold">
+              {foldable ? (
+                <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex items-start gap-1.5 text-left hover:underline">
+                  <ChevronRightIcon aria-hidden="true" className={cn('mt-0.5 size-4 shrink-0 transition-transform', open && 'rotate-90')} />
+                  {title}
+                </button>
+              ) : (
+                title
+              )}
+            </h3>
+            <Badge variant="secondary" className="tabular-nums">
+              Round {request.round_number}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {request.state === 'draft' ? (
+              `${sections} · Not sent yet`
+            ) : request.state === 'sent' || open ? (
+              <>
+                {sections} · Sent <Time value={request.sent_at!} />
+                {request.closed_at && (
+                  <>
+                    {' '}
+                    · Closed <Time value={request.closed_at} />
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {sections} · {request.state === 'closed' ? 'Closed' : 'Replied'} <Time value={(request.closed_at ?? request.replied_at)!} />
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+      </div>
+      {open && children}
+    </Card>
   )
 }
 

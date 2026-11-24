@@ -18,7 +18,7 @@ import { pusherFromEnv, type PushMessage } from '../_shared/push.ts'
 /** A state that owes a notification: a sent request owes staff the request, and a replied one owes the auditor the reply. */
 type Step = 'sent' | 'replied'
 
-type AuditRequest = { id: string; state: 'draft' | Step }
+type AuditRequest = { id: string; state: 'draft' | Step | 'closed' }
 
 /**
  * What a step answers: the request as it is now, and how many browsers the notification of the step
@@ -94,7 +94,10 @@ async function send(requestId: string, caller: string): Promise<StepResult> {
   return { request: { id: request.id, state: request.state }, notified: request.state === 'sent' ? await deliver(request.id, 'sent') : null }
 }
 
-/** The RPC decides who may reply before it looks at the checklist, and returns a sent request unchanged while an item is neither ticked nor commented. */
+/**
+ * The RPC decides who may reply before it looks at the checklist, and returns a sent request
+ * unchanged while an item is neither ticked nor commented. A closed request owes no notification.
+ */
 async function reply(requestId: string, message: string | null, caller: string): Promise<StepResult> {
   await findRequest(requestId, caller)
   const request = await rest<AuditRequest>(
@@ -103,8 +106,8 @@ async function reply(requestId: string, message: string | null, caller: string):
     { request_id: requestId, actor_id: (await callerUser(caller)).id, message },
     SERVICE,
   )
-  if (request.state !== 'replied') throw new Refusal(409, 'checklist_incomplete', 'Tick or comment on every item of the checklist before you reply.')
-  return { request: { id: request.id, state: request.state }, notified: await deliver(request.id, 'replied') }
+  if (request.state === 'sent') throw new Refusal(409, 'checklist_incomplete', 'Tick or comment on every item of the checklist before you reply.')
+  return { request: { id: request.id, state: request.state }, notified: request.state === 'replied' ? await deliver(request.id, 'replied') : null }
 }
 
 /** Refuses a request that the caller cannot read. A draft is its auditor's alone, so nobody else finds one. */

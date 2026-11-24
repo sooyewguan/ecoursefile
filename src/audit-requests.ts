@@ -2,7 +2,7 @@ import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import { UserFacingError } from './errors.ts'
 
 /** An audit request's state, in the order it goes through them. */
-export type AuditRequestState = 'draft' | 'sent' | 'replied'
+export type AuditRequestState = 'draft' | 'sent' | 'replied' | 'closed'
 
 /**
  * What a send or reply gives back: the request as it is now, and how many browsers the step's

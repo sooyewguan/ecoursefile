@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  ArchiveIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CopyIcon,
@@ -30,13 +31,14 @@ export type ActivityAction =
   | 'send'
   | 'comment'
   | 'reply'
+  | 'close'
 
 /** One entry of a course file's activity, as the course_file_activity RPC returns it. */
 export type ActivityEntry = {
   id: number
   created_at: string
   action: ActivityAction
-  /** Null for a send and a reply, which are about a whole audit request. */
+  /** Null for a send, a reply and a close, which are about a whole audit request. */
   section: number | null
   /** The name of the user who made the change, also once they are deactivated. */
   actor_name: string
@@ -51,11 +53,27 @@ export type ActivityEntry = {
   reason: string | null
   /** The comment of a verdict or of a staff comment, or the message of a reply. */
   comment: string | null
+  /** The auditor, round and flagged sections of the audit request of a send, a comment, a reply or a close. */
+  request_auditor_name: string | null
+  request_round: number | null
+  request_sections: number[] | null
 }
 
 /** The section an entry is about, such as 5 Student Timetable, with the program code of a student timetable. */
 function place(entry: ActivityEntry) {
   return sectionName(entry.section!) + (entry.program_code ? ` for ${entry.program_code}` : '')
+}
+
+const SECTION_LIST = new Intl.ListFormat('en-GB', { type: 'conjunction' })
+
+/** The sections of an entry's audit request, such as 4 Lecturer Timetable and 6 Attendance Record. */
+function requestSections(entry: ActivityEntry) {
+  return SECTION_LIST.format(entry.request_sections!.map(sectionName))
+}
+
+/** Whose audit request an entry is about, and its round, such as Dr. Aminah’s audit request round 2. */
+function whoseRequest(entry: ActivityEntry) {
+  return `${entry.request_auditor_name}’s audit request round ${entry.request_round}`
 }
 
 /**
@@ -75,9 +93,10 @@ export const ACTIVITY_ACTIONS: Readonly<Record<ActivityAction, { icon: LucideIco
   untick: { icon: SquareIcon, describe: (entry) => `Unticked program code ${entry.program_code} in ${sectionName(entry.section!)}` },
   verified: { icon: CircleCheckIcon, describe: (entry) => `Marked ${place(entry)} Verified` },
   needs_fix: { icon: CircleAlertIcon, describe: (entry) => `Marked ${place(entry)} Needs fix` },
-  send: { icon: SendIcon, describe: () => 'Sent an audit request to the coordinator and lecturers' },
-  comment: { icon: MessageSquareIcon, describe: (entry) => `Commented on ${place(entry)} in an audit request` },
-  reply: { icon: ReplyIcon, describe: () => 'Replied to an audit request' },
+  send: { icon: SendIcon, describe: (entry) => `Sent audit request round ${entry.request_round} on ${requestSections(entry)}` },
+  comment: { icon: MessageSquareIcon, describe: (entry) => `Commented on ${place(entry)} in ${whoseRequest(entry)}` },
+  reply: { icon: ReplyIcon, describe: (entry) => `Replied to ${whoseRequest(entry)} on ${requestSections(entry)}` },
+  close: { icon: ArchiveIcon, describe: (entry) => `Closed audit request round ${entry.request_round} on ${requestSections(entry)}` },
 }
 
 /** What the entry records, in plain language. */
