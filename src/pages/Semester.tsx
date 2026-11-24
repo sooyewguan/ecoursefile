@@ -611,11 +611,6 @@ function SharedFileRow({
   onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
-  const uploaded = file && (
-    <>
-      {file.uploader_name}, <Time value={file.uploaded_at} />
-    </>
-  )
   return (
     <TableRow>
       <TableCell className="px-4 py-3 whitespace-normal">
@@ -623,10 +618,25 @@ function SharedFileRow({
           <span className="font-medium">{name}</span>
           {file ? <FileLink file={file} className="font-normal" /> : <SectionStatusBadge status="missing" />}
           {detail}
-          {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
+          {file && (
+            <span className="text-muted-foreground text-xs md:hidden">
+              {file.uploader_name} · <Time value={file.uploaded_at} />
+            </span>
+          )}
         </div>
       </TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{uploaded ?? <span className="text-muted-foreground">—</span>}</TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        {file ? (
+          <div className="grid gap-0.5">
+            <span>{file.uploader_name}</span>
+            <span className="text-muted-foreground text-xs">
+              <Time value={file.uploaded_at} />
+            </span>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
       <TableCell className="px-4 py-2 text-right">
         {file ? (
           <RowActions label={actionLabel}>
