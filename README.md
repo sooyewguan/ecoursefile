@@ -111,7 +111,7 @@ Some limits apply to everyone:
 - Nobody can grant `root`.
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
-- An HoD must have a department. A department can have more than one HoD.
+- The **Edit** dialog on the **Users** page refuses to take away a user's last role. To end someone's access, deactivate them. Root's **Remove admin** warns when admin is the user's only role, then goes ahead: root grants no other role and no admin manages another admin, so refusing would leave such an admin in place for good. Once they hold no role, an admin can give them a staff role or deactivate them.- An HoD must have a department. A department can have more than one HoD.
 - A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
 - Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
 - A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.

@@ -413,7 +413,11 @@ export function Users() {
       {dialog?.kind === 'admin-role' && (
         <ConfirmDialog
           title={dialog.grant ? `Make ${dialog.user.display_name} admin?` : `Remove ${dialog.user.display_name} as admin?`}
-          description="Applies at their next sign-in."
+          description={
+            !dialog.grant && rolesOf(dialog.user).length === 1
+              ? 'Admin is their only role, so they will hold none and see nothing until they get a staff role or are deactivated. Applies at their next sign-in.'
+              : 'Applies at their next sign-in.'
+          }
           confirmLabel={dialog.grant ? 'Make admin' : 'Remove admin'}
           destructive={!dialog.grant}
           onClose={close}
@@ -660,6 +664,9 @@ function EditUserDialog({
       onClose={onClose}
       onSubmit={async () => {
         if (fullName.trim() === '') return { field: 'fullName', message: 'Enter a full name.' }
+        if (changes.revoke.length > 0 && changes.grant.length === 0 && held.every((role) => changes.revoke.includes(role))) {
+          return { field: 'roles', message: 'A user needs at least one role. To end their access, deactivate them.' }
+        }
         if (roles.includes('hod') && departmentId === null) {
           const message = 'An HoD needs a department.'
           return editsDepartment ? { field: 'departmentId', message } : message
