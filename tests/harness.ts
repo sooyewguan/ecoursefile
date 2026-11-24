@@ -136,7 +136,7 @@ export function pickSemester(client: SupabaseClient = adminClient(), number?: nu
 
 /**
  * A semester for report tests that has no offerings yet: a random one of the 300 codes with start
- * years 2800 to 2899, which no other helper returns. Offerings are never deleted, so each semester
+ * years 2800 to 2899, which no other helper returns. The tests never delete offerings, so each semester
  * that a test fills is used up, and a database that has used them all needs a reset.
  */
 export async function emptyReportSemester() {

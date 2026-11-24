@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
+import { sizedPdf } from '../src/pdf/fixtures.ts'
+import { deleteFile, uploadFile } from '../src/uploads.ts'
 import { adminClient, createDepartment, createUser, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
 const RLS_VIOLATION = '42501'
@@ -374,4 +376,113 @@ test('root reads no offerings, lecturers or course files', async () => {
     expect(data).toEqual([])
   }
   expect((await root.rpc('section_statuses', { offering_id: offeringId })).data).toEqual([])
+})
+
+const TEACHING_PLAN = 2
+
+function pdf(name: string) {
+  return new File([sizedPdf(1024)], name, { type: 'application/pdf' })
+}
+
+/** The offering's course, its sections, whether its course file is in use, and its staff, as the service role reads them, or null once it is deleted. */
+async function offeringOf(offeringId: string) {
+  const { data, error } = await adminClient().from('offerings').select('course_id, sections_on, in_use').eq('id', offeringId).maybeSingle()
+  if (error) throw error
+  return data && { ...data, ...(await staffOf(offeringId)) }
+}
+
+/** Ways the coordinator or an auditor puts an offering's course file in use. */
+const USES: Record<string, (offeringId: string, coordinator: SupabaseClient) => Promise<unknown>> = {
+  'a file': (offeringId, coordinator) => uploadFile(coordinator, { offeringId, section: TEACHING_PLAN }, pdf('plan.pdf')),
+  'a file deleted since': async (offeringId, coordinator) => {
+    const file = await uploadFile(coordinator, { offeringId, section: TEACHING_PLAN }, pdf('plan.pdf'))
+    await deleteFile(coordinator, file.id)
+  },
+  'an item': async (offeringId, coordinator) => {
+    const { error } = await coordinator.rpc('add_item', { offering_id: offeringId, section: 12 })
+    if (error) throw error
+  },
+  'a switched section': async (offeringId, coordinator) => {
+    const { error } = await coordinator.rpc('switch_section', { offering_id: offeringId, section: 12, is_on: false, reason: 'No tutorials' })
+    if (error) throw error
+  },
+  'a verdict and its audit request': async (offeringId) => {
+    const auditor = await signInAs('auditor')
+    const { error } = await auditor.rpc('record_verdict', { offering_id: offeringId, section: TEACHING_PLAN, verdict: 'needs_fix', comment: 'Upload the plan.' })
+    if (error) throw error
+  },
+}
+
+test('the admin deletes an offering whose course file is not in use, and its lecturers with it', async () => {
+  const [coordinator, lecturer] = [await createLecturer(), await createLecturer()]
+  const offeringId = await offer({ coordinatorId: coordinator.id, lecturerIds: [lecturer.id] })
+  expect(await offeringOf(offeringId)).toMatchObject({ in_use: false })
+
+  const { error } = await admin.from('offerings').delete().eq('id', offeringId)
+
+  expect(error).toBeNull()
+  expect(await offeringOf(offeringId)).toBeNull()
+  expect((await adminClient().from('offering_lecturers').select('lecturer_id').eq('offering_id', offeringId)).data).toEqual([])
+})
+
+test("the admin changes the course of an offering whose course file is not in use, and it takes the new course type's sections", async () => {
+  const [coordinator, lecturer] = [await createLecturer(), await createLecturer()]
+  const offeringId = await offer({ courseId: await createCourse(await createCourseType([10, 12])), coordinatorId: coordinator.id, lecturerIds: [lecturer.id] })
+  const courseTypeId = await createCourseType([11, 13])
+  const courseId = await createCourse(courseTypeId)
+
+  const { error } = await admin.from('offerings').update({ course_id: courseId }).eq('id', offeringId)
+
+  expect(error).toBeNull()
+  const changed = { course_id: courseId, sections_on: [11, 13], in_use: false, coordinator: coordinator.id, lecturers: [coordinator.id, lecturer.id].toSorted() }
+  expect(await offeringOf(offeringId)).toEqual(changed)
+
+  // Like any offering, it keeps its sections when its course type changes later, even when its course is saved again.
+  expect((await admin.from('course_types').update({ sections_on: [14] }).eq('id', courseTypeId)).error).toBeNull()
+  expect((await admin.from('offerings').update({ course_id: courseId }).eq('id', offeringId)).error).toBeNull()
+  expect(await offeringOf(offeringId)).toEqual(changed)
+})
+
+test('an offering cannot take a course that its semester already offers', async () => {
+  const lecturer = await createLecturer()
+  const semester = await pickSemester()
+  const offered = await createCourse(await createCourseType([10]))
+  await offer({ semesterId: semester.id, courseId: offered, coordinatorId: lecturer.id })
+  const offeringId = await offer({ semesterId: semester.id, coordinatorId: lecturer.id })
+  const before = await offeringOf(offeringId)
+
+  const { error } = await admin.from('offerings').update({ course_id: offered }).eq('id', offeringId)
+
+  expect(error?.code).toBe(UNIQUE_VIOLATION)
+  expect(await offeringOf(offeringId)).toEqual(before)
+})
+
+test.each(Object.keys(USES))('an offering whose course file has %s keeps its course and cannot be deleted, but its lecturers can change', async (use) => {
+  const coordinator = await createLecturer()
+  const offeringId = await offer({ coordinatorId: coordinator.id })
+  await USES[use](offeringId, await signIn(coordinator.email, coordinator.password))
+  const before = await offeringOf(offeringId)
+  expect(before).toMatchObject({ in_use: true })
+
+  const changed = await admin.from('offerings').update({ course_id: await createCourse(await createCourseType([10])) }).eq('id', offeringId)
+  expect(changed.error?.code).toBe(FOREIGN_KEY_VIOLATION)
+  const deleted = await admin.from('offerings').delete().eq('id', offeringId)
+  expect(deleted.error?.code).toBe(FOREIGN_KEY_VIOLATION)
+  expect(await offeringOf(offeringId)).toEqual(before)
+
+  const other = await createLecturer()
+  expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: other.id, lecturer_ids: [] })).error).toBeNull()
+  expect(await staffOf(offeringId)).toEqual({ coordinator: other.id, lecturers: [other.id] })
+})
+
+test.each([...NOT_ADMIN, 'coordinator'] as const)('the %s user cannot change the course of an offering or delete it', async (role) => {
+  const coordinator = await createLecturer()
+  const offeringId = await offer({ coordinatorId: coordinator.id })
+  const client = role === 'coordinator' ? await signIn(coordinator.email, coordinator.password) : await signInAs(role)
+  const before = await offeringOf(offeringId)
+
+  await client.from('offerings').update({ course_id: await createCourse(await createCourseType([10])) }).eq('id', offeringId)
+  await client.from('offerings').delete().eq('id', offeringId)
+
+  expect(await offeringOf(offeringId)).toEqual(before)
 })

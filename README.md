@@ -103,7 +103,7 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers, and change the course of an offering or delete it while its course file is not in use. Upload and delete each semester's Academic Calendar and Appointment Letter. Delete a lecturer's timetable that no course file links. |
 | Everyone else | Read their own profile and roles, change their own title and name, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
@@ -208,6 +208,29 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
 
+### Changing and deleting offerings
+
+An offering's coordinator and lecturers change at any time. Its course changes, and the offering can be deleted, only while its course file is not in use. The migration is `supabase/migrations/20261124000200_change_and_delete_offerings.sql`.
+
+A course file is **in use** once it has an item, or an entry in its activity log: an upload, a reuse, a switch, a tick, a verdict, or an audit request, which starts with a verdict. A file that was deleted since still leaves its upload and its delete in the log, so the course file stays in use. The `in_use` column of `offerings` says whether it is, for everyone who reads the offering.
+
+| Change | Course file not in use | Course file in use |
+| --- | --- | --- |
+| Coordinator and lecturers | Yes, with `set_offering_lecturers` | Yes. A lecturer who is taken off loses the course file, and keeps their timetable. |
+| Course | Yes. The offering takes the course type's sections 10 to 16 of the new course, as a new offering does. | No. Fails with Postgres error `23503`. |
+| Delete | Yes. Its lecturers go with it. | No. Fails with Postgres error `23503`. |
+
+An offering in use stays as it is for these reasons:
+
+- The activity log keeps every entry, and each entry names the offering. Deleting the offering would delete the history that auditors check at any time.
+- Files, verdicts and audit requests are about the material of one course. Under another course, a verdict would judge material it never saw. The stored files would also stay in the folder named by the old course code and title.
+
+So an offering made by mistake must be fixed before its staff start on it. Once its course file is in use, it stays in its semester and in the reports.
+
+On the semester page, the row menu of each offering has **Edit** and **Delete**. **Edit** opens the offering's course, coordinator and lecturers. While the course file is in use, the course is disabled, and the dialog says why. **Delete** asks for confirmation, or for an offering in use, says why it stays.
+
+The app changes the course with an update of `course_id` on `offerings`, and deletes with a delete from `offerings`. RLS lets only admins do either. Anyone else's update or delete changes nothing. A course that the semester already offers fails with `23505`. Saving the course an offering already has keeps its sections, even when its course type changed since. Deleting an offering leaves its lecturers' timetables for the semester. See [Shared files](#shared-files).
+
 Who reads an offering, its lecturers and its course file is decided by `public.can_read_offering(offering_id)`:
 
 | Role | Offerings they read |
@@ -218,7 +241,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 
 Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -325,13 +348,14 @@ A shared file is stored once and linked into many course files. Its key is the s
 | Section | Shared by | Who uploads and deletes it | Course files that link it |
 | --- | --- | --- | --- |
 | 1 Academic Calendar, 3 Appointment Letter | Semester | The admin, under **Shared files** on the semester page | Every offering of the semester, including offerings added later |
-| 4 Lecturer Timetable | Lecturer | Each lecturer, the coordinator included, their own only, on the section 4 page of any course file they teach. The admin cannot. | Every offering the lecturer teaches in the semester, including offerings they are assigned to later |
+| 4 Lecturer Timetable | Lecturer | Each lecturer, the coordinator included, their own only, on the section 4 page of any course file they teach. The admin cannot upload one, and deletes one only while no course file links it, under **Lecturer timetables** on the semester page. | Every offering the lecturer teaches in the semester, including offerings they are assigned to later |
 | 5 Student Timetable | Program code | The admin, one for each program code, under **Student timetables** on the semester page | Every offering of the semester whose coordinator or lecturers tick the code on its section 5 page |
 
 - A semester's file is stored at `eCourseFile/<semester>/_shared/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/_shared/01 Academic Calendar/2026-11-19T10-30-00.123Z_calendar.pdf`. A timetable goes one folder deeper, in a folder named by the lecturer's id and then their email, such as `eCourseFile/2026-2027-1/_shared/04 Lecturer Timetable/0b6c6f2e-5d0b-4a8e-9a43-3f1d2c7e8a10 aisyah@example.edu/2026-11-19T10-30-00.123Z_timetable.pdf`. Finalize looks in the caller's own folder, so nobody records an upload as another lecturer's timetable. The id keeps two lecturers apart whose emails make the same folder name once the characters SharePoint forbids become `-`, such as `a/b@x` and `a-b@x`. A student timetable goes in a folder named by the program code's id and then the code, such as `.../05 Student Timetable/7f3e9a1c-2b4d-4e6f-8a0b-1c2d3e4f5a6b 1 BITS S1G1/<upload time>_<file name>`, so an upload for one code is never recorded for another.
 - To replace a shared file, the user who may delete it deletes it and uploads the new one.
 - Sections 1 and 3 of a course file are `missing` until the semester has the file, and `pending_review` once it has. Section 4 is `missing` while any lecturer of the offering has no timetable for the semester, so assigning a lecturer without one sets it back to `missing`. The section pages of 1 and 3 list the linked file. The section 4 page lists every lecturer of the offering, the coordinator first, with their timetable or Missing.
 - The section 5 page lists the program codes that have a student timetable for the semester, and the offering's coordinator and lecturers tick the codes whose students take the course. Only a code on that list can be ticked. Section 5 is `missing` while no code is ticked, and `pending_review` once one is. Each tick and untick adds a `tick` or `untick` row, with the `program_code_id`, to the offering's activity log. Ticking a ticked code, or unticking an unticked one, changes and logs nothing.
+- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists every lecturer's timetable for the semester, with the course files that link it, or "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete. The migration is `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql`.
 - A tick says which programs take the course, so it outlives its code's timetable. Deleting the timetable unlinks it from every offering that ticks the code, and section 5 of each is `missing` until staff untick the code or the admin uploads its timetable again, which links it back. The section 5 page lists such a code as ticked and Missing.
 - The admin, auditors, HoDs, deans and deputy deans read every shared file. A lecturer reads the calendar, letter and student timetables of each semester in which they teach an offering, their own timetables, and the timetables of the lecturers they teach an offering with. Root reads none.
 - Before a delete, the semester page or the section 4 page lists the offerings whose course files link the file, and the user confirms. After the delete, the section is `missing` in each of those course files.
@@ -342,7 +366,7 @@ A shared file is stored once and linked into many course files. Its key is the s
 | `can_upload_shared_file(semester_id, section)` | Whether the caller may upload their file of the section for the semester. For sections 1, 3 and 5, true for admins, for a semester that exists. For section 4, true for a lecturer who teaches an offering in the semester. The timetable is always the caller's own. |
 | `linked_files` | A computed relationship of `offerings`: the shared files that the offering's course file links, which are the semester's calendar and letter, the timetable of each of its lecturers, and the student timetable of each program code it ticks. The app reads it with `select=linked_files(...)`. They are the files of the semester whose key is one of `linked_shared_keys(offering)`, the rule that the course file's activity follows too. |
 | `linked_offerings` | A computed relationship of `files`: the offerings whose course files link the shared file. The semester page and the section 4 page read it to list them before a delete. |
-| `deletable` | For a lecturer timetable, true for its lecturer. For another shared file, true for admins. |
+| `deletable` | For a lecturer timetable, true for its lecturer, and for admins while no course file links it. For another shared file, true for admins. |
 | `offering_program_codes` | A table: one row for each program code ticked in section 5 of an offering. The offering's readers read it. Clients write it only through `tick_program_code`. |
 | `program_code_choices` | A computed relationship of `offerings`: the program codes with a student timetable in the offering's semester, which section 5 can tick. The app reads it with `select=program_code_choices(...)`. |
 | `tick_program_code(offering_id, program_code_id, ticked)` | Ticks or unticks the code in section 5 of the offering and logs it. A caller who is not the offering's coordinator or one of its lecturers fails with Postgres error `42501`. Ticking a code that is not in `program_code_choices` fails with `23503`. Any ticked code can be unticked. |
@@ -694,7 +718,7 @@ Tests that create users give each user a new email address. You can run the test
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
 - `pickSemester` and `createOffering` use the 2,400 codes with start years 2000 to 2799.
-- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. Offerings are never deleted, so after about 100 runs the helper finds none left and asks for a database reset.
+- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. The tests never delete an offering they fill a semester with, so after about 100 runs the helper finds none left and asks for a database reset.
 - `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Of the other tests, only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.

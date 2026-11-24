@@ -1,5 +1,7 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import { FolderOpenIcon } from 'lucide-react'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router'
 import { AppShell } from '@/components/app-shell'
+import { NotFound } from '@/components/page'
 import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
@@ -48,10 +50,12 @@ export function App() {
               <Route path="/semesters" element={<Semesters />} />
               <Route path="/semesters/:semesterId" element={<Semester />} />
               <Route path="/course-files" element={<CourseFiles />} />
-              <Route path="/course-files/:offeringId" element={<CourseFile />} />
-              <Route path={`/course-files/:offeringId/sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
-              <Route path={`/course-files/:offeringId/sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
-              <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
+              <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
+                <Route index element={<CourseFile />} />
+                <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+                <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
+                <Route path="sections/:section" element={<CourseFileSection />} />
+              </Route>
               <Route path="/completeness" element={<Completeness />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/profile" element={<Profile />} />
@@ -62,6 +66,15 @@ export function App() {
       </BrowserRouter>
     </AuthProvider>
   )
+}
+
+/** The form of every id, so an address with any other offering id names no course file. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The pages of one course file, or Course file not found when the address's id cannot be one. */
+function CourseFileRoute() {
+  if (UUID.test(useParams().offeringId ?? '')) return <Outlet />
+  return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
 }
 
 function Guard() {
