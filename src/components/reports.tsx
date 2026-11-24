@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import type { ExportFormat } from '../report-export.ts'
 import { OFFERING_COLUMNS, type ReportTable } from '../report-tables.ts'
-import { fetchReport, formatPercent, type OfferingRow } from '../reports.ts'
+import { fetchReport, formatPercent, readAll, type OfferingRow } from '../reports.ts'
 import { SECTIONS } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -34,6 +34,35 @@ export function SemesterSelect({ semesters, value, onChange }: { semesters: Seme
       </NativeSelect>
     </div>
   )
+}
+
+/**
+ * The semesters in which the user reads an offering, newest first, null while they load. RLS decides
+ * which offerings they read, so a lecturer gets the semesters they teach in. reload loads them again.
+ */
+export function useSemestersWithOfferings() {
+  const [semesters, setSemesters] = useState<Semester[] | 'failed' | null>(null)
+  const load = useCallback(async () => {
+    try {
+      const rows = await readAll<Semester>((from, to) =>
+        supabase
+          .from('semesters')
+          .select('id, code, offerings!inner(id)')
+          .order('start_year', { ascending: false })
+          .order('number', { ascending: false })
+          .order('id')
+          .limit(1, { referencedTable: 'offerings' })
+          .range(from, to),
+      )
+      setSemesters(rows.map(({ id, code }) => ({ id, code })))
+    } catch {
+      setSemesters('failed')
+    }
+  }, [])
+  useEffect(() => {
+    void load()
+  }, [load])
+  return { semesters, reload: load }
 }
 
 /**

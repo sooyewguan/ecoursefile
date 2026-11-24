@@ -1,5 +1,5 @@
 import { ChartColumnIcon, SearchIcon } from 'lucide-react'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { EmptyState, LoadError, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import {
@@ -12,6 +12,7 @@ import {
   SectionNumbers,
   SemesterSelect,
   useReport,
+  useSemestersWithOfferings,
 } from '@/components/reports'
 import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { SectionStatusLegend, SectionStatusSquare } from '@/components/section-status'
@@ -40,7 +41,6 @@ import {
   fetchReport,
   formatPercent,
   OFFERING_STATUS_LABELS,
-  readAll,
   type DepartmentRow,
   type FacultySummary,
   type LecturerRow,
@@ -93,32 +93,6 @@ function isStatus(value: string | null): value is OfferingStatus {
   return value !== null && Object.hasOwn(OFFERING_STATUS_LABELS, value)
 }
 
-/** The semesters in which the user reads an offering, newest first. RLS decides which offerings they read. */
-function useReportSemesters() {
-  const [semesters, setSemesters] = useState<ReportSemester[] | 'failed' | null>(null)
-  const load = useCallback(async () => {
-    try {
-      const rows = await readAll<ReportSemester>((from, to) =>
-        supabase
-          .from('semesters')
-          .select('id, code, offerings!inner(id)')
-          .order('start_year', { ascending: false })
-          .order('number', { ascending: false })
-          .order('id')
-          .limit(1, { referencedTable: 'offerings' })
-          .range(from, to),
-      )
-      setSemesters(rows.map(({ id, code }) => ({ id, code })))
-    } catch {
-      setSemesters('failed')
-    }
-  }, [])
-  useEffect(() => {
-    void load()
-  }, [load])
-  return { semesters, reload: load }
-}
-
 /**
  * The completeness of one semester's course files, for management, auditors and the admin. The
  * semester, the tab and the filters are in the URL, and the newest semester with offerings is the
@@ -126,7 +100,7 @@ function useReportSemesters() {
  * the controls agree.
  */
 export function Reports() {
-  const { semesters, reload } = useReportSemesters()
+  const { semesters, reload } = useSemestersWithOfferings()
   const [searchParams, setSearchParams] = useSearchParams()
   const list = semesters === 'failed' ? null : semesters
   const semesterParam = searchParams.get('semester')

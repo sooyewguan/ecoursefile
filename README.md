@@ -549,7 +549,7 @@ Home routes audit work to the people who must act on it, since push notification
 - **Audit requests waiting for you**, for lecturers: each sent request on a course file they teach or coordinate, oldest first, with its auditor, when it was sent, and how many of its sections are answered. A request stays until one of its staff replies, also once every section is fixed. `requestsAwaitingReply` in `src/audit-requests.ts` reads it.
 - **Replies to review**, for auditors: each of their replied requests, oldest reply first, with who replied, when, and the start of the message. A reply stays until its auditor closes the request. `repliesToReview` reads it.
 
-A list with nothing in it says so in one line. Below the lists, management, auditors and the admin see the faculty overview, and lecturers their own course files.
+A list with nothing in it says so in one line. Below the lists, management, auditors and the admin see the faculty overview, and lecturers their own course files, of one semester. The **Semester** select at the top picks it from the semesters in which the user reads an offering, so a lecturer picks from those they teach in. Home shows the semester in `?semester=`, else the one the user last picked on this browser, which `localStorage` keeps, else the newest. A lecturer who also holds a management role and teaches nothing in the semester is told so.
 
 ## Reports
 

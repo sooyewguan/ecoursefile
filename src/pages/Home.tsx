@@ -10,10 +10,10 @@ import {
   WrenchIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Link, Navigate } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { openPages } from '@/components/app-shell'
 import { EmptyState, LoadError, useDocumentTitle } from '@/components/page'
-import { loadOfferings } from '@/components/reports'
+import { loadOfferings, pickSemester, SemesterSelect, useSemestersWithOfferings } from '@/components/reports'
 import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { FacultyStatTiles, StatTiles } from '@/components/stat-tiles'
@@ -33,10 +33,10 @@ import { isTimetableMissing, loadTaught } from '../teaching.ts'
 
 type Semester = { id: string; code: string }
 
-/** The user's own course files in the newest semester in which they teach, and whether their timetable for it is missing. */
+/** The user's own course files in the semester, and whether their timetable for it is missing. */
 type StaffOverview = { semester: Semester; offerings: OfferingRow[]; timetableMissing: boolean }
 
-/** The faculty in the newest semester with offerings: its summary, its departments and its offerings. */
+/** The faculty in the semester: its summary, its departments and its offerings. */
 type FacultyOverview = { semester: Semester; summary: FacultySummary; departments: DepartmentRow[]; offerings: OfferingRow[] }
 
 /** What a loader gave: null while it loads, then its data, which is null when there is nothing to show, or failed. */
@@ -59,25 +59,14 @@ function useLoaded<Data>(load: () => Promise<Data | null>) {
   return { result: loaded.attempt === attempt ? loaded.result : null, retry: () => setAttempt((count) => count + 1) }
 }
 
-async function loadStaff(userId: string): Promise<StaffOverview | null> {
-  const taught = await loadTaught(userId)
-  const newest = taught.semesters[0]
-  if (!newest) return null
-  const [offerings, timetableMissing] = await Promise.all([loadOfferings(newest.id), isTimetableMissing(newest.id, userId)])
-  return { semester: { id: newest.id, code: newest.code }, offerings: offerings.filter((row) => taught.offeringIds.has(row.offering_id)), timetableMissing }
+/** The user's own course files in the semester, or null when they teach none in it. */
+async function loadStaff(userId: string, semester: Semester): Promise<StaffOverview | null> {
+  const [taught, offerings, timetableMissing] = await Promise.all([loadTaught(userId), loadOfferings(semester.id), isTimetableMissing(semester.id, userId)])
+  const own = offerings.filter((row) => taught.offeringIds.has(row.offering_id))
+  return own.length > 0 ? { semester, offerings: own, timetableMissing } : null
 }
 
-async function loadFaculty(): Promise<FacultyOverview | null> {
-  const { data, error } = await supabase
-    .from('semesters')
-    .select('id, code, offerings!inner(id)')
-    .order('start_year', { ascending: false })
-    .order('number', { ascending: false })
-    .limit(1)
-    .limit(1, { referencedTable: 'offerings' })
-  if (error) throw error
-  const semester: Semester | undefined = data[0] && { id: data[0].id, code: data[0].code }
-  if (!semester) return null
+async function loadFaculty(semester: Semester): Promise<FacultyOverview> {
   const [[summary], departments, offerings] = await Promise.all([
     fetchReport<FacultySummary>(supabase, 'report_faculty_summary', semester.id),
     fetchReport<DepartmentRow>(supabase, 'report_departments', semester.id),
@@ -86,33 +75,84 @@ async function loadFaculty(): Promise<FacultyOverview | null> {
   return { semester, summary, departments, offerings }
 }
 
+/** Where the browser keeps the semester the user last picked on Home. */
+const HOME_SEMESTER_KEY = 'ecoursefile.homeSemester'
+
+// localStorage can throw, such as in a private window with storage blocked. Home then opens on the newest semester.
+function rememberedSemester() {
+  try {
+    return localStorage.getItem(HOME_SEMESTER_KEY)
+  } catch {
+    return null
+  }
+}
+
+function rememberSemester(semesterId: string) {
+  try {
+    localStorage.setItem(HOME_SEMESTER_KEY, semesterId)
+  } catch {
+    // The pick still holds in the address.
+  }
+}
+
 /**
  * The dashboard. Lecturers first see the audit requests waiting for their reply, and auditors the
- * replies waiting for their review, from every semester. Management, auditors and the admin see the
- * faculty in the newest semester with offerings, and lecturers their own course files in the newest
- * semester they teach. A user who holds both kinds of role sees both. A user with one page goes
+ * replies waiting for their review, from every semester. Then management, auditors and the admin see
+ * the faculty in one semester, and lecturers their own course files in it. A user who holds both
+ * kinds of role sees both. The semester is the one in ?semester=, else the one the user last picked
+ * on this browser, else the newest in which they read an offering. A user with one page goes
  * straight to it.
  */
 export function Home() {
   const state = useAuth()
   useDocumentTitle('Home')
+  const { semesters, reload } = useSemestersWithOfferings()
+  const [searchParams, setSearchParams] = useSearchParams()
   if (state.kind !== 'ready') return null
   const pages = openPages(state.roles)
   if (pages.length === 1) return <Navigate to={pages[0].path} replace />
 
+  const list = semesters === 'failed' ? null : semesters
+  const semesterId = pickSemester(list, searchParams.get('semester') ?? rememberedSemester())
+  /** Undefined while the semesters load, and null when the user reads no offering at all. */
+  const semester = list ? (list.find((s) => s.id === semesterId) ?? null) : undefined
+  const pick = (id: string) => {
+    rememberSemester(id)
+    setSearchParams({ semester: id }, { replace: true })
+  }
+
   return (
     <div className="grid gap-10">
-      <header className="grid gap-1">
-        <p className="text-muted-foreground text-sm">{new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}</p>
-        <h1 className="text-2xl/8 font-semibold tracking-tight">Welcome back, {state.profile.displayName}</h1>
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="grid gap-1">
+          <p className="text-muted-foreground text-sm">{new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}</p>
+          <h1 className="text-2xl/8 font-semibold tracking-tight">Welcome back, {state.profile.displayName}</h1>
+        </div>
+        {semester ? (
+          <SemesterSelect semesters={list!} value={semester.id} onChange={pick} />
+        ) : (
+          semester === undefined && semesters !== 'failed' && <Skeleton className="h-[58px] w-full sm:w-56" />
+        )}
       </header>
       {state.roles.includes('lecturer') && <AwaitingReplySection userId={state.profile.id} />}
       {state.roles.includes('auditor') && <RepliesToReviewSection userId={state.profile.id} />}
-      {canOpen(state.roles, '/reports') && <FacultySection />}
-      {state.roles.includes('lecturer') && <StaffSection userId={state.profile.id} />}
+      {semesters === 'failed' ? (
+        <SectionCard>
+          <LoadError title="Couldn't load the semesters" onRetry={reload} />
+        </SectionCard>
+      ) : (
+        <>
+          {/* A new semester remounts each section, so it never shows the last semester's figures while it loads. */}
+          {canOpen(state.roles, '/reports') && <FacultySection key={semester?.id} semester={semester} />}
+          {state.roles.includes('lecturer') && <StaffSection key={semester?.id} userId={state.profile.id} semester={semester} />}
+        </>
+      )}
     </div>
   )
 }
+
+/** What a loader gives for a semester that is still loading: nothing, ever, so the section keeps its placeholders. */
+const loading = () => new Promise<never>(() => {})
 
 /** A dashboard section's heading, with how many it lists or the semester it covers, and a link to the page with the detail. */
 function SectionHeading({
@@ -289,8 +329,10 @@ function InboxSection({
   )
 }
 
-function FacultySection() {
-  const { result, retry } = useLoaded(loadFaculty)
+/** The faculty in the semester. semester is undefined while it loads, and null when there are no offerings. */
+function FacultySection({ semester }: { semester: Semester | null | undefined }) {
+  const load = useCallback(() => (semester === undefined ? loading() : semester ? loadFaculty(semester) : Promise.resolve(null)), [semester])
+  const { result, retry } = useLoaded(load)
   const data = result && result !== 'failed' ? result.data : null
   const summary = data?.summary
   return (
@@ -413,8 +455,9 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
   )
 }
 
-function StaffSection({ userId }: { userId: string }) {
-  const load = useCallback(() => loadStaff(userId), [userId])
+/** The user's own course files in the semester. semester is undefined while it loads, and null when the user teaches none at all. */
+function StaffSection({ userId, semester }: { userId: string; semester: Semester | null | undefined }) {
+  const load = useCallback(() => (semester === undefined ? loading() : semester ? loadStaff(userId, semester) : Promise.resolve(null)), [userId, semester])
   const { result, retry } = useLoaded(load)
   const data = result && result !== 'failed' ? result.data : null
   const rows = data?.offerings
@@ -435,7 +478,7 @@ function StaffSection({ userId }: { userId: string }) {
         </SectionCard>
       ) : result?.data === null ? (
         <SectionCard>
-          <EmptyState icon={ClipboardCheckIcon} title="No course files yet" />
+          <EmptyState icon={ClipboardCheckIcon} title={semester ? `You teach no course file in ${semester.code}` : 'No course files yet'} />
         </SectionCard>
       ) : (
         <>
