@@ -416,6 +416,14 @@ export function CourseFileSection() {
           <EmptyState
             icon={PowerIcon}
             title={`${section.title} is off`}
+            description={
+              <>
+                <span className="block">
+                  {data?.offering?.section_reasons[section.number] ? `Switched off: ${data.offering.section_reasons[section.number]}` : 'Off for this course.'}
+                </span>
+                {isStaff && <span className="block">Switch it on to upload files.</span>}
+              </>
+            }
             action={
               isStaff && (
                 <Button

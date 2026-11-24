@@ -190,6 +190,17 @@ export function CourseFile() {
               isStaff={canSwitch}
               staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
+              switchedOff={
+                new Map(
+                  SWITCHABLE_SECTIONS.filter((section) => !offering!.sections_on.includes(section.number)).map((section) => [
+                    section.number,
+                    offering!.section_reasons[section.number],
+                  ]),
+                )
+              }
+              onSwitchOn={(section) =>
+                void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+              }
             />
           )}
 

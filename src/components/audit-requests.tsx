@@ -6,6 +6,7 @@ import {
   CircleIcon,
   MailIcon,
   MessageSquareIcon,
+  PowerIcon,
   ReplyIcon,
   SendIcon,
   UploadIcon,
@@ -79,7 +80,9 @@ type Commenting = { request: AuditRequest; item: RequestItem }
  * isStaff is whether the user is the coordinator or a lecturer of the offering, who comment on
  * items and reply. statuses is each section's status, which a draft shows beside its sections.
  * staffEmails are the coordinator's and lecturers' emails, for an auditor to tell them of a request
- * that notified nobody, and courseCode names the course file in that email. A request's
+ * that notified nobody, and courseCode names the course file in that email. switchedOff holds the
+ * switchable sections that are off, with the reason when there is one, and onSwitchOn switches one on
+ * for staff, since a switched-off section takes no upload. A request's
  * notification links to #audit-request-<id>, so the page scrolls to that request and marks it once
  * the requests load.
  */
@@ -90,6 +93,8 @@ export function AuditRequests({
   isStaff,
   staffEmails,
   statuses,
+  switchedOff,
+  onSwitchOn,
 }: {
   offeringId: string
   courseCode: string
@@ -97,6 +102,8 @@ export function AuditRequests({
   isStaff: boolean
   staffEmails: string[]
   statuses: Map<number, SectionStatus>
+  switchedOff: ReadonlyMap<number, string | undefined>
+  onSwitchOn: (section: number) => void
 }) {
   const { hash } = useLocation()
   /** Null while they load. */
@@ -251,7 +258,9 @@ export function AuditRequests({
                   offeringId={offeringId}
                   item={item}
                   draftStatus={request.state === 'draft' ? statuses.get(item.section) : undefined}
+                  switchedOff={switchedOff.has(item.section) ? { reason: switchedOff.get(item.section) } : undefined}
                   onComment={canReply ? () => setCommenting({ request, item }) : undefined}
+                  onSwitchOn={canReply ? () => onSwitchOn(item.section) : undefined}
                 />
               ))}
             </ul>
@@ -447,18 +456,24 @@ function RequestCard({
 
 /**
  * One flagged section: ticked, answered by a comment, or waiting. A draft's item shows the section's
- * status now instead, since a draft has no ticks. onComment is set for staff who may comment.
+ * status now instead, since a draft has no ticks. switchedOff is set while the section is switched
+ * off, with the reason when there is one. onComment and onSwitchOn are set for staff who may answer:
+ * a switched-off section takes no upload, so they switch it on to upload, or comment.
  */
 function ChecklistItem({
   offeringId,
   item,
   draftStatus,
+  switchedOff,
   onComment,
+  onSwitchOn,
 }: {
   offeringId: string
   item: RequestItem
   draftStatus: SectionStatus | undefined
+  switchedOff: { reason: string | undefined } | undefined
   onComment?: () => void
+  onSwitchOn?: () => void
 }) {
   const name = sectionName(item.section)
   const [Icon, label, tone] = item.ticked
@@ -481,6 +496,7 @@ function ChecklistItem({
           {draftStatus ? <SectionStatusBadge status={draftStatus} /> : <span className="text-muted-foreground text-xs">{label}</span>}
         </div>
         <p className="text-sm whitespace-pre-wrap">{item.verdict.comment}</p>
+        {switchedOff && <p className="text-muted-foreground text-sm">{switchedOff.reason ? `Switched off: ${switchedOff.reason}` : 'Off for this course'}</p>}
         {item.comment && (
           <p className="text-muted-foreground border-l-2 pl-3 text-sm whitespace-pre-wrap">
             {item.commenter_name}: {item.comment}
@@ -488,13 +504,21 @@ function ChecklistItem({
         )}
         {onComment && (
           <div className="flex flex-wrap gap-2">
-            {!item.ticked && SECTIONS_WITH_PAGES.has(item.section) && (
-              <Button asChild variant="outline" size="sm">
-                <Link to={`/course-files/${offeringId}/sections/${item.section}`}>
-                  <UploadIcon />
-                  Upload fix
-                </Link>
+            {!item.ticked && switchedOff && onSwitchOn ? (
+              <Button variant="outline" size="sm" onClick={onSwitchOn}>
+                <PowerIcon />
+                Switch on to upload
               </Button>
+            ) : (
+              !item.ticked &&
+              SECTIONS_WITH_PAGES.has(item.section) && (
+                <Button asChild variant="outline" size="sm">
+                  <Link to={`/course-files/${offeringId}/sections/${item.section}`}>
+                    <UploadIcon />
+                    Upload fix
+                  </Link>
+                </Button>
+              )
             )}
             <Button variant="outline" size="sm" onClick={onComment}>
               <MessageSquareIcon />
