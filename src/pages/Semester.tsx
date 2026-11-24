@@ -1,9 +1,10 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { CopyOfferingsDialog, CopyResults, type CopyOutcome, type SemesterRef } from '@/components/copy-offerings'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
@@ -61,6 +62,7 @@ type LecturerTimetable = SharedFile & { deletable: boolean; lecturer: { display_
 /** The dialog that is open, and the offering or shared file it acts on. title names the shared file. */
 type OpenDialog =
   | { kind: 'add' }
+  | { kind: 'copy' }
   | { kind: 'edit'; offering: Offering }
   | { kind: 'delete'; offering: Offering }
   | { kind: 'upload-timetable' }
@@ -91,10 +93,12 @@ const SHARED_COLUMNS = ['', WIDE, '']
 export function Semester() {
   const semesterId = useParams().semesterId!
   /** Undefined while it loads, and null when no semester has the id in the address. */
-  const [semester, setSemester] = useState<{ code: string } | null | undefined>(undefined)
+  const [semester, setSemester] = useState<SemesterRef | null | undefined>(undefined)
   const [sharedFiles, setSharedFiles] = useState<SharedFile[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
+  /** What the last copy into a semester did, until dismissed, and the semester it copied into. */
+  const [copied, setCopied] = useState<{ semesterId: string; outcome: CopyOutcome } | null>(null)
   /** The section whose file is uploading. */
   const [uploading, setUploading] = useState<Section | null>(null)
   const picker = useRef<HTMLInputElement>(null)
@@ -143,7 +147,7 @@ export function Semester() {
 
   const reload = useCallback(async () => {
     const [found, files] = await Promise.all([
-      supabase.from('semesters').select('code').eq('id', semesterId).maybeSingle(),
+      supabase.from('semesters').select('id, code, start_year, number').eq('id', semesterId).maybeSingle(),
       supabase
         .from('files')
         .select('id, section, name, uploaded_at, uploader_name, linked_offerings(id, course:courses(code, title))')
@@ -259,6 +263,15 @@ export function Semester() {
       Add offering
     </Button>
   )
+  const offeringActions = (
+    <div className="flex flex-wrap justify-center gap-2 max-sm:w-full max-sm:*:grow">
+      <Button variant="outline" onClick={() => setDialog({ kind: 'copy' })} disabled={!semester}>
+        <CopyIcon />
+        Copy offerings
+      </Button>
+      {addButton}
+    </div>
+  )
   const uploadTimetableButton = (
     <Button variant="outline" onClick={() => setDialog({ kind: 'upload-timetable' })}>
       <UploadIcon />
@@ -271,7 +284,8 @@ export function Semester() {
       <PageHeader title={semester ? `Semester ${semester.code}` : 'Semester'} action={backLink} />
 
       <section aria-labelledby="offerings-heading" className="grid gap-3">
-        <ListHeading id="offerings-heading" title="Offerings" total={offerings.total} action={hasOfferings && addButton} />
+        <ListHeading id="offerings-heading" title="Offerings" total={offerings.total} action={hasOfferings && offeringActions} />
+        {copied?.semesterId === semesterId && <CopyResults outcome={copied.outcome} onDismiss={() => setCopied(null)} />}
         {hasOfferings && (
           <Input
             type="search"
@@ -304,7 +318,8 @@ export function Semester() {
                   columns={OFFERING_COLUMNS.length}
                   icon={BookOpenIcon}
                   title={noOfferings ? 'No offerings yet' : 'No matching offerings'}
-                  action={noOfferings ? addButton : undefined}
+                  description={noOfferings ? 'Copy the offerings of another semester, or add them one at a time.' : undefined}
+                  action={noOfferings ? offeringActions : undefined}
                 />
               ) : (
                 offerings.rows.map((offering) => (
@@ -492,6 +507,17 @@ export function Semester() {
               `Added ${course!.label}`,
             )
           }
+        />
+      )}
+
+      {dialog?.kind === 'copy' && semester && (
+        <CopyOfferingsDialog
+          semester={semester}
+          onClose={close}
+          onCopied={(outcome) => {
+            setCopied({ semesterId, outcome })
+            reloadOfferings()
+          }}
         />
       )}
 
