@@ -1,6 +1,6 @@
 import { BellOffIcon, CircleCheckIcon, CircleIcon, MessageSquareIcon, ReplyIcon, SendIcon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { ErrorAlert } from '@/components/notice'
@@ -53,10 +53,14 @@ type Commenting = { request: AuditRequest; item: RequestItem }
  * send, and every sent request, whose flagged sections are a checklist for the offering's staff.
  * isStaff is whether the user is the coordinator or a lecturer of the offering, who comment on
  * items and reply. statuses is each section's status, which a draft shows beside its sections.
+ * A request's notification links to #audit-request-<id>, so the page scrolls to that request and
+ * marks it once the requests load.
  */
 export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offeringId: string; userId: string | null; isStaff: boolean; statuses: Map<number, SectionStatus> }) {
+  const { hash } = useLocation()
   /** Null while they load. */
   const [requests, setRequests] = useState<AuditRequest[] | null>(null)
+  const loaded = requests !== null
   const [loadFailed, setLoadFailed] = useState(false)
   /** Why the last notification failed to go, shown above the requests, where the request offers to send it again. */
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +85,10 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (loaded && hash) document.getElementById(hash.slice(1))?.scrollIntoView()
+  }, [loaded, hash])
 
   /** Makes a step again to send its notification, which is all it does to a request past that step. */
   async function retryNotification(request: AuditRequest) {
@@ -142,7 +150,12 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
             </div>
           ) : null
         return (
-          <Card key={request.id} aria-label={request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`} className="gap-4 px-4 py-4 md:px-6">
+          <Card
+            key={request.id}
+            id={`audit-request-${request.id}`}
+            aria-label={request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}
+            className={cn('scroll-mt-20 gap-4 px-4 py-4 md:px-6', hash === `#audit-request-${request.id}` && 'ring-primary/50 ring-2')}
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="grid min-w-0 gap-1">
                 <h3 className="font-semibold">{request.state === 'draft' ? 'Your draft audit request' : `Audit request from ${request.auditor_name}`}</h3>
