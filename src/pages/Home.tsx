@@ -7,20 +7,20 @@ import {
   FolderOpenIcon,
   UploadIcon,
   WrenchIcon,
-  type LucideIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate } from 'react-router'
 import { openPages } from '@/components/app-shell'
 import { EmptyState, LoadError, useDocumentTitle } from '@/components/page'
 import { loadOfferings } from '@/components/reports'
+import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { OfferingStatusBadge } from '@/components/section-status'
+import { FacultyStatTiles, StatTiles } from '@/components/stat-tiles'
 import { TimetableMissing } from '@/components/timetable-missing'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn, plural } from '@/lib/utils'
 import { canOpen } from '../auth.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { fetchReport, formatPercent, type DepartmentRow, type FacultySummary, type OfferingRow } from '../reports.ts'
@@ -130,95 +130,6 @@ function SectionHeading({ id, title, semester, link }: { id: string; title: stri
   )
 }
 
-/** One headline number: what it counts, the number, and a line under it. */
-type Stat = { label: string; value: ReactNode; detail?: ReactNode; icon: LucideIcon; tone: string }
-
-function StatTiles({ stats }: { stats: Stat[] | null }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-      {(stats ?? Array.from({ length: 4 }, () => null)).map((stat, index) => (
-        <Card key={stat?.label ?? index} className="gap-3 px-4 py-4 sm:px-5 sm:py-5">
-          {stat ? (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-muted-foreground text-sm font-medium">{stat.label}</p>
-                <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg max-sm:hidden', stat.tone)}>
-                  <stat.icon aria-hidden="true" className="size-4" />
-                </span>
-              </div>
-              <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{stat.value}</p>
-              {stat.detail && <p className="text-muted-foreground text-xs sm:text-sm">{stat.detail}</p>}
-            </>
-          ) : (
-            <>
-              <Skeleton className="h-5 w-24" />
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-4 w-28" />
-            </>
-          )}
-        </Card>
-      ))}
-    </div>
-  )
-}
-
-/** The sections that count, as a row of a report gives them. */
-type SectionCounts = Pick<OfferingRow, 'counted_sections' | 'uploaded_sections' | 'verified_sections' | 'needs_fix_sections'>
-
-/** The parts of the sections that count, in bar order: Verified, Pending review, Needs fix, and Missing as the rest of the bar. */
-const PARTS: { label: string; className: string; count: (row: SectionCounts) => number }[] = [
-  { label: 'Verified', className: 'bg-success', count: (row) => row.verified_sections },
-  { label: 'Pending review', className: 'bg-info', count: (row) => row.uploaded_sections - row.verified_sections - row.needs_fix_sections },
-  { label: 'Needs fix', className: 'bg-warning', count: (row) => row.needs_fix_sections },
-  { label: 'Missing', className: 'bg-muted-foreground/20', count: (row) => row.counted_sections - row.uploaded_sections },
-]
-
-type Part = { label: string; value: number; className: string }
-
-function sectionParts(row: SectionCounts): Part[] {
-  return PARTS.map(({ label, className, count }) => ({ label, className, value: count(row) }))
-}
-
-/** A thin bar split into parts by share of the total. A part of zero draws nothing. Its name gives every part's count. */
-function SegmentedBar({ parts, className }: { parts: Part[]; className?: string }) {
-  const total = parts.reduce((sum, part) => sum + part.value, 0)
-  return (
-    <div
-      role="img"
-      aria-label={parts.map((part) => `${part.label} ${part.value}`).join(', ') + ` of ${plural(total, 'section')}`}
-      className={cn('flex h-2 w-full gap-0.5', className)}
-    >
-      {total === 0 ? (
-        <span className="bg-muted-foreground/20 h-full flex-1 rounded-full" />
-      ) : (
-        parts
-          .filter((part) => part.value > 0)
-          .map((part) => (
-            <span
-              key={part.label}
-              title={`${part.label}: ${part.value} of ${total}`}
-              className={cn('h-full min-w-1 rounded-full', part.className)}
-              style={{ flexGrow: part.value, flexBasis: 0 }}
-            />
-          ))
-      )}
-    </div>
-  )
-}
-
-function PartsLegend() {
-  return (
-    <ul aria-label="Legend" className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
-      {PARTS.map((part) => (
-        <li key={part.label} className="flex items-center gap-1.5">
-          <span aria-hidden="true" className={cn('size-2 rounded-full', part.className)} />
-          {part.label}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /** A failed load, or nothing to show, as a card in place of a section's body. */
 function SectionCard({ children }: { children: ReactNode }) {
   return <Card className="py-0">{children}</Card>
@@ -246,18 +157,7 @@ function FacultySection() {
         </SectionCard>
       ) : (
         <>
-          <StatTiles
-            stats={
-              summary
-                ? [
-                    { label: 'Offerings', value: summary.offerings, detail: plural(summary.counted_sections, 'section') + ' that count', icon: FolderOpenIcon, tone: 'bg-primary/10 text-primary' },
-                    { label: 'Uploaded', value: formatPercent(summary.percent_uploaded), detail: `${summary.uploaded_sections} of ${summary.counted_sections} sections`, icon: UploadIcon, tone: 'bg-info/10 text-info' },
-                    { label: 'Verified', value: formatPercent(summary.percent_verified), detail: `${summary.verified_sections} of ${summary.counted_sections} sections`, icon: CircleCheckIcon, tone: 'bg-success/10 text-success' },
-                    { label: 'Needs fix', value: formatPercent(summary.percent_needs_fix), detail: `${summary.needs_fix_sections} of ${summary.counted_sections} sections`, icon: WrenchIcon, tone: 'bg-warning/10 text-warning' },
-                  ]
-                : null
-            }
-          />
+          <FacultyStatTiles summary={summary ?? null} />
           <div className="grid gap-4 lg:grid-cols-5">
             <DepartmentsCard data={data} />
             <LeastCompleteCard data={data} />
@@ -276,7 +176,7 @@ function DepartmentsCard({ data }: { data: FacultyOverview | null }) {
         <CardDescription>Sections that count, by their status</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
-        <PartsLegend />
+        <SectionBarLegend />
         <ul aria-label="Departments" className="grid gap-4">
           {!data
             ? [0, 1, 2].map((key) => (
@@ -299,7 +199,7 @@ function DepartmentsCard({ data }: { data: FacultyOverview | null }) {
                       {formatPercent(row.percent_uploaded)} <span className="text-muted-foreground">uploaded</span>
                     </span>
                   </div>
-                  <SegmentedBar parts={sectionParts(row)} />
+                  <SectionBar counts={row} />
                 </li>
               ))}
         </ul>
@@ -342,7 +242,7 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
                       </span>
                       <span className="shrink-0 font-medium tabular-nums">{formatPercent(row.percent_complete)}</span>
                     </span>
-                    <SegmentedBar parts={sectionParts(row)} className="h-1.5" />
+                    <SectionBar counts={row} className="h-1.5" />
                   </Link>
                 </li>
               ) : (
@@ -421,7 +321,7 @@ function StaffSection({ userId }: { userId: string }) {
                             {row.missing_sections.length === 0 ? 'None missing' : `${row.missing_sections.length} missing`}
                           </span>
                         </span>
-                        <SegmentedBar parts={sectionParts(row)} />
+                        <SectionBar counts={row} />
                       </span>
                       <span className="flex items-center gap-2 sm:justify-end">
                         <OfferingStatusBadge status={row.status} />
