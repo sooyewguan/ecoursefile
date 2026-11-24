@@ -13,10 +13,12 @@ import {
   SemesterSelect,
   useReport,
 } from '@/components/reports'
+import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { SectionStatusLegend, SectionStatusSquare } from '@/components/section-status'
+import { FacultyStatTiles } from '@/components/stat-tiles'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -249,48 +251,24 @@ function SummaryView({ semester, url }: ViewProps) {
       <Toolbar>
         <ExportMenu table={SUMMARY_TABLE} rows={data && summaryRows(data.faculty, data.departments)} semesterCode={semester?.code ?? null} />
       </Toolbar>
-      <SummaryTiles summary={data?.faculty ?? null} />
+      <FacultyStatTiles summary={data?.faculty ?? null} />
       <section aria-labelledby="departments-heading" className="mt-2 grid gap-3">
-        <h3 id="departments-heading" className="text-lg font-semibold tracking-tight">
-          Departments
-        </h3>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+          <h3 id="departments-heading" className="text-lg font-semibold tracking-tight">
+            Departments
+          </h3>
+          <SectionBarLegend />
+        </div>
         <DepartmentsTable rows={data?.departments ?? null} url={url} />
       </section>
     </>
   )
 }
 
-function SummaryTiles({ summary }: { summary: FacultySummary | null }) {
-  const column = SUMMARY_TABLE.columns
-  const tiles = [
-    { label: column.offerings.header, value: summary && column.offerings.value(summary), detail: undefined },
-    ...SHARES.map(([count, percent]) => ({
-      label: percent.header,
-      value: summary && formatPercent(percent.value(summary)),
-      detail: summary ? `${count.value(summary)} of ${column.sections.value(summary)} sections` : null,
-    })),
-  ]
-  return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-      {tiles.map((tile) => (
-        <Card key={tile.label} className="gap-1 py-4 sm:gap-2 sm:py-6">
-          <CardHeader className="px-4 sm:px-6">
-            <CardDescription>{tile.label}</CardDescription>
-            <CardTitle className="text-2xl tabular-nums sm:text-3xl">{tile.value ?? <Skeleton className="h-8 w-20 sm:h-9 sm:w-24" />}</CardTitle>
-          </CardHeader>
-          {tile.detail !== undefined && (
-            <CardContent className="text-muted-foreground px-4 text-sm sm:px-6">{tile.detail ?? <Skeleton className="h-5 w-28" />}</CardContent>
-          )}
-        </Card>
-      ))}
-    </div>
-  )
-}
-
-/** Below sm a department's offerings and percentages move into its cell. */
+/** Below sm a department's offerings and percentages move into its cell, under its bar. */
 const WIDE = 'hidden sm:table-cell'
 
-/** The department breakdown. Each department links to its offerings. */
+/** The department breakdown, each department with the bar of its sections by status. Each department links to its offerings. */
 function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: ReportUrl }) {
   const column = SUMMARY_TABLE.columns
   return (
@@ -314,12 +292,16 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
             rows.map((row) => (
               <TableRow key={row.department_id}>
                 <TableCell className="px-4 py-3 align-top whitespace-normal">
-                  <Link to={url.href({ tab: 'offerings', department: row.department_id, status: null })} className="hover:underline">
-                    <span className="font-medium">{column.departmentCode.value(row)}</span> {column.departmentName.value(row)}
-                  </Link>
-                  <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs sm:hidden">
-                    <span>{plural(row.offerings, 'offering')}</span>
-                    <span className="tabular-nums">{SHARES.map(([, percent]) => `${percent.header} ${formatPercent(percent.value(row))}`).join(' · ')}</span>
+                  <div className="grid gap-2.5">
+                    <Link to={url.href({ tab: 'offerings', department: row.department_id, status: null })} className="hover:underline">
+                      <span className="font-medium">{column.departmentCode.value(row)}</span>{' '}
+                      <span className="text-muted-foreground">{column.departmentName.value(row)}</span>
+                    </Link>
+                    <SectionBar counts={row} />
+                    <div className="text-muted-foreground grid gap-0.5 text-xs sm:hidden">
+                      <span>{plural(row.offerings, 'offering')}</span>
+                      <span className="tabular-nums">{SHARES.map(([, percent]) => `${percent.header} ${formatPercent(percent.value(row))}`).join(' · ')}</span>
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', WIDE)}>{column.offerings.value(row)}</TableCell>
