@@ -462,3 +462,30 @@ test('a timetable that a course file links while the admin deletes it stays, and
     )
   }
 })
+
+test('a timetable that finalizes while its lecturer is unassigned from the semester is refused with the upload session refusal, or recorded before the unassign', async () => {
+  // Each round unassigns the lecturer a few milliseconds after finalize starts, while finalize checks and records the file.
+  for (const delay of [0, 0, 0, 5, 5, 5, 10, 10, 10, 15, 15, 15]) {
+    const semester = await pickSemester()
+    const [coordinator, lecturer] = [await createStaff(), await createStaff()]
+    const offeringId = await offer(semester, coordinator, [lecturer])
+    const slot = timetableSlot(semester)
+    const storedName = await uploadWithoutFinalize(lecturer.client, slot, pdf('timetable.pdf'))
+
+    const finalized = finalizeUpload(lecturer.client, slot, storedName).then(
+      () => null,
+      (refusal: unknown) => refusal,
+    )
+    await setTimeout(delay)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+    const recordedBeforeUnassigned = (await timetablesOf(auditor, semester, [lecturer])).length === 1
+    const refusal = await finalized
+    const sessionRefusal = await createUploadSession(lecturer.client, slot, 'timetable.pdf').catch((error: unknown) => error)
+
+    // A file recorded at all is recorded before the unassign, so a timetable missing once the lecturer is unassigned stays missing.
+    const outcome = { refusal, timetables: (await timetablesOf(auditor, semester, [lecturer])).length }
+    expect(outcome, `unassigned ${delay} ms after finalize started`).toEqual(
+      recordedBeforeUnassigned ? { refusal: null, timetables: 1 } : { refusal: sessionRefusal, timetables: 0 },
+    )
+  }
+})
