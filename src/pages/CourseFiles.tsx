@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { EmptyState, LoadError, PageHeader, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
+import { SectionBar } from '@/components/section-bar'
+import { OfferingStatusBadge } from '@/components/section-status'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,26 +15,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
 import { containsFilter } from '../paging.ts'
+import { formatPercent, type OfferingRow } from '../reports.ts'
 import { supabase } from '../supabase.ts'
 
 /** An offering as report_offerings gives it, with how far its course file has got. */
-type Offering = {
-  offering_id: string
-  course_code: string
-  course_title: string
-  department_code: string
-  department_name: string
-  coordinator_id: string
-  counted_sections: number
-  uploaded_sections: number
-  needs_fix_sections: number
-}
+type Offering = Pick<
+  OfferingRow,
+  | 'offering_id'
+  | 'course_code'
+  | 'course_title'
+  | 'department_code'
+  | 'department_name'
+  | 'coordinator_id'
+  | 'status'
+  | 'percent_complete'
+  | 'missing_sections'
+  | 'counted_sections'
+  | 'uploaded_sections'
+  | 'verified_sections'
+  | 'needs_fix_sections'
+>
 
-/** Below md the department moves into the course cell, so a phone needs no sideways scroll. */
+/** Below md the department, and below sm the status, move into the course cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
+const STATUS = 'hidden sm:table-cell'
 
-/** The table's columns: course, department and progress. */
-const COLUMNS = ['', WIDE, 'w-28']
+/** The table's columns: course, department, status and progress. */
+const COLUMNS = ['', WIDE, STATUS, '']
 
 /** How many semesters the picker shows for a search. */
 const PICKER_LIMIT = 20
@@ -156,8 +165,9 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
           <TableHeader>
             <TableRow>
               <TableHead className="px-4">Course</TableHead>
-              <TableHead className={cn('w-2/5 px-4', WIDE)}>Department</TableHead>
-              <TableHead className="w-28 px-4 text-right">Uploaded</TableHead>
+              <TableHead className={cn('w-1/3 px-4', WIDE)}>Department</TableHead>
+              <TableHead className={cn('w-36 px-4', STATUS)}>Status</TableHead>
+              <TableHead className="w-32 px-4 sm:w-48 lg:w-56">Complete</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -180,21 +190,26 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
                           </Link>
                           {offering.coordinator_id === userId && <Badge variant="secondary">Coordinator</Badge>}
                         </div>
-                        <span>{offering.course_title}</span>
+                        <span className="text-muted-foreground text-sm">{offering.course_title}</span>
                         <span className="text-muted-foreground mt-1 text-xs md:hidden">{department}</span>
+                        <div className="mt-1.5 sm:hidden">
+                          <OfferingStatusBadge status={offering.status} />
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{department}</TableCell>
-                    <TableCell className="px-4 py-3 text-right align-top">
-                      <div className="grid justify-items-end gap-1">
-                        <span className="tabular-nums">
-                          {offering.uploaded_sections}/{offering.counted_sections}
+                    <TableCell className={cn('px-4 py-3', STATUS)}>
+                      <OfferingStatusBadge status={offering.status} />
+                    </TableCell>
+                    <TableCell className="px-4 py-3 align-top sm:align-middle">
+                      <div className="grid gap-1.5">
+                        <span className="flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
+                          <span className="font-medium tabular-nums">{formatPercent(offering.percent_complete)}</span>
+                          <span className="text-muted-foreground text-xs">
+                            {offering.missing_sections.length === 0 ? 'None missing' : `${offering.missing_sections.length} missing`}
+                          </span>
                         </span>
-                        {offering.needs_fix_sections > 0 && (
-                          <Badge variant="warning">
-                            {offering.needs_fix_sections} need{offering.needs_fix_sections === 1 ? 's' : ''} fix
-                          </Badge>
-                        )}
+                        <SectionBar counts={offering} />
                       </div>
                     </TableCell>
                   </TableRow>
