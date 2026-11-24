@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, CircleAlertIcon, MoreHorizontalIcon, RotateCwIcon, type LucideIcon } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
-import { Link } from 'react-router'
+import { createContext, use, useEffect, useState, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -10,20 +10,29 @@ import { Spinner } from '@/components/ui/spinner'
 import { TableCell, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 
-/** Names the browser tab after the page, as "<title> · eCourseFile", while the page shows. */
+/** The title of the page at a path, which the app shell's top bar names. */
+export type PageTitle = { path: string; title: string }
+
+/** How a page inside the app shell tells the shell its title. Pages outside the shell have none. */
+export const PageTitleContext = createContext<((title: PageTitle) => void) | null>(null)
+
+/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, while the page shows. */
 export function useDocumentTitle(title: string) {
+  const setPageTitle = use(PageTitleContext)
+  const { pathname } = useLocation()
   useEffect(() => {
     document.title = `${title} · eCourseFile`
-  }, [title])
+    setPageTitle?.({ path: pathname, title })
+  }, [title, pathname, setPageTitle])
 }
 
 /** A page's title, with an optional line under it and the page's actions at its end. */
 export function PageHeader({ title, description, action }: { title: string; description?: ReactNode; action?: ReactNode }) {
   useDocumentTitle(title)
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-2xl/8 font-semibold tracking-tight">{title}</h1>
         {description && <p className="text-muted-foreground text-sm">{description}</p>}
       </div>
       {action}
