@@ -17,6 +17,24 @@ export function RoleBadges({ roles, className }: { roles: readonly GlobalRole[];
   )
 }
 
+/** A staff member as a list names them: their name, and whether their account is active. */
+export type StaffMember = { name: string; active: boolean }
+
+/** Staff names separated by commas, each marked Deactivated when their account is deactivated. */
+export function StaffNames({ staff }: { staff: readonly StaffMember[] }) {
+  return staff.map(({ name, active }, index) => (
+    <span key={index}>
+      {name}
+      {!active && (
+        <Badge variant="outline" className="ml-1.5 align-middle">
+          Deactivated
+        </Badge>
+      )}
+      {index < staff.length - 1 && ', '}
+    </span>
+  ))
+}
+
 /** A circle with a name's initials. */
 export function Initials({ name, className }: { name: string; className?: string }) {
   const letters = initialsOf(name)

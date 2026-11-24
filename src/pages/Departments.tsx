@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
+import { StaffNames } from '@/components/identity'
 import { PageHeader, RowActions, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
@@ -25,23 +26,33 @@ import { matching, type Department } from '../catalog.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
+/** A department with its HoDs, by name. A department can have more than one. */
+type DepartmentRow = Department & { hods: { display_name: string; active: boolean }[] }
+
 /** The dialog that is open, and the department it acts on. */
 type OpenDialog =
   | { kind: 'add' }
   | { kind: 'edit'; department: Department }
   | { kind: 'delete'; department: Department }
 
-/** Below md the name moves under the code, so a phone needs no sideways scroll. */
+/** Below md the name and HoDs move under the code, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
 
-/** The table's columns: code, name and the row menu. */
-const COLUMNS = ['', WIDE, '']
+/** The table's columns: code, name, HoDs and the row menu. */
+const COLUMNS = ['', WIDE, WIDE, '']
 
 export function Departments() {
-  const list = usePagedList<Department>(({ from, to }, search) =>
-    matching(supabase.from('departments').select('id, code, name', { count: 'exact' }), ['code', 'name'], search)
+  const list = usePagedList<DepartmentRow>(({ from, to }, search) =>
+    matching(
+      supabase.from('departments').select('id, code, name, hods:profiles(display_name, active, user_roles!inner(role))', { count: 'exact' }),
+      ['code', 'name'],
+      search,
+    )
+      .eq('hods.user_roles.role', 'hod')
+      .order('full_name', { referencedTable: 'hods' })
       .order('code')
-      .range(from, to),
+      .range(from, to)
+      .overrideTypes<DepartmentRow[], { merge: false }>(),
   )
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   const empty = isEmptyList(list)
@@ -79,6 +90,7 @@ export function Departments() {
               <TableRow>
                 <TableHead className="w-40 px-4">Code</TableHead>
                 <TableHead className={cn('px-4', WIDE)}>Name</TableHead>
+                <TableHead className={cn('px-4', WIDE)}>HoD</TableHead>
                 <TableHead className="w-14 px-4">
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -96,9 +108,15 @@ export function Departments() {
                     <div className="grid gap-0.5">
                       <span className="font-medium">{department.code}</span>
                       <span className="md:hidden">{department.name}</span>
+                      <span className="text-muted-foreground mt-1 text-xs md:hidden">
+                        HoD: <Hods department={department} />
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{department.name}</TableCell>
+                  <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+                    <Hods department={department} />
+                  </TableCell>
                   <TableCell className="px-4 py-2 text-right">
                     <RowActions label={`Actions for ${department.code}`}>
                       <DropdownMenuItem onSelect={() => setDialog({ kind: 'edit', department })}>
@@ -164,6 +182,12 @@ export function Departments() {
       )}
     </div>
   )
+}
+
+/** The department's HoDs, or None. */
+function Hods({ department }: { department: DepartmentRow }) {
+  if (department.hods.length === 0) return <span className="text-muted-foreground">None</span>
+  return <StaffNames staff={department.hods.map((hod) => ({ name: hod.display_name, active: hod.active }))} />
 }
 
 function departmentValues(form: FormData) {
