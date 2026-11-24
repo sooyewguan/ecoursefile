@@ -389,7 +389,8 @@ async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
 }
 
 // The item's files go first, each the way delete-file deletes one. If a step fails, the item stays
-// with the files that are left, and deleting it again finishes the job.
+// with the files that are left, and deleting it again finishes the job. A file uploaded or reused
+// into the item while its files go keeps the item, and the caller sees it once they refresh.
 async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller: string) {
   const where = `offering_id=eq.${offeringId}&section=eq.${section}&number=eq.${item}`
   const [found] = await rest<{ deletable: boolean; files: { id: string; storage_item_id: string }[] }[]>(
@@ -405,7 +406,13 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
     await storage.deleteItem(file.storage_item_id)
     await rest('POST', '/rpc/remove_file', { file_id: file.id, actor_id: actorId }, SERVICE)
   }
-  await rest('DELETE', `/items?${where}`, undefined, SERVICE)
+  await rest('DELETE', `/items?${where}`, undefined, SERVICE).catch(async (error) => {
+    const [left] = await rest<{ files: unknown[] }[]>('GET', `/items?${where}&select=files(id)`, undefined, SERVICE)
+    if (left?.files.length) {
+      throw new Refusal(409, 'item_changed', `${itemName(section, item)} got a new file while you deleted it, so it stays. Refresh and try again.`)
+    }
+    throw error
+  })
   return { item }
 }
 

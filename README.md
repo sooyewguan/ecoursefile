@@ -374,7 +374,7 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 | `reuse-file` | The fields of `list-reusable-files`, and the `fileId` of a file it lists | Users for whom `can_upload` is true | `{ "file": <the new files row> }` |
 | `compile-manifest` | `offeringId` | Users for whom `can_read_offering` is true | The manifest that the browser compiles the course file's PDF from. See [Compiled PDF](#compiled-pdf). |
 
-`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. On failure, the function returns `{ "code": "...", "message": "..." }`.
+`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. If a file is uploaded or reused into the item while its files are deleted, the item stays with that file, and the function answers 409 `item_changed`. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
@@ -383,6 +383,7 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 | 403 | `forbidden` | The caller may not upload to the section, may not delete the file or item, or may not read the course file to compile. At `reuse-file`, the section was switched off, or the caller unassigned, while the file was copied. The function deleted the copy. |
 | 404 | `not_found` | The upload's item does not exist, the offering to compile does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. At `reuse-file`, the file is not one that `list-reusable-files` lists for the place, such as a file deleted since, or one of another course, of a later offering or of another slot. |
 | 409 | `slot_full` | The slot holds one file and has it, or the shared file's key has its file, such as the semester's calendar, the caller's timetable for the semester, or a program code's student timetable for the semester. At finalize, the function deleted the stored item. |
+| 409 | `item_changed` | `delete-item`: a file was uploaded or reused into the item while its files were deleted. The item stays with that file, and the files deleted before it stay deleted. |
 | 409 | `confirmation_required` | `delete-file` of a shared file without `confirmed` set to `true`. Nothing was deleted. |
 | 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
 | 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |

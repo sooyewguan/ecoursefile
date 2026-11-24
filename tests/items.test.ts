@@ -296,6 +296,40 @@ test('an upload to an item deleted after its session opened is refused, and its 
   expect(await fakeStoreItems(`${course.root}/13 Quiz`)).toEqual([])
 })
 
+test('of an item delete and an upload into the item at the same time, the one that loses is refused with a message to show', async () => {
+  const course = await createCourse()
+  const refusal = (failure: unknown) => failure
+  for (let round = 0; round < 3; round++) {
+    const { data: number } = await addItem(course.lecturer.client, course.offeringId, LAB)
+    const lab = { offeringId: course.offeringId, section: LAB, item: number as number }
+    const scheme = { ...lab, slot: 'answer_scheme' }
+    // Files that the delete works through, so the upload can land while it runs.
+    for (const name of ['a.pdf', 'b.pdf', 'c.pdf', 'd.pdf']) await uploadFile(course.lecturer.client, { ...lab, slot: 'lab_sheet' }, await script(name))
+    const pending = await uploadWithoutFinalize(course.lecturer.client, scheme, 'late.pdf', await script('late.pdf'))
+
+    const [deleted, finalized] = await Promise.all([
+      deleteItem(course.lecturer.client, lab).then(() => null, refusal),
+      finalizeUpload(course.lecturer.client, scheme, pending).then(() => null, refusal),
+    ])
+
+    const left = { items: (await itemsOf(auditor, course.offeringId, LAB)).filter((item) => item.number === lab.item).length, files: await filesOf(auditor, scheme) }
+    const outcome = { deleted, finalized, left }
+    if (deleted) {
+      expect(outcome, `round ${round}: the upload landed while the item was deleted`).toEqual({
+        deleted: expect.objectContaining({ status: 409, code: 'item_changed', message: `Lab ${lab.item} got a new file while you deleted it, so it stays. Refresh and try again.` }),
+        finalized: null,
+        left: { items: 1, files: [expect.objectContaining({ name: 'late.pdf' })] },
+      })
+    } else {
+      expect(outcome, `round ${round}: the item was deleted`).toEqual({
+        deleted: null,
+        finalized: finalized && expect.objectContaining({ status: 404, code: 'not_found', message: `Lab ${lab.item} does not exist. It may have been deleted.` }),
+        left: { items: 0, files: [] },
+      })
+    }
+  }
+})
+
 test.each(ITEM_SECTIONS.flatMap(({ section, slots }) => Object.keys(slots).filter((slot) => SCRIPT_SLOTS.has(slot)).map((slot) => ({ section, slot }))))(
   'an answer script in section $section slot $slot is merged 4 pages to an A4 page before upload',
   async ({ section, slot }) => {
