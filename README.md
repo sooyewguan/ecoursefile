@@ -120,6 +120,8 @@ A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's r
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
 
+An access token issued before the deactivation stays valid until it expires, so every access rule also asks `is_active(user_id)`, and a deactivated user reads and changes nothing from the moment their profile is inactive. `jwt_roles()` returns no roles for them, `teaches`, `can_read_offering` and `can_read_shared_file` refuse them, `user_can_upload` and `user_can_upload_shared_file` refuse their uploads and reuses, the read-all policies on departments, semesters and the catalog leave them out, and `switch_section`, `tick_program_code` and `update_my_profile` fail with Postgres error `42501`. They still read their own profile and roles. Reactivating them restores access to the same token. The migration is `supabase/migrations/20261125000100_inactive_profiles_access_nothing.sql`.
+
 ### Names and titles
 
 A profile has a `full_name` and an optional `title`, an honorific such as `Dr.`, `Prof. Madya` or `Ts.`. A title is trimmed, not empty, and at most 40 characters. `display_name` is a generated column that the database keeps up to date: the title, a space and the full name, or the full name alone. The migration is `supabase/migrations/20261121010000_profile_titles.sql`.
@@ -491,8 +493,8 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | --- | --- | --- |
 | 400 | `invalid_request` | The body is not one of the actions above. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
-| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
+| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. |
+| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. A user deactivated while signed in reads no request, so they get it too. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
 | 502 | `push_failed` | The step is made, but its notification could not be sent. The same call again sends it. |
 

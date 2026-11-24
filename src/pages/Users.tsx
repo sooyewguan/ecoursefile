@@ -395,7 +395,7 @@ export function Users() {
           title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.display_name}?`}
           description={
             dialog.user.active
-              ? "They won't be able to sign in. You can reactivate them later."
+              ? "They can't sign in, and any session they have open loses access at once. You can reactivate them later."
               : 'They can sign in again with their current password.'
           }
           confirmLabel={dialog.user.active ? 'Deactivate' : 'Reactivate'}
