@@ -23,6 +23,7 @@ import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
 
 type Offering = {
+  semester_id: string
   semester: { code: string }
   coordinator_id: string
   course: { code: string; title: string; department: { code: string; name: string } }
@@ -66,7 +67,7 @@ export function CourseFile() {
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), coordinator_id, course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
+          'semester_id, semester:semesters(code), coordinator_id, course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
         )
         .eq('id', offeringId!)
         .maybeSingle()
@@ -83,9 +84,11 @@ export function CourseFile() {
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId!, reload)
 
+  /** The course files of the course file's semester, which the user most likely came from. */
+  const courseFiles = data?.offering ? `/course-files?semester=${data.offering.semester_id}` : '/course-files'
   const backLink = (
     <Button asChild variant="outline">
-      <Link to="/course-files">
+      <Link to={courseFiles}>
         <ArrowLeftIcon />
         All course files
       </Link>
@@ -146,6 +149,7 @@ export function CourseFile() {
       {offering ? (
         <PageHeader
           title={`${offering.course.code} ${offering.course.title}`}
+          areaTo={courseFiles}
           description={
             <>
               <span className="block">

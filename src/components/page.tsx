@@ -13,37 +13,51 @@ import { cn } from '@/lib/utils'
 /** A page that a page sits under, below the navigation's page, such as a section's course file. */
 export type ParentPage = { title: string; to: string }
 
-/** The title of the page at a path, and any page it sits under, which the app shell's top bar names. */
-export type PageTitle = { path: string; title: string; parent?: ParentPage }
+/**
+ * The title of the page at a path, and any page it sits under, which the app shell's top bar names.
+ * areaTo is where the top bar's link to the navigation's page leads, when it should keep a filter,
+ * such as the course files of the semester that a course file belongs to.
+ */
+export type PageTitle = { path: string; title: string; parent?: ParentPage; areaTo?: string }
 
 /** How a page inside the app shell tells the shell its title. Pages outside the shell have none. */
 export const PageTitleContext = createContext<((title: PageTitle) => void) | null>(null)
 
-/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, with any parent, while the page shows. */
-export function useDocumentTitle(title: string, parent?: ParentPage | null) {
+/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, with any parent and areaTo, while the page shows. */
+export function useDocumentTitle(title: string, parent?: ParentPage | null, areaTo?: string | null) {
   const setPageTitle = use(PageTitleContext)
   const { pathname } = useLocation()
   const parentTitle = parent?.title
   const parentTo = parent?.to
   useEffect(() => {
     document.title = `${title} · eCourseFile`
-    setPageTitle?.({ path: pathname, title, parent: parentTitle && parentTo ? { title: parentTitle, to: parentTo } : undefined })
-  }, [title, parentTitle, parentTo, pathname, setPageTitle])
+    setPageTitle?.({
+      path: pathname,
+      title,
+      parent: parentTitle && parentTo ? { title: parentTitle, to: parentTo } : undefined,
+      areaTo: areaTo ?? undefined,
+    })
+  }, [title, parentTitle, parentTo, areaTo, pathname, setPageTitle])
 }
 
-/** A page's title, with an optional line under it and the page's actions at its end. parent names the page it sits under in the top bar. */
+/**
+ * A page's title, with an optional line under it and the page's actions at its end. parent names the
+ * page it sits under in the top bar, and areaTo where the top bar's link to the navigation's page leads.
+ */
 export function PageHeader({
   title,
   description,
   action,
   parent,
+  areaTo,
 }: {
   title: string
   description?: ReactNode
   action?: ReactNode
   parent?: ParentPage | null
+  areaTo?: string | null
 }) {
-  useDocumentTitle(title, parent)
+  useDocumentTitle(title, parent, areaTo)
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">

@@ -27,6 +27,7 @@ type ProgramCode = { id: string; code: string }
 type Timetable = { id: string; program_code_id: string; name: string; size: number; uploaded_at: string }
 
 type Offering = {
+  semester_id: string
   semester: { code: string }
   course: { code: string; title: string }
   /** Every lecturer of the offering, the coordinator included. */
@@ -70,7 +71,7 @@ export function StudentTimetables() {
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), course:courses(code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), program_code_choices(id, code), ticks:offering_program_codes(program_code:program_codes(id, code)), linked_files(id, program_code_id, name, size, uploaded_at)',
+          'semester_id, semester:semesters(code), course:courses(code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), program_code_choices(id, code), ticks:offering_program_codes(program_code:program_codes(id, code)), linked_files(id, program_code_id, name, size, uploaded_at)',
         )
         .eq('id', offeringId)
         .eq('linked_files.section', SECTION.number)
@@ -136,6 +137,7 @@ export function StudentTimetables() {
       <PageHeader
         title={SECTION.title}
         parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
+        areaTo={offering && `/course-files?semester=${offering.semester_id}`}
         description={
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }

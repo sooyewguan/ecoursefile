@@ -48,6 +48,7 @@ type SectionFile = {
 
 /** The offering, and the shared files of the section that its course file links. */
 type Offering = {
+  semester_id: string
   semester: { code: string }
   course: { code: string; title: string }
   linked_files: Omit<SectionFile, 'deletable'>[]
@@ -113,7 +114,7 @@ export function CourseFileSection() {
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
+          'semester_id, semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
         )
         .eq('id', offeringId)
         .eq('linked_files.section', section.number)
@@ -381,6 +382,7 @@ export function CourseFileSection() {
       <PageHeader
         title={section.title}
         parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
+        areaTo={data?.offering && `/course-files?semester=${data.offering.semester_id}`}
         description={
           data
             ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`
