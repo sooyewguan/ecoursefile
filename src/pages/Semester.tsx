@@ -1,8 +1,8 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PlusIcon, Trash2Icon, UploadIcon, UsersIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
-import { FormDialog } from '@/components/action-dialogs'
+import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
@@ -11,6 +11,15 @@ import { LoadError, NotFound, PageHeader, RowActions, TableEmpty, TableLoadError
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -22,15 +31,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { friendlyError } from '../errors.ts'
 import { containsFilter } from '../paging.ts'
-import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
+import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
 
-/** An offering and its lecturers, the coordinator among them, by the names the app shows. */
+/**
+ * An offering and its lecturers, the coordinator among them, by the names the app shows. While its
+ * course file is not in use, its course can change and it can be deleted.
+ */
 type Offering = {
   id: string
   coordinator_id: string
-  course: { code: string; title: string }
+  in_use: boolean
+  course: { id: string; code: string; title: string }
   lecturers: { lecturer_id: string; lecturer_name: string }[]
 }
 
@@ -40,14 +53,19 @@ type SharedFile = LinkedSharedFile & { section: number; uploaded_at: string; upl
 /** A program code's student timetable for the semester. */
 type StudentTimetable = SharedFile & { program_code: { code: string } }
 
+/** A lecturer's timetable for the semester. It is deletable here while no course file links it. */
+type LecturerTimetable = SharedFile & { deletable: boolean; lecturer: { display_name: string } }
+
 /** The dialog that is open, and the offering or shared file it acts on. title names the shared file. */
 type OpenDialog =
   | { kind: 'add' }
   | { kind: 'edit'; offering: Offering }
+  | { kind: 'delete'; offering: Offering }
   | { kind: 'upload-timetable' }
   | { kind: 'delete-shared'; file: SharedFile; title: string }
 
 const STUDENT_TIMETABLE = PROGRAM_CODE_FILE_SECTION
+const LECTURER_TIMETABLE = LECTURER_FILE_SECTION
 
 /** How many options a picker shows for a search. */
 const PICKER_LIMIT = 20
@@ -63,9 +81,10 @@ const SHARED_COLUMNS = ['', WIDE, '']
 
 /**
  * One semester: its offerings, with their coordinators and lecturers, a page at a time; the
- * Academic Calendar and Appointment Letter that every course file of the semester links; and the
- * Student Timetable of each program code that has one, which every course file that ticks the code
- * links. Each file opens in a new tab.
+ * Academic Calendar and Appointment Letter that every course file of the semester links; every
+ * lecturer's timetable, with the course files that link it, including one whose lecturer no longer
+ * teaches in the semester; and the Student Timetable of each program code that has one, which every
+ * course file that ticks the code links. Each file opens in a new tab.
  */
 export function Semester() {
   const semesterId = useParams().semesterId!
@@ -83,7 +102,7 @@ export function Semester() {
   const offerings = usePagedList((range, search) => {
     let query = supabase
       .from('offerings')
-      .select('id, coordinator_id, course:courses!inner(code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
+      .select('id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
         count: 'exact',
       })
       .eq('semester_id', semesterId)
@@ -92,7 +111,21 @@ export function Semester() {
     return query.order('course(code)').range(range.from, range.to).overrideTypes<Offering[], { merge: false }>()
   }, semesterId)
 
-  const timetables = usePagedList((range, search) => {
+  const lecturerTimetables = usePagedList((range, search) => {
+    let query = supabase
+      .from('files')
+      .select(
+        'id, section, name, uploaded_at, uploader_name, deletable, lecturer:profiles!files_lecturer_id_fkey!inner(display_name, full_name), linked_offerings(id, course:courses(code, title))',
+        { count: 'exact' },
+      )
+      .eq('semester_id', semesterId)
+      .eq('section', LECTURER_TIMETABLE.number)
+    const filter = containsFilter(['display_name', 'email'], search)
+    if (filter) query = query.or(filter, { referencedTable: 'lecturer' })
+    return query.order('lecturer(full_name)').range(range.from, range.to).overrideTypes<LecturerTimetable[], { merge: false }>()
+  }, semesterId)
+
+  const studentTimetables = usePagedList((range, search) => {
     let query = supabase
       .from('files')
       .select('id, section, name, uploaded_at, uploader_name, program_code:program_codes!inner(code), linked_offerings(id, course:courses(code, title))', {
@@ -152,12 +185,36 @@ export function Semester() {
     )
   }
 
+  /** Reloads the offerings, and the lecturer timetables, whose course files follow the offerings' lecturers. */
+  function reloadOfferings() {
+    offerings.retry()
+    lecturerTimetables.retry()
+  }
+
   /** Runs one write to an offering, reloads the offerings, and returns why it failed, or shows success and returns null. */
   async function write(request: PromiseLike<{ error: unknown }>, success: string) {
     const { error } = await request
-    offerings.retry()
+    reloadOfferings()
     if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'This course is already offered in this semester.' } })
     toast.success(success)
+    return null
+  }
+
+  /** Changes the offering's course when another is chosen, then sets its staff. A refused course change changes nothing. */
+  async function edit(offering: Offering, { coordinatorId, lecturerIds }: Staff, course: ComboboxOption) {
+    if (course.value !== offering.course.id) {
+      const { error } = await supabase.from('offerings').update({ course_id: course.value }).eq('id', offering.id)
+      if (error) return { error }
+    }
+    return supabase.rpc('set_offering_lecturers', { offering_id: offering.id, coordinator_id: coordinatorId, lecturer_ids: lecturerIds })
+  }
+
+  async function remove(offering: Offering) {
+    const { code } = offering.course
+    const { error } = await supabase.from('offerings').delete().eq('id', offering.id)
+    reloadOfferings()
+    if (error) return friendlyError(error, { codes: { '23503': `The course file of ${code} is in use now, so the offering stays.` } })
+    toast.success(`Deleted ${code}`)
     return null
   }
 
@@ -189,9 +246,10 @@ export function Semester() {
 
   // An empty list offers its action in its empty state, so the heading offers it only once a list has rows.
   const noOfferings = offerings.total === 0 && !offerings.query
-  const noTimetables = timetables.total === 0 && !timetables.query
+  const noStudentTimetables = studentTimetables.total === 0 && !studentTimetables.query
   const hasOfferings = offerings.total !== null && !noOfferings
-  const hasTimetables = timetables.total !== null && !noTimetables
+  const hasStudentTimetables = studentTimetables.total !== null && !noStudentTimetables
+  const noLecturerTimetables = lecturerTimetables.total === 0 && !lecturerTimetables.query
   const addButton = (
     <Button onClick={() => setDialog({ kind: 'add' })}>
       <PlusIcon />
@@ -246,7 +304,14 @@ export function Semester() {
                   action={noOfferings ? addButton : undefined}
                 />
               ) : (
-                offerings.rows.map((offering) => <OfferingRow key={offering.id} offering={offering} onEdit={() => setDialog({ kind: 'edit', offering })} />)
+                offerings.rows.map((offering) => (
+                  <OfferingRow
+                    key={offering.id}
+                    offering={offering}
+                    onEdit={() => setDialog({ kind: 'edit', offering })}
+                    onDelete={() => setDialog({ kind: 'delete', offering })}
+                  />
+                ))
               )}
             </TableBody>
           </Table>
@@ -298,16 +363,80 @@ export function Semester() {
         </Card>
       </section>
 
+      <section aria-labelledby="lecturer-timetables-heading" className="grid gap-3">
+        <ListHeading id="lecturer-timetables-heading" title="Lecturer timetables" total={lecturerTimetables.total} />
+        {lecturerTimetables.total !== null && !noLecturerTimetables && (
+          <Input
+            type="search"
+            aria-label="Search lecturer timetables"
+            placeholder="Search by lecturer name or email"
+            className="max-w-sm"
+            value={lecturerTimetables.query}
+            onChange={(event) => lecturerTimetables.setQuery(event.target.value)}
+          />
+        )}
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table aria-labelledby="lecturer-timetables-heading">
+            <TableHeader className="bg-muted/50">
+              <TableRow>
+                <TableHead className="px-4">Lecturer</TableHead>
+                <TableHead className={cn('w-64 px-4', WIDE)}>Uploaded</TableHead>
+                <TableHead className="w-14 px-4">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lecturerTimetables.failed ? (
+                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the lecturer timetables" onRetry={lecturerTimetables.retry} />
+              ) : !lecturerTimetables.rows ? (
+                <TableSkeleton columns={SHARED_COLUMNS} />
+              ) : lecturerTimetables.rows.length === 0 ? (
+                <TableEmpty
+                  columns={SHARED_COLUMNS.length}
+                  icon={FileTextIcon}
+                  title={noLecturerTimetables ? 'No lecturer timetables yet' : 'No matching lecturer timetables'}
+                />
+              ) : (
+                lecturerTimetables.rows.map((timetable) => {
+                  const name = timetable.lecturer.display_name
+                  const courses = timetable.linked_offerings.map((offering) => offering.course.code).toSorted()
+                  return (
+                    <SharedFileRow
+                      key={timetable.id}
+                      name={name}
+                      file={timetable}
+                      detail={
+                        courses.length > 0 ? (
+                          <span className="text-muted-foreground text-xs">In {courses.join(', ')}</span>
+                        ) : (
+                          <Badge variant="outline">Not in any course file</Badge>
+                        )
+                      }
+                      actionLabel={`Actions for the timetable of ${name}`}
+                      onDelete={
+                        timetable.deletable ? (file) => setDialog({ kind: 'delete-shared', file, title: `the timetable of ${name}` }) : undefined
+                      }
+                    />
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+          {lecturerTimetables.total !== null && <Pager page={lecturerTimetables.page} total={lecturerTimetables.total} onPageChange={lecturerTimetables.setPage} />}
+        </Card>
+      </section>
+
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
-        <ListHeading id="student-timetables-heading" title="Student timetables" total={timetables.total} action={hasTimetables && uploadTimetableButton} />
-        {hasTimetables && (
+        <ListHeading id="student-timetables-heading" title="Student timetables" total={studentTimetables.total} action={hasStudentTimetables && uploadTimetableButton} />
+        {hasStudentTimetables && (
           <Input
             type="search"
             aria-label="Search student timetables"
             placeholder="Search by program code"
             className="max-w-sm"
-            value={timetables.query}
-            onChange={(event) => timetables.setQuery(event.target.value)}
+            value={studentTimetables.query}
+            onChange={(event) => studentTimetables.setQuery(event.target.value)}
           />
         )}
         <Card className="gap-0 overflow-hidden py-0">
@@ -322,19 +451,19 @@ export function Semester() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {timetables.failed ? (
-                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the student timetables" onRetry={timetables.retry} />
-              ) : !timetables.rows ? (
+              {studentTimetables.failed ? (
+                <TableLoadError columns={SHARED_COLUMNS.length} title="Couldn't load the student timetables" onRetry={studentTimetables.retry} />
+              ) : !studentTimetables.rows ? (
                 <TableSkeleton columns={SHARED_COLUMNS} />
-              ) : timetables.rows.length === 0 ? (
+              ) : studentTimetables.rows.length === 0 ? (
                 <TableEmpty
                   columns={SHARED_COLUMNS.length}
                   icon={FileTextIcon}
-                  title={noTimetables ? 'No student timetables yet' : 'No matching student timetables'}
-                  action={noTimetables ? uploadTimetableButton : undefined}
+                  title={noStudentTimetables ? 'No student timetables yet' : 'No matching student timetables'}
+                  action={noStudentTimetables ? uploadTimetableButton : undefined}
                 />
               ) : (
-                timetables.rows.map((timetable) => (
+                studentTimetables.rows.map((timetable) => (
                   <SharedFileRow
                     key={timetable.id}
                     name={timetable.program_code.code}
@@ -346,7 +475,7 @@ export function Semester() {
               )}
             </TableBody>
           </Table>
-          {timetables.total !== null && <Pager page={timetables.page} total={timetables.total} onPageChange={timetables.setPage} />}
+          {studentTimetables.total !== null && <Pager page={studentTimetables.page} total={studentTimetables.total} onPageChange={studentTimetables.setPage} />}
         </Card>
       </section>
 
@@ -368,21 +497,18 @@ export function Semester() {
           semesterId={semesterId}
           offering={dialog.offering}
           onClose={close}
-          onSubmit={({ coordinatorId, lecturerIds }) =>
-            write(
-              supabase.rpc('set_offering_lecturers', { offering_id: dialog.offering.id, coordinator_id: coordinatorId, lecturer_ids: lecturerIds }),
-              `Saved ${dialog.offering.course.code}`,
-            )
-          }
+          onSubmit={(staff, course) => write(edit(dialog.offering, staff, course!), `Saved ${course!.label}`)}
         />
       )}
+
+      {dialog?.kind === 'delete' && <DeleteOfferingDialog offering={dialog.offering} onClose={close} onDelete={() => remove(dialog.offering)} />}
 
       {dialog?.kind === 'upload-timetable' && (
         <UploadTimetableDialog
           semesterId={semesterId}
           onClose={close}
           onUploaded={(name) => {
-            timetables.retry()
+            studentTimetables.retry()
             toast.success(`Uploaded ${name}`)
           }}
         />
@@ -395,7 +521,8 @@ export function Semester() {
           onClose={close}
           onDeleted={async () => {
             await reload()
-            timetables.retry()
+            studentTimetables.retry()
+            lecturerTimetables.retry()
             toast.success(`Deleted ${dialog.file.name}`)
           }}
         />
@@ -418,7 +545,7 @@ function ListHeading({ id, title, total, action }: { id: string; title: string; 
 }
 
 /** An offering's row: its course, which opens its course file, its coordinator and its other lecturers. */
-function OfferingRow({ offering, onEdit }: { offering: Offering; onEdit: () => void }) {
+function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdit: () => void; onDelete: () => void }) {
   const coordinator = offering.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)?.lecturer_name
   const others = offering.lecturers
     .filter((lecturer) => lecturer.lecturer_id !== offering.coordinator_id)
@@ -450,8 +577,13 @@ function OfferingRow({ offering, onEdit }: { offering: Offering; onEdit: () => v
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={onEdit}>
-            <UsersIcon />
-            Edit lecturers
+            <PencilIcon />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+            <Trash2Icon />
+            Delete
           </DropdownMenuItem>
         </RowActions>
       </TableCell>
@@ -460,20 +592,23 @@ function OfferingRow({ offering, onEdit }: { offering: Offering; onEdit: () => v
 }
 
 /**
- * A shared file's row: the section or program code it is for, the file, which opens in a new tab,
- * who uploaded it and when, and its row menu. Without a file it is Missing, with the upload button.
+ * A shared file's row: the section, program code or lecturer it is for, the file, which opens in a
+ * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Delete
+ * with onDelete. Without a file it is Missing, with the upload button.
  */
 function SharedFileRow({
   name,
   file,
+  detail,
   actionLabel,
   onDelete,
   upload,
 }: {
   name: string
   file: SharedFile | undefined
+  detail?: ReactNode
   actionLabel: string
-  onDelete: (file: SharedFile) => void
+  onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
   const uploaded = file && (
@@ -487,6 +622,7 @@ function SharedFileRow({
         <div className="grid justify-items-start gap-0.5">
           <span className="font-medium">{name}</span>
           {file ? <FileLink file={file} className="font-normal" /> : <SectionStatusBadge status="missing" />}
+          {detail}
           {uploaded && <span className="text-muted-foreground text-xs md:hidden">{uploaded}</span>}
         </div>
       </TableCell>
@@ -495,11 +631,15 @@ function SharedFileRow({
         {file ? (
           <RowActions label={actionLabel}>
             <FileMenuItems file={file} />
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
-              <Trash2Icon />
-              Delete
-            </DropdownMenuItem>
+            {onDelete && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
+                  <Trash2Icon />
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
           </RowActions>
         ) : (
           upload
@@ -519,11 +659,15 @@ async function searchLecturers(query: string): Promise<ComboboxOption[]> {
   return data.map((person) => ({ value: person.id, label: person.display_name ?? person.email, detail: person.email }))
 }
 
+/** An offering's coordinator, and its other lecturers. */
+type Staff = { coordinatorId: string; lecturerIds: string[] }
+
 /**
- * The dialog that adds an offering, or with an offering edits its lecturers. The course is chosen
- * among those the semester does not offer yet. The coordinator is a lecturer too, so they show
- * first among the lecturers and cannot be taken off. A coordinator who is replaced stays a lecturer
- * until taken off. onSubmit gets the coordinator, the other lecturers and the course to add.
+ * The dialog that adds an offering, or with an offering edits it. The course is chosen among those
+ * the semester does not offer yet, and stays once the offering's course file is in use. The
+ * coordinator is a lecturer too, so they show first among the lecturers and cannot be taken off. A
+ * coordinator who is replaced stays a lecturer until taken off. onSubmit gets the coordinator, the
+ * other lecturers and the course.
  */
 function OfferingDialog({
   semesterId,
@@ -534,10 +678,12 @@ function OfferingDialog({
   semesterId: string
   offering?: Offering
   onClose: () => void
-  onSubmit: (staff: { coordinatorId: string; lecturerIds: string[] }, course: ComboboxOption | null) => Promise<string | null>
+  onSubmit: (staff: Staff, course: ComboboxOption | null) => Promise<string | null>
 }) {
   const named = (lecturer: Offering['lecturers'][number]): ComboboxOption => ({ value: lecturer.lecturer_id, label: lecturer.lecturer_name })
-  const [course, setCourse] = useState<ComboboxOption | null>(null)
+  const [course, setCourse] = useState<ComboboxOption | null>(
+    offering ? { value: offering.course.id, label: `${offering.course.code} ${offering.course.title}` } : null,
+  )
   const [coordinator, setCoordinator] = useState<ComboboxOption | null>(() => {
     const current = offering?.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)
     return current ? named(current) : null
@@ -557,22 +703,30 @@ function OfferingDialog({
 
   return (
     <FormDialog
-      title={offering ? `Edit lecturers of ${offering.course.code}` : 'Add an offering'}
+      title={offering ? `Edit ${offering.course.code}` : 'Add an offering'}
       submitLabel={offering ? 'Save' : 'Add offering'}
       onClose={onClose}
       onSubmit={async () => {
-        if (!offering && !course) return { field: 'course_id', message: 'Choose a course.' }
+        if (!course) return { field: 'course_id', message: 'Choose a course.' }
         if (!coordinator) return { field: 'coordinator_id', message: 'Choose a coordinator.' }
         return onSubmit({ coordinatorId: coordinator.value, lecturerIds: others.map((lecturer) => lecturer.value) }, course)
       }}
     >
-      {!offering && (
-        <div className="grid gap-2">
-          <Label htmlFor="offering-course">Course</Label>
-          <Combobox id="offering-course" name="course_id" value={course} onChange={setCourse} search={searchCourses} placeholder="Choose a course" searchPlaceholder="Search courses" />
-          <FieldError name="course_id" />
-        </div>
-      )}
+      <div className="grid gap-2">
+        <Label htmlFor="offering-course">Course</Label>
+        <Combobox
+          id="offering-course"
+          name="course_id"
+          value={course}
+          onChange={setCourse}
+          search={searchCourses}
+          placeholder="Choose a course"
+          searchPlaceholder="Search courses"
+          disabled={offering?.in_use}
+        />
+        {offering?.in_use && <p className="text-muted-foreground text-sm">Its course file is in use, so the course stays.</p>}
+        <FieldError name="course_id" />
+      </div>
       <div className="grid gap-2">
         <Label htmlFor="offering-coordinator">Coordinator</Label>
         <Combobox
@@ -628,6 +782,38 @@ function OfferingDialog({
         />
       </div>
     </FormDialog>
+  )
+}
+
+/** Confirms the delete of an offering whose course file is not in use, or says why one in use stays. */
+function DeleteOfferingDialog({ offering, onDelete, onClose }: { offering: Offering; onDelete: () => Promise<string | null>; onClose: () => void }) {
+  const { code, title } = offering.course
+  if (offering.in_use) {
+    return (
+      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Can't delete {code}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its course file is in use, so the offering stays as part of the audit record. Its coordinator and lecturers can still change.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
+  return (
+    <ConfirmDialog
+      title={`Delete ${code} ${title}?`}
+      description="Its coordinator and lecturers lose it. This can't be undone."
+      confirmLabel="Delete"
+      destructive
+      onClose={onClose}
+      onConfirm={onDelete}
+    />
   )
 }
 

@@ -118,7 +118,7 @@ async function deliver(requestId: string, step: Step) {
   try {
     const [source] = await rest<NotificationSource[]>('GET', `/audit_requests?id=eq.${requestId}&select=${NOTIFICATION_SELECT}`, undefined, SERVICE)
     const { to, message } = step === 'sent' ? requestNotification(source) : replyNotification(source)
-    await push(to, message)
+    await push(to, { ...message, link: `/course-files/${source.offering.id}#audit-request-${requestId}` })
   } catch (error) {
     console.error(error)
     await rest('PATCH', delivery, { claimed_at: null }, SERVICE)
@@ -151,7 +151,6 @@ function requestNotification({ auditor, offering, items }: NotificationSource) {
     message: {
       title: `Audit request for ${offering.course.code}`,
       body: `${auditor.display_name} asks you to fix ${count} of the course file of ${courseOf(offering)}.`,
-      link: `/course-files/${offering.id}`,
     },
   }
 }
@@ -164,7 +163,6 @@ function replyNotification({ auditor, replier, reply_message, offering }: Notifi
     message: {
       title: `Reply to your audit request for ${offering.course.code}`,
       body: `${replier!.display_name} replied to your audit request for ${courseOf(offering)}.${quote ? ` "${quote}"` : ''}`,
-      link: `/course-files/${offering.id}`,
     },
   }
 }

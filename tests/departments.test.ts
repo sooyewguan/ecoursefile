@@ -3,6 +3,7 @@ import { beforeAll, expect, test } from 'vitest'
 import { createDepartment, createUser, rolesOf, signInAs } from './harness.ts'
 
 const RLS_VIOLATION = '42501'
+const UNIQUE_VIOLATION = '23505'
 
 let admin: SupabaseClient
 
@@ -28,6 +29,15 @@ test('admin adds, renames and deletes a department', async () => {
 
   expect((await admin.from('departments').delete().eq('id', id)).error).toBeNull()
   expect((await admin.from('departments').select('id').eq('id', id)).data).toEqual([])
+})
+
+test('a department code that another department has in a different case is taken', async () => {
+  const code = newCode()
+  expect((await admin.from('departments').insert({ code, name: 'First' })).error).toBeNull()
+
+  const { error } = await admin.from('departments').insert({ code: code.toLowerCase(), name: 'Second' })
+
+  expect(error?.code).toBe(UNIQUE_VIOLATION)
 })
 
 test.each(['lecturer', 'root'] as const)('the %s user reads departments but cannot change them', async (role) => {

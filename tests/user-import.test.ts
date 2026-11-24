@@ -162,6 +162,25 @@ test('a file may have a byte order mark, CRLF line ends, blank rows, quoted valu
   )
 })
 
+test('a department code in the file matches its department in any case', async () => {
+  const dept = await department()
+  const [lower, mixed] = [uniqueEmail('lower'), uniqueEmail('mixed')]
+  const mixedCase = [...dept.code].map((character, index) => (index % 2 ? character.toUpperCase() : character.toLowerCase())).join('')
+  const csv = [
+    HEADER,
+    `Lower Code,${lower},${dept.code.toLowerCase()},lecturer,${password('lower')}`,
+    `Mixed Code,${mixed},${mixedCase},lecturer,${password('mixed')}`,
+  ].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result.body.rows).toEqual([
+    { row: 2, email: lower, status: 'created', userId: expect.any(String) },
+    { row: 3, email: mixed, status: 'created', userId: expect.any(String) },
+  ])
+  expect((await users([lower, mixed])).map((user) => user.department_id)).toEqual([dept.id, dept.id])
+})
+
 /** The titles and display names of the users with these emails, sorted by email. */
 async function names(emails: string[]) {
   const { data, error } = await admin.from('profiles').select('email, title, display_name').in('email', emails)

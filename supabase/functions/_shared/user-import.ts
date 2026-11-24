@@ -97,7 +97,8 @@ export function readUserImport(csv: string): { problem: string } | { rows: FileR
 
 /**
  * Each row as the user to create, or the reason it holds none. departments maps the code of each
- * department that the rows name to its id, and a code it lacks names no department.
+ * department that the rows name, in lower case, to its id, and a code it lacks names no department.
+ * A row may write the code in any case.
  */
 export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, string>): ParsedRow[] {
   return rows.map(({ row, cells }): ParsedRow => {
@@ -113,7 +114,7 @@ export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, str
     if (twins.length > 0) return reject('duplicate_email', `The email is also on row ${twins.map((other) => other.row).join(', ')}.`)
     const unknown = roles.filter((role) => !isGlobalRole(matchKey(role)))
     if (unknown.length > 0) return reject('unknown_role', `Unknown role: ${unknown.join(', ')}. Separate roles with "${ROLE_SEPARATOR}".`)
-    const departmentId = cells.department === '' ? null : departments.get(cells.department)
+    const departmentId = cells.department === '' ? null : departments.get(cells.department.toLowerCase())
     if (departmentId === undefined) return reject('unknown_department', `No department has the code "${cells.department}".`)
     return {
       row,
