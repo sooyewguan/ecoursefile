@@ -119,7 +119,7 @@ export function Completeness() {
 }
 
 /** Whether the user has no timetable for the semester, which leaves section 4 of each of their course files missing. */
-async function isTimetableMissing(semesterId: string, userId: string) {
+export async function isTimetableMissing(semesterId: string, userId: string) {
   const { count, error } = await supabase
     .from('files')
     .select('id', { count: 'exact', head: true })
