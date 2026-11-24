@@ -545,7 +545,7 @@ The reports cover the offerings of the semester that `can_read_offering` lets th
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. The Offerings figure, and each department, say how many offerings are complete and how many are verified. Each department links to its offerings on the **Offerings** tab.
 - **Offerings**: the offering list, which you can filter by department and by `status`, or by **Not ready** (`not_ready`), which keeps the offerings that are `incomplete` or `needs_fix`. The **See all** link of the home page's least complete offerings opens it with Not ready. Each offering shows its missing and Needs fix sections, each linked to its section page, and its coordinator's email as a link that starts a message.
 - **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
 - **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
@@ -598,11 +598,11 @@ Each tab of the **Reports** page has one **Export** menu, at the end of the tab'
 
 | View | Columns |
 | --- | --- |
-| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
-| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| Summary | Department code, Department, Offerings, Offerings complete, Offerings verified, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Coordinator email, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Lecturers | Lecturer, Email, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections, Sections needing fix. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
 - Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.

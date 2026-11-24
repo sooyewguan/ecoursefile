@@ -16,7 +16,7 @@ import {
 } from '@/components/reports'
 import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { SectionStatusLegend, SectionStatusSquare } from '@/components/section-status'
-import { FacultyStatTiles } from '@/components/stat-tiles'
+import { FacultyStatTiles, offeringsDetail } from '@/components/stat-tiles'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -293,12 +293,18 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
                     </Link>
                     <SectionBar counts={row} />
                     <div className="text-muted-foreground grid gap-0.5 text-xs sm:hidden">
-                      <span>{plural(row.offerings, 'offering')}</span>
+                      <span>
+                        {plural(row.offerings, 'offering')} · {offeringsDetail(row)}
+                      </span>
                       <span className="tabular-nums">{SHARES.map(([, percent]) => `${percent.header} ${formatPercent(percent.value(row))}`).join(' · ')}</span>
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', WIDE)}>{column.offerings.value(row)}</TableCell>
+                <TableCell className={cn('px-4 py-3 text-right align-top tabular-nums', WIDE)}>
+                  {column.offerings.value(row)}
+                  <span className="text-muted-foreground block text-xs">{column.completeOfferings.value(row)} complete</span>
+                  <span className="text-muted-foreground block text-xs">{column.verifiedOfferings.value(row)} verified</span>
+                </TableCell>
                 {SHARES.map(([count, percent]) => (
                   <TableCell key={percent.header} className={cn('px-4 py-3 text-right align-top tabular-nums', WIDE)}>
                     {formatPercent(percent.value(row))}
