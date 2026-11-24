@@ -5,7 +5,7 @@ import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
 import { PageHeader, RowActions, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -72,7 +72,7 @@ export function Departments() {
       <PageHeader title="Departments" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search departments" />}
+        {!empty && <ListToolbar list={list} label="Search departments" noun="department" />}
         <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">

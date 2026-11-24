@@ -6,7 +6,7 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError } from '@/components/form-errors'
 import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -81,7 +81,7 @@ export function Courses() {
       <PageHeader title="Courses" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search courses" />}
+        {!empty && <ListToolbar list={list} label="Search courses" noun="course" />}
         <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">

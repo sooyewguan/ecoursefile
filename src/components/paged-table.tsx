@@ -5,7 +5,7 @@ import { Pager } from '@/components/paged-list'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableBody } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
+import { cn, plural } from '@/lib/utils'
 
 /** What a table needs from usePagedList. */
 type PagedList<Row> = {
@@ -77,6 +77,21 @@ export function ListSearch({ list, label, className = 'sm:max-w-xs' }: { list: P
       value={list.query}
       onChange={(event) => list.setQuery(event.target.value)}
     />
+  )
+}
+
+/**
+ * The row above a paged table: its search box, such as "Search departments", and how many the list
+ * holds, or how many match the search.
+ */
+export function ListToolbar({ list, label, noun }: { list: PagedList<unknown>; label: string; noun: string }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <ListSearch list={list} label={label} className="sm:w-72" />
+      {list.total !== null && (
+        <p className="text-muted-foreground text-sm tabular-nums">{list.search ? `${list.total.toLocaleString('en-US')} matching` : plural(list.total, noun)}</p>
+      )}
+    </div>
   )
 }
 

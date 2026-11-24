@@ -5,7 +5,7 @@ import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
 import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -64,7 +64,7 @@ export function CourseTypes() {
       <PageHeader title="Course types" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search course types" />}
+        {!empty && <ListToolbar list={list} label="Search course types" noun="course type" />}
         <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">

@@ -5,7 +5,7 @@ import { FormDialog } from '@/components/action-dialogs'
 import { FieldError } from '@/components/form-errors'
 import { PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
-import { isEmptyList, ListEmpty, ListSearch, PagedTableBody, TablePager } from '@/components/paged-table'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -57,7 +57,7 @@ export function ProgramCodes() {
       <PageHeader title="Program codes" action={!empty && addButton} />
 
       <div className="grid gap-3">
-        {!empty && <ListSearch list={list} label="Search program codes" />}
+        {!empty && <ListToolbar list={list} label="Search program codes" noun="program code" />}
         <TableCard>
           <Table>
             <TableHeader className="max-md:hidden">
