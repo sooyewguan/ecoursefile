@@ -192,7 +192,7 @@ Only admins add and edit catalog entries. Every signed-in user except root reads
 
 ## Semesters and offerings
 
-The admin sets up each semester on the **Semesters** page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
+The admin sets up each semester on the **Semesters** page. **Add semester** adds it and opens its page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
 
 | Table | What each entry holds |
 | --- | --- |
