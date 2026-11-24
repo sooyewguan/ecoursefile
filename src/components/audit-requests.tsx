@@ -68,7 +68,7 @@ const STATE_LABELS: Record<AuditRequestState, string> = { draft: 'Draft', sent: 
 
 /** A mailto link to these addresses, with a subject. */
 function mailto(emails: string[], subject: string) {
-  return `mailto:${emails.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent(subject)}`
+  return `mailto:${emails.join(',')}?subject=${encodeURIComponent(subject)}`
 }
 
 /** An item that staff are commenting on. */
