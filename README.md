@@ -209,6 +209,8 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
 
+The course picker of **Add offering** and **Edit** lists the courses that the semester does not offer yet. When every course that matches the search is offered already, it lists those as "Already offered in this semester", and none can be picked.
+
 The semester page marks each coordinator and lecturer whose account is deactivated with **Deactivated**. They cannot sign in to work on the course file, so the admin can give the offering to someone else.
 
 ### Changing and deleting offerings

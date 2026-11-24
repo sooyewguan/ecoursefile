@@ -714,14 +714,25 @@ function OfferingDialog({
   const [lecturers, setLecturers] = useState<ComboboxOption[]>(() => (offering?.lecturers ?? []).map(named))
   const others = lecturers.filter((lecturer) => lecturer.value !== coordinator?.value)
 
-  /** Finds the courses the semester does not offer yet whose code or title has the query. */
+  /**
+   * Finds the courses the semester does not offer yet whose code or title has the query. When every
+   * course that matches is offered already, it lists those, disabled, so the picker says why none
+   * can be chosen.
+   */
   async function searchCourses(query: string): Promise<ComboboxOption[]> {
-    let request = supabase.from('courses').select('id, code, title, offerings!left(id)').eq('offerings.semester_id', semesterId).is('offerings', null)
-    const filter = containsFilter(['code', 'title'], query)
-    if (filter) request = request.or(filter)
-    const { data, error } = await request.order('code').limit(PICKER_LIMIT)
-    if (error) throw error
-    return data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}` }))
+    const matching = (offered: boolean) => {
+      let request = supabase.from('courses').select(`id, code, title, offerings!${offered ? 'inner' : 'left'}(id)`).eq('offerings.semester_id', semesterId)
+      if (!offered) request = request.is('offerings', null)
+      const filter = containsFilter(['code', 'title'], query)
+      if (filter) request = request.or(filter)
+      return request.order('code').limit(PICKER_LIMIT)
+    }
+    const open = await matching(false)
+    if (open.error) throw open.error
+    if (open.data.length > 0) return open.data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}` }))
+    const offered = await matching(true)
+    if (offered.error) throw offered.error
+    return offered.data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}`, detail: 'Already offered in this semester', disabled: true }))
   }
 
   return (
