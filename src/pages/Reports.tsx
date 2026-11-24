@@ -24,10 +24,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, plural } from '@/lib/utils'
 import {
+  departmentsOf,
   filterLecturers,
   filterOfferings,
   HEATMAP_TABLE,
@@ -37,10 +38,11 @@ import {
   STATUS_FILTER_LABELS,
   SUMMARY_TABLE,
   summaryRows,
+  type Department,
   type StatusFilter,
 } from '../report-tables.ts'
-import { fetchReport, formatPercent, readAll, type DepartmentRow, type FacultySummary, type LecturerRow } from '../reports.ts'
-import { SECTIONS, type SectionStatus } from '../sections.ts'
+import { fetchReport, formatPercent, readAll, type DepartmentRow, type FacultySummary, type LecturerRow, type OfferingRow } from '../reports.ts'
+import { sectionName, SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 /** A semester of the Reports page, with the code that names its exported files. */
@@ -322,71 +324,91 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
   )
 }
 
+/** The department a view shows: the URL's, when the view's departments hold it, else every department, as null. One they lack gives way, in the URL too. */
+function useShownDepartment(departments: Department[] | null, url: ReportUrl) {
+  const department = departments?.some((row) => row.department_id === url.department) ? url.department : null
+  const stale = departments !== null && url.department !== null && department === null
+  useEffect(() => {
+    if (stale) url.set({ department: null })
+  })
+  return department
+}
+
+function DepartmentSelect({ id, departments, value, url }: { id: string; departments: Department[]; value: string | null; url: ReportUrl }) {
+  return (
+    <div className="grid gap-2 sm:w-64">
+      <Label htmlFor={id}>Department</Label>
+      <NativeSelect id={id} value={value ?? ''} onChange={(event) => url.set({ department: event.target.value })}>
+        <NativeSelectOption value="">All departments</NativeSelectOption>
+        {departments.map((row) => (
+          <NativeSelectOption key={row.department_id} value={row.department_id}>
+            {row.department_code} {row.department_name}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </div>
+  )
+}
+
+/**
+ * The department and status filters that the offering list and the heatmap share through the URL:
+ * the rows they keep, their controls, and the count of what shows.
+ */
+function useOfferingFilters(view: string, rows: OfferingRow[] | null, url: ReportUrl) {
+  const departments = rows && departmentsOf(rows)
+  const department = useShownDepartment(departments, url)
+  const shown = rows && filterOfferings(rows, { departmentId: department, status: url.status })
+  const filtered = department !== null || url.status !== null
+  const controls = (
+    <div className="grid gap-4 max-sm:w-full sm:flex sm:items-end">
+      <DepartmentSelect id={`${view}-department`} departments={departments ?? []} value={department} url={url} />
+      <div className="grid gap-2 sm:w-48">
+        <Label htmlFor={`${view}-status`}>Status</Label>
+        <NativeSelect id={`${view}-status`} value={url.status ?? ''} onChange={(event) => url.set({ status: event.target.value })}>
+          <NativeSelectOption value="">All statuses</NativeSelectOption>
+          {(Object.entries(STATUS_FILTER_LABELS) as [StatusFilter, string][]).map(([value, label]) => (
+            <NativeSelectOption key={value} value={value}>
+              {label}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
+    </div>
+  )
+  const count = rows ? (filtered ? `${shown!.length} of ${plural(rows.length, 'offering')}` : plural(rows.length, 'offering')) : undefined
+  return { shown, controls, count }
+}
+
+/** What the offering list and the heatmap show when their filters keep no offering. */
+function NoMatchingOfferings({ url }: { url: ReportUrl }) {
+  return (
+    <Card className="py-0">
+      <EmptyState
+        icon={ChartColumnIcon}
+        title="No matching offerings"
+        action={
+          <Button variant="outline" onClick={() => url.set({ department: null, status: null })}>
+            Clear filters
+          </Button>
+        }
+      />
+    </Card>
+  )
+}
+
 /** The offering list, filtered by department and status. A department that has no offering in the semester gives way. */
 function OfferingsView({ semester, url }: ViewProps) {
   const report = useReport(semester?.id ?? null, loadOfferings)
   const rows = report?.data ?? null
-  const departments = [...new Map((rows ?? []).map((row) => [row.department_id, row])).values()].toSorted((a, b) =>
-    a.department_code.localeCompare(b.department_code),
-  )
-  const department = departments.some((row) => row.department_id === url.department) ? url.department : null
-  const staleDepartment = rows !== null && url.department !== null && department === null
-  useEffect(() => {
-    if (staleDepartment) url.set({ department: null })
-  })
-
+  const { shown, controls, count } = useOfferingFilters('offerings', rows, url)
   if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   if (semester && rows?.length === 0) return <NoOfferings semester={semester} />
-  const shown = rows && filterOfferings(rows, { departmentId: department, status: url.status })
-  const filtered = department !== null || url.status !== null
   return (
     <>
-      <Toolbar
-        start={
-          <div className="grid gap-4 max-sm:w-full sm:flex sm:items-end">
-            <div className="grid gap-2 sm:w-64">
-              <Label htmlFor="offerings-department">Department</Label>
-              <NativeSelect id="offerings-department" value={department ?? ''} onChange={(event) => url.set({ department: event.target.value })}>
-                <NativeSelectOption value="">All departments</NativeSelectOption>
-                {departments.map((row) => (
-                  <NativeSelectOption key={row.department_id} value={row.department_id}>
-                    {row.department_code} {row.department_name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="grid gap-2 sm:w-48">
-              <Label htmlFor="offerings-status">Status</Label>
-              <NativeSelect id="offerings-status" value={url.status ?? ''} onChange={(event) => url.set({ status: event.target.value })}>
-                <NativeSelectOption value="">All statuses</NativeSelectOption>
-                {(Object.entries(STATUS_FILTER_LABELS) as [StatusFilter, string][]).map(([value, label]) => (
-                  <NativeSelectOption key={value} value={value}>
-                    {label}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
-        }
-        count={rows ? (filtered ? `${shown!.length} of ${plural(rows.length, 'offering')}` : plural(rows.length, 'offering')) : undefined}
-      >
+      <Toolbar start={controls} count={count}>
         <ExportMenu table={OFFERINGS_TABLE} rows={shown} semesterCode={semester?.code ?? null} />
       </Toolbar>
-      {shown?.length === 0 ? (
-        <Card className="py-0">
-          <EmptyState
-            icon={ChartColumnIcon}
-            title="No matching offerings"
-            action={
-              <Button variant="outline" onClick={() => url.set({ department: null, status: null })}>
-                Clear filters
-              </Button>
-            }
-          />
-        </Card>
-      ) : (
-        <OfferingsTable rows={shown} />
-      )}
+      {shown?.length === 0 ? <NoMatchingOfferings url={url} /> : <OfferingsTable rows={shown} />}
     </>
   )
 }
@@ -394,65 +416,122 @@ function OfferingsView({ semester, url }: ViewProps) {
 /** The heatmap's section columns, from lg. Below lg each offering's sections show as a strip in its course cell. */
 const SECTION_COLUMN = 'hidden lg:table-cell'
 
-/** One row for each offering and one column for each section, with the section's status as a colored square with a mark. */
-function HeatmapView({ semester }: ViewProps) {
+function sectionPage(offeringId: string, section: number) {
+  return `/course-files/${offeringId}/sections/${section}`
+}
+
+/**
+ * One row for each offering that the offering list's filters keep, and one column for each section,
+ * with the section's status as a colored square with a mark that opens the section. The last row
+ * counts the missing sections of each column.
+ */
+function HeatmapView({ semester, url }: ViewProps) {
   const report = useReport(semester?.id ?? null, loadOfferings)
-  if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   const rows = report?.data ?? null
+  const { shown, controls, count } = useOfferingFilters('heatmap', rows, url)
+  if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   if (semester && rows?.length === 0) return <NoOfferings semester={semester} />
   const column = HEATMAP_TABLE.columns
+  const missing = SECTIONS.map((_, index) => shown?.filter((row) => row.section_statuses[index] === 'missing').length ?? 0)
   return (
     <>
-      <Toolbar start={<SectionStatusLegend className="self-center" />} count={rows ? plural(rows.length, 'offering') : undefined}>
-        <ExportMenu table={HEATMAP_TABLE} rows={rows} semesterCode={semester?.code ?? null} />
+      <Toolbar start={controls} count={count}>
+        <ExportMenu table={HEATMAP_TABLE} rows={shown} semesterCode={semester?.code ?? null} />
       </Toolbar>
-      <TableCard>
-        <Table aria-label="Section heatmap">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="px-4">{column.courseTitle.header}</TableHead>
-              {SECTIONS.map((section) => (
-                <TableHead
-                  key={section.number}
-                  title={`${section.number} ${section.title}`}
-                  className={cn('w-9 px-0 text-center tabular-nums last:pr-3 last:w-12', SECTION_COLUMN)}
-                >
-                  {section.number}
-                  <span className="sr-only"> {section.title}</span>
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!rows ? (
-              <TableSkeleton columns={['', ...SECTIONS.map(() => cn('px-0 last:pr-3 [&>*]:mx-auto [&>*]:size-6', SECTION_COLUMN))]} />
-            ) : (
-              rows.map((row) => (
-                <TableRow key={row.offering_id}>
-                  <TableHead scope="row" className="h-auto px-4 py-2 font-normal whitespace-normal">
-                    <Link to={`/course-files/${row.offering_id}`} className="font-medium hover:underline">
-                      {column.courseCode.value(row)}
-                    </Link>
-                    <p className="text-muted-foreground text-xs">{column.courseTitle.value(row)}</p>
-                    <SectionStrip statuses={row.section_statuses} className="mt-2 lg:hidden" />
-                  </TableHead>
-                  {row.section_statuses.map((status, index) => (
-                    <TableCell key={index} className={cn('px-0 py-2 text-center last:pr-3', SECTION_COLUMN)}>
-                      <SectionStatusSquare section={index + 1} status={status} />
-                    </TableCell>
+      {shown?.length === 0 ? (
+        <NoMatchingOfferings url={url} />
+      ) : (
+        <>
+          <SectionStatusLegend />
+          <TableCard>
+            <Table aria-label="Section heatmap">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="px-4">{column.courseTitle.header}</TableHead>
+                  {SECTIONS.map((section) => (
+                    <TableHead
+                      key={section.number}
+                      title={`${section.number} ${section.title}`}
+                      className={cn('w-9 px-0 text-center tabular-nums last:pr-3 last:w-12', SECTION_COLUMN)}
+                    >
+                      {section.number}
+                      <span className="sr-only"> {section.title}</span>
+                    </TableHead>
                   ))}
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableCard>
+              </TableHeader>
+              <TableBody>
+                {!shown ? (
+                  <TableSkeleton columns={['', ...SECTIONS.map(() => cn('px-0 last:pr-3 [&>*]:mx-auto [&>*]:size-6', SECTION_COLUMN))]} />
+                ) : (
+                  shown.map((row) => (
+                    <TableRow key={row.offering_id}>
+                      <TableHead scope="row" className="h-auto px-4 py-2 font-normal whitespace-normal">
+                        <Link to={`/course-files/${row.offering_id}`} className="font-medium hover:underline">
+                          {column.courseCode.value(row)}
+                        </Link>
+                        <p className="text-muted-foreground text-xs">{column.courseTitle.value(row)}</p>
+                        <SectionStrip offeringId={row.offering_id} statuses={row.section_statuses} className="mt-2 lg:hidden" />
+                      </TableHead>
+                      {row.section_statuses.map((status, index) => (
+                        <TableCell key={index} className={cn('px-0 py-2 text-center last:pr-3', SECTION_COLUMN)}>
+                          <SectionStatusSquare section={index + 1} status={status} to={sectionPage(row.offering_id, index + 1)} />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+              {shown && (
+                <TableFooter>
+                  <TableRow>
+                    <TableHead scope="row" className="h-auto px-4 py-2 whitespace-normal">
+                      Missing
+                      <MissingStrip missing={missing} className="mt-2 lg:hidden" />
+                    </TableHead>
+                    {missing.map((total, index) => (
+                      <TableCell
+                        key={index}
+                        title={`${sectionName(index + 1)}: ${total} missing`}
+                        className={cn('px-0 py-2 text-center tabular-nums last:pr-3', total === 0 && 'text-muted-foreground font-normal', SECTION_COLUMN)}
+                      >
+                        {total}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableFooter>
+              )}
+            </Table>
+          </TableCard>
+        </>
+      )}
     </>
   )
 }
 
-/** An offering's 19 section statuses as numbered squares, ten to a row on a phone, where the heatmap's columns do not fit. */
-function SectionStrip({ statuses, className }: { statuses: SectionStatus[]; className?: string }) {
+/** How many of the heatmap's offerings miss each section, numbered as each offering's strip is, where the heatmap's columns do not fit. */
+function MissingStrip({ missing, className }: { missing: number[]; className?: string }) {
+  return (
+    <ol aria-label="Missing by section" className={cn('grid max-w-xl grid-cols-10 gap-x-1 gap-y-2 sm:grid-cols-[repeat(19,minmax(0,1fr))]', className)}>
+      {missing.map((total, index) => (
+        <li key={index} title={`${sectionName(index + 1)}: ${total} missing`} className="grid justify-items-center gap-1">
+          <span aria-hidden="true" className="text-muted-foreground text-[10px] leading-none font-normal tabular-nums">
+            {index + 1}
+          </span>
+          <span aria-hidden="true" className={cn('text-sm tabular-nums', total === 0 && 'text-muted-foreground font-normal')}>
+            {total}
+          </span>
+          <span className="sr-only">
+            {sectionName(index + 1)}: {total} missing
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+/** An offering's 19 section statuses as numbered squares that open the sections, ten to a row on a phone, where the heatmap's columns do not fit. */
+function SectionStrip({ offeringId, statuses, className }: { offeringId: string; statuses: SectionStatus[]; className?: string }) {
   return (
     <ol aria-label="Sections" className={cn('grid max-w-xl grid-cols-10 gap-x-1 gap-y-2 sm:grid-cols-[repeat(19,minmax(0,1fr))]', className)}>
       {statuses.map((status, index) => (
@@ -460,7 +539,7 @@ function SectionStrip({ statuses, className }: { statuses: SectionStatus[]; clas
           <span aria-hidden="true" className="text-muted-foreground text-[10px] leading-none tabular-nums">
             {index + 1}
           </span>
-          <SectionStatusSquare section={index + 1} status={status} />
+          <SectionStatusSquare section={index + 1} status={status} to={sectionPage(offeringId, index + 1)} />
         </li>
       ))}
     </ol>
