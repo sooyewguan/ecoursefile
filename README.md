@@ -111,6 +111,8 @@ Some limits apply to everyone:
 - Nobody can grant `root`.
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
+- The **Edit** dialog on the **Users** page refuses to take away a user's last role. To end someone's access, deactivate them. Root's **Remove admin** warns when admin is the user's only role, then goes ahead: root grants no other role and no admin manages another admin, so refusing would leave such an admin in place for good. Once they hold no role, an admin can give them a staff role or deactivate them.
+- The deactivate dialog lists the course files the user coordinates or teaches in the two newest semesters with offerings, each linked to its semester's page. Semesters have no dates, so the semester running now cannot be told from the next one set up early, and the two newest hold both.
 - An HoD must have a department. A department can have more than one HoD.
 - A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
 - Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
@@ -119,6 +121,8 @@ Some limits apply to everyone:
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+An access token issued before the deactivation stays valid until it expires, so every access rule also asks `is_active(user_id)`, and a deactivated user reads and changes nothing from the moment their profile is inactive. `jwt_roles()` returns no roles for them, `teaches`, `can_read_offering` and `can_read_shared_file` refuse them, `user_can_upload` and `user_can_upload_shared_file` refuse their uploads and reuses, the read-all policies on departments, semesters and the catalog leave them out, and `switch_section`, `tick_program_code` and `update_my_profile` fail with Postgres error `42501`. They still read their own profile and roles. Reactivating them restores access to the same token. The migration is `supabase/migrations/20261125000100_inactive_profiles_access_nothing.sql`.
 
 ### Names and titles
 
@@ -130,7 +134,9 @@ The app names a person by `display_name` wherever it shows them: the header and 
 
 ### Importing users from a CSV file
 
-On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones. **Download CSV** saves the same list, with a Row, Email, Result and Reason column, so the results outlast the page.
+
+The import dialog names the roles a row may hold, by the labels the app shows, and points to the **Departments** page for department codes. The template has the header row and one example row, filled in as a lecturer and HoD of `FTMK` with the email `aisyah.rahman@example.com`. The import rejects any row with that email, so an example row left in the file adds nobody.
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
@@ -146,12 +152,14 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `code` | Reason |
 | --- | --- |
 | `missing_value` | The full name, email, roles or temporary password is empty. |
+| `example_row` | The row is the template's example row. |
+| `invalid_email` | The email is not an address by the pattern and 255-character limit Supabase Auth applies, so the row never reaches Auth. |
 | `duplicate_email` | Another row of the file has the same email, in any case. Every row with that email is rejected. |
 | `unknown_role` | A role is not a global role. |
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
-| `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
+| `email_exists` | A user with the email already exists. The function passes on Supabase Auth's wording, and the page and the downloaded CSV show the app's own, from `importReason` in `user-import.ts`. |
+| `invalid_request` | Supabase Auth refused a value, such as a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
@@ -502,8 +510,8 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | --- | --- | --- |
 | 400 | `invalid_request` | The body is not one of the actions above. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
-| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
+| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. |
+| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. A user deactivated while signed in reads no request, so they get it too. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
 | 502 | `push_failed` | The step is made, but its notification could not be sent. The same call again sends it. |
 

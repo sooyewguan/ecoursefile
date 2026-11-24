@@ -123,12 +123,24 @@ test('no response to an import holds a temporary password', async () => {
   }
 })
 
-test('a file made from the template imports', async () => {
+/** The template's example row, which every import of a file made from the template rejects. */
+const EXAMPLE_ROW = { row: 2, email: 'aisyah.rahman@example.com', status: 'rejected', code: 'example_row', reason: expect.stringContaining('example') }
+
+test('a file made from the template imports, and its example row adds nobody', async () => {
   const email = uniqueEmail('template')
 
   const result = await importUsers(admin, `${USER_IMPORT_TEMPLATE}Template User,${email},,lecturer,${password('template')}\r\n`)
 
-  expect(result.body.rows).toEqual([{ row: 2, email, status: 'created', userId: expect.any(String) }])
+  expect(result.body.rows).toEqual([EXAMPLE_ROW, { row: 3, email, status: 'created', userId: expect.any(String) }])
+  expect(await users([EXAMPLE_ROW.email])).toEqual([])
+})
+
+test('a row whose email is not an address is rejected in the app wording', async () => {
+  const result = await importUsers(admin, `${HEADER}\nNo Address,not-an-email,,lecturer,${password('invalid')}\n`)
+
+  expect(result.body.rows).toEqual([
+    { row: 2, email: 'not-an-email', status: 'rejected', code: 'invalid_email', reason: 'The email is not a valid address.' },
+  ])
 })
 
 test('a file may have a byte order mark, CRLF line ends, blank rows, quoted values, extra columns, and its columns in any order and case', async () => {
@@ -225,7 +237,7 @@ test('a file made from the template takes a title', async () => {
 
   const result = await importUsers(admin, `${USER_IMPORT_TEMPLATE}Template User,${email},,lecturer,${password('template')},Ts.\r\n`)
 
-  expect(result.body.rows).toEqual([{ row: 2, email, status: 'created', userId: expect.any(String) }])
+  expect(result.body.rows).toEqual([EXAMPLE_ROW, { row: 3, email, status: 'created', userId: expect.any(String) }])
   expect(await names([email])).toEqual([{ email, title: 'Ts.', display_name: 'Ts. Template User' }])
 })
 

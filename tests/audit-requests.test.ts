@@ -230,13 +230,13 @@ test('a user deactivated while signed in can neither send nor reply', async () =
   const { id } = await requestIn(auditor, offeringId, 'draft')
 
   await setActive(auditor.id, false)
-  expect(await refusal(sendAuditRequest(auditor.client, id))).toEqual({ code: 'forbidden', status: 403 })
+  expect(await refusal(sendAuditRequest(auditor.client, id))).toEqual({ code: 'not_found', status: 404 })
   await setActive(auditor.id, true)
   await sendAuditRequest(auditor.client, id)
 
   await upload(lecturer.client, { offeringId, section: ATTENDANCE }, 'attendance.pdf')
   await setActive(lecturer.id, false)
-  expect(await refusal(replyToAuditRequest(lecturer.client, id))).toEqual({ code: 'forbidden', status: 403 })
+  expect(await refusal(replyToAuditRequest(lecturer.client, id))).toEqual({ code: 'not_found', status: 404 })
   expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
   expect(await outboxOf(auditor)).toEqual([])
 })

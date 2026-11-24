@@ -1,3 +1,4 @@
+import { csvFile, csvQuoted, csvTextField } from './csv.ts'
 import type { ReportColumn, ReportTable } from './report-tables.ts'
 
 // Exports a report view, as the page shows it, to an .xlsx or .csv file built in the browser.
@@ -58,30 +59,17 @@ function exportHeader<Row>(column: ReportColumn<Row>) {
   return column.kind === 'percent' ? `${column.header} (%)` : column.header
 }
 
-/**
- * A spreadsheet runs a cell that starts with one of these as a formula when it opens a .csv file.
- * Names and titles are typed by users, so such a text starts with ' in the file, which makes the
- * spreadsheet show it as text.
- */
-const FORMULA_START = /^[=+\-@\t\r]/
-
-/**
- * The view as CSV by RFC 4180: comma-separated, a field in double quotes when it holds a comma,
- * quote or line break, a quote inside doubled, and CRLF after each row. A UTF-8 byte order mark
- * comes first, so that Excel reads names outside ASCII correctly.
- */
+/** The view as CSV. See src/csv.ts for the format. */
 export function reportCsv<Row>(table: ReportTable<Row>, rows: Row[]) {
   const columns = Object.values(table.columns)
-  const lines = [
-    columns.map((column) => csvField({ text: exportHeader(column) })),
+  return csvFile([
+    columns.map((column) => csvTextField(exportHeader(column))),
     ...rows.map((row) => columns.map((column) => csvField(cellOf(column, row)))),
-  ]
-  return `﻿${lines.map((fields) => fields.join(',')).join('\r\n')}\r\n`
+  ])
 }
 
 function csvField(cell: Cell) {
-  const text = cell !== null && 'text' in cell && FORMULA_START.test(cell.text) ? `'${cell.text}` : cellText(cell)
-  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text
+  return cell !== null && 'text' in cell ? csvTextField(cell.text) : csvQuoted(cellText(cell))
 }
 
 /**
