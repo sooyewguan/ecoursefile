@@ -1,25 +1,19 @@
-import { CalendarClockIcon, ClipboardCheckIcon, UploadIcon } from 'lucide-react'
+import { ClipboardCheckIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { EmptyState, LoadError, PageHeader } from '@/components/page'
 import { ExportMenu, loadOfferings, pickSemester, ReportLoadError, SemesterSelect, useReport } from '@/components/reports'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
-import { Alert } from '@/components/ui/alert'
+import { TimetableMissing } from '@/components/timetable-missing'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '../auth-provider.tsx'
 import { MY_COMPLETENESS_TABLE, needsFixSections } from '../report-tables.ts'
-import { formatPercent, readAll, type OfferingRow } from '../reports.ts'
-import { LECTURER_FILE_SECTION, sectionName, SECTIONS_WITH_PAGES } from '../sections.ts'
-import { supabase } from '../supabase.ts'
-
-type Semester = { id: string; code: string; start_year: number; number: number }
-
-/** The ids of the offerings the user teaches or coordinates, and their semesters, newest first. */
-type Taught = { offeringIds: ReadonlySet<string>; semesters: Semester[] }
+import { formatPercent, type OfferingRow } from '../reports.ts'
+import { sectionName, SECTIONS_WITH_PAGES } from '../sections.ts'
+import { isTimetableMissing, loadTaught, type Taught } from '../teaching.ts'
 
 /**
  * The completeness of the course files that the user teaches or coordinates, in one semester, with
@@ -36,20 +30,7 @@ export function Completeness() {
   const load = useCallback(async () => {
     if (!userId) return
     try {
-      const rows = await readAll<{ offering: { id: string; semester: Semester } }>((from, to) =>
-        supabase
-          .from('offering_lecturers')
-          .select('offering:offerings!offering_lecturers_offering_id_fkey!inner(id, semester:semesters!inner(id, code, start_year, number))')
-          .eq('lecturer_id', userId)
-          .order('offering_id')
-          .range(from, to)
-          .overrideTypes<{ offering: { id: string; semester: Semester } }[], { merge: false }>(),
-      )
-      const semesters = new Map(rows.map(({ offering }) => [offering.semester.id, offering.semester]))
-      setTaught({
-        offeringIds: new Set(rows.map(({ offering }) => offering.id)),
-        semesters: [...semesters.values()].toSorted((a, b) => b.start_year - a.start_year || b.number - a.number),
-      })
+      setTaught(await loadTaught(userId))
     } catch {
       setTaught('failed')
     }
@@ -115,34 +96,6 @@ export function Completeness() {
         </>
       )}
     </div>
-  )
-}
-
-/** Whether the user has no timetable for the semester, which leaves section 4 of each of their course files missing. */
-export async function isTimetableMissing(semesterId: string, userId: string) {
-  const { count, error } = await supabase
-    .from('files')
-    .select('id', { count: 'exact', head: true })
-    .eq('semester_id', semesterId)
-    .eq('section', LECTURER_FILE_SECTION.number)
-    .eq('lecturer_id', userId)
-  if (error) throw error
-  return count === 0
-}
-
-/** The user's own timetable is missing, with a link to the timetable section of one of their course files, where they upload it. */
-function TimetableMissing({ semesterCode, offeringId }: { semesterCode: string; offeringId: string }) {
-  return (
-    <Alert role="status" variant="warning" className="flex flex-wrap items-center gap-x-3 gap-y-2 [&>svg]:translate-y-0">
-      <CalendarClockIcon />
-      <p className="min-w-0 flex-1 basis-60 font-medium">Your timetable for {semesterCode} is missing</p>
-      <Button asChild size="sm" variant="outline" className="max-sm:ml-7">
-        <Link to={`/course-files/${offeringId}/sections/${LECTURER_FILE_SECTION.number}`}>
-          <UploadIcon />
-          Upload timetable
-        </Link>
-      </Button>
-    </Alert>
   )
 }
 

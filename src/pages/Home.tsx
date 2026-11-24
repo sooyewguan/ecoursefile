@@ -1,6 +1,5 @@
 import {
   ArrowRightIcon,
-  CalendarClockIcon,
   ChartColumnIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -16,7 +15,7 @@ import { openPages } from '@/components/app-shell'
 import { EmptyState, LoadError, useDocumentTitle } from '@/components/page'
 import { loadOfferings } from '@/components/reports'
 import { OfferingStatusBadge } from '@/components/section-status'
-import { Alert } from '@/components/ui/alert'
+import { TimetableMissing } from '@/components/timetable-missing'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,10 +23,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn, plural } from '@/lib/utils'
 import { canOpen } from '../auth.ts'
 import { useAuth } from '../auth-provider.tsx'
-import { fetchReport, formatPercent, readAll, type DepartmentRow, type FacultySummary, type OfferingRow } from '../reports.ts'
-import { LECTURER_FILE_SECTION } from '../sections.ts'
+import { fetchReport, formatPercent, type DepartmentRow, type FacultySummary, type OfferingRow } from '../reports.ts'
 import { supabase } from '../supabase.ts'
-import { isTimetableMissing } from './Completeness.tsx'
+import { isTimetableMissing, loadTaught } from '../teaching.ts'
 
 type Semester = { id: string; code: string }
 
@@ -58,21 +56,11 @@ function useLoaded<Data>(load: () => Promise<Data | null>) {
 }
 
 async function loadStaff(userId: string): Promise<StaffOverview | null> {
-  type Taught = { offering: { id: string; semester: Semester & { start_year: number; number: number } } }
-  const rows = await readAll<Taught>((from, to) =>
-    supabase
-      .from('offering_lecturers')
-      .select('offering:offerings!offering_lecturers_offering_id_fkey!inner(id, semester:semesters!inner(id, code, start_year, number))')
-      .eq('lecturer_id', userId)
-      .order('offering_id')
-      .range(from, to)
-      .overrideTypes<Taught[], { merge: false }>(),
-  )
-  const newest = rows.map(({ offering }) => offering.semester).toSorted((a, b) => b.start_year - a.start_year || b.number - a.number)[0]
+  const taught = await loadTaught(userId)
+  const newest = taught.semesters[0]
   if (!newest) return null
-  const own = new Set(rows.filter(({ offering }) => offering.semester.id === newest.id).map(({ offering }) => offering.id))
   const [offerings, timetableMissing] = await Promise.all([loadOfferings(newest.id), isTimetableMissing(newest.id, userId)])
-  return { semester: { id: newest.id, code: newest.code }, offerings: offerings.filter((row) => own.has(row.offering_id)), timetableMissing }
+  return { semester: { id: newest.id, code: newest.code }, offerings: offerings.filter((row) => taught.offeringIds.has(row.offering_id)), timetableMissing }
 }
 
 async function loadFaculty(): Promise<FacultyOverview | null> {
@@ -397,18 +385,7 @@ function StaffSection({ userId }: { userId: string }) {
         </SectionCard>
       ) : (
         <>
-          {data?.timetableMissing && rows && rows.length > 0 && (
-            <Alert role="status" variant="warning" className="flex flex-wrap items-center gap-x-3 gap-y-2 [&>svg]:translate-y-0">
-              <CalendarClockIcon />
-              <p className="min-w-0 flex-1 basis-60 font-medium">Your timetable for {data.semester.code} is missing</p>
-              <Button asChild size="sm" variant="outline" className="max-sm:ml-7">
-                <Link to={`/course-files/${rows[0].offering_id}/sections/${LECTURER_FILE_SECTION.number}`}>
-                  <UploadIcon />
-                  Upload timetable
-                </Link>
-              </Button>
-            </Alert>
-          )}
+          {data?.timetableMissing && rows && rows.length > 0 && <TimetableMissing semesterCode={data.semester.code} offeringId={rows[0].offering_id} />}
           <StatTiles
             stats={
               rows
