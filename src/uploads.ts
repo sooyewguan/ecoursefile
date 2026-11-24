@@ -1,7 +1,7 @@
 import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
-import { PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
-import { UserFacingError } from './errors.ts'
+import { hasPdfName, PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
+import { friendlyError, UserFacingError } from './errors.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 import { pagesPerSheet } from './sections.ts'
 
@@ -69,8 +69,46 @@ export async function uploadFile(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<FileRecord> {
+  return uploadBytes(client, slot, file.name, await storedBytes(slot, file), onProgress)
+}
+
+/**
+ * Replaces a shared file with another PDF, and resolves to the new file record. Each shared file's
+ * key holds one file, and the files function opens no upload for a key that has one, so the new file
+ * uploads once the old one is deleted. The new file is checked first, as uploadFile and the files
+ * function check it, so a file that cannot be stored leaves the old one. Then the old file is deleted and the new one
+ * uploads at once. While it uploads, and if the upload fails, the course files that link the key
+ * show its section as Missing. An old file that is gone already is skipped, so calling this again
+ * after a failed upload only uploads.
+ */
+export async function replaceSharedFile(
+  client: SupabaseClient,
+  slot: SharedSlot,
+  oldFileId: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<FileRecord> {
+  if (!hasPdfName(file.name)) throw new FileActionError('not_pdf', UPLOAD_PROBLEM_MESSAGES.not_pdf)
   const bytes = await storedBytes(slot, file)
-  const session = await createUploadSession(client, slot, file.name)
+  const deleted = await deleteSharedFile(client, oldFileId).then(
+    () => true,
+    (error: unknown) => {
+      if (error instanceof FileActionError && error.code === 'not_found') return false
+      throw error
+    },
+  )
+  try {
+    return await uploadBytes(client, slot, file.name, bytes, onProgress)
+  } catch (error) {
+    if (!deleted) throw error
+    const code = error instanceof UserFacingError ? error.code : 'upload_failed'
+    throw new FileActionError(code, `The old file is deleted, but ${file.name} did not upload. ${friendlyError(error)} Replace it again to upload it.`)
+  }
+}
+
+/** Uploads bytes that are ready to store: asks for an upload session, sends its chunks, and finalizes it. */
+async function uploadBytes(client: SupabaseClient, slot: Slot | SharedSlot, name: string, bytes: Blob, onProgress?: (fraction: number) => void) {
+  const session = await createUploadSession(client, slot, name)
   onProgress?.(0)
   await sendChunks(session.uploadUrl, bytes, onProgress)
   return finalizeUpload(client, slot, session.storedName)

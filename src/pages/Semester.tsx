@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -9,6 +9,7 @@ import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/dele
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
 import { StaffNames, type StaffMember } from '@/components/identity'
+import { ReplaceSharedFileDialog } from '@/components/replace-shared-file-dialog'
 import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
@@ -78,6 +79,7 @@ type OpenDialog =
   | { kind: 'edit'; offering: Offering }
   | { kind: 'delete'; offering: Offering }
   | { kind: 'delete-shared'; file: SharedFile; title: string }
+  | { kind: 'replace-shared'; file: SharedFile; title: string; slot: SharedSlot }
 
 const STUDENT_TIMETABLE = PROGRAM_CODE_FILE_SECTION
 
@@ -393,6 +395,7 @@ export function Semester() {
                       name={`${section.number} ${section.title}`}
                       file={file}
                       actionLabel={`Actions for ${section.title}`}
+                      onReplace={(file) => setDialog({ kind: 'replace-shared', file, title: section.title, slot: { semesterId, section: section.number } })}
                       onDelete={(file) => setDialog({ kind: 'delete-shared', file, title: section.title })}
                       upload={uploadButton({ semesterId, section: section.number }, `Upload the ${section.title}`)}
                     />
@@ -514,6 +517,14 @@ export function Semester() {
                     name={timetable.code}
                     file={timetable.file ?? undefined}
                     actionLabel={`Actions for the student timetable of ${timetable.code}`}
+                    onReplace={(file) =>
+                      setDialog({
+                        kind: 'replace-shared',
+                        file,
+                        title: `the student timetable of ${timetable.code}`,
+                        slot: { semesterId, section: STUDENT_TIMETABLE.number, programCodeId: timetable.program_code_id },
+                      })
+                    }
                     onDelete={(file) => setDialog({ kind: 'delete-shared', file, title: `the student timetable of ${timetable.code}` })}
                     upload={uploadButton(
                       { semesterId, section: STUDENT_TIMETABLE.number, programCodeId: timetable.program_code_id },
@@ -571,6 +582,20 @@ export function Semester() {
           onDeleted={async () => {
             await reloadSharedFiles()
             toast.success(`Deleted ${dialog.file.name}`)
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'replace-shared' && (
+        <ReplaceSharedFileDialog
+          file={dialog.file}
+          title={dialog.title}
+          slot={dialog.slot}
+          onClose={close}
+          onFailed={reloadSharedFiles}
+          onReplaced={async (name) => {
+            await reloadSharedFiles()
+            toast.success(`Replaced ${dialog.file.name} with ${name}`)
           }}
         />
       )}
@@ -670,14 +695,15 @@ function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdi
 
 /**
  * A shared file's row: the section, program code or lecturer it is for, the file, which opens in a
- * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Delete
- * with onDelete. Without a file it is Missing, with the upload button.
+ * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Replace
+ * with onReplace and Delete with onDelete. Without a file it is Missing, with the upload button.
  */
 function SharedFileRow({
   name,
   file,
   detail,
   actionLabel,
+  onReplace,
   onDelete,
   upload,
 }: {
@@ -685,6 +711,7 @@ function SharedFileRow({
   file: SharedFile | undefined
   detail?: ReactNode
   actionLabel: string
+  onReplace?: (file: SharedFile) => void
   onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
@@ -718,6 +745,12 @@ function SharedFileRow({
         {file ? (
           <RowActions label={actionLabel}>
             <FileMenuItems file={file} />
+            {onReplace && (
+              <DropdownMenuItem onSelect={() => onReplace(file)}>
+                <RefreshCwIcon />
+                Replace
+              </DropdownMenuItem>
+            )}
             {onDelete && (
               <>
                 <DropdownMenuSeparator />
