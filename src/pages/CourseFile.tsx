@@ -24,6 +24,7 @@ import { compileManifest } from '../uploads.ts'
 
 type Offering = {
   semester: { code: string }
+  coordinator_id: string
   course: { code: string; title: string; department: { code: string; name: string } }
   /** The switchable sections that are on. */
   sections_on: number[]
@@ -65,7 +66,7 @@ export function CourseFile() {
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
+          'semester:semesters(code), coordinator_id, course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
         )
         .eq('id', offeringId!)
         .maybeSingle()
@@ -145,7 +146,14 @@ export function CourseFile() {
       {offering ? (
         <PageHeader
           title={`${offering.course.code} ${offering.course.title}`}
-          description={`${offering.semester.code} · ${offering.course.department.code} ${offering.course.department.name}`}
+          description={
+            <>
+              <span className="block">
+                {offering.semester.code} · {offering.course.department.code} {offering.course.department.name}
+              </span>
+              <StaffLine coordinatorId={offering.coordinator_id} lecturers={offering.lecturers} />
+            </>
+          }
           action={
             <PageActions>
               {backLink}
@@ -267,5 +275,36 @@ export function CourseFile() {
 
       {switchDialog}
     </div>
+  )
+}
+
+/**
+ * The course file's coordinator, then its other lecturers by name, each with their title and a link
+ * that emails them, so whoever reads the course file can reach the people who keep it.
+ */
+function StaffLine({ coordinatorId, lecturers }: { coordinatorId: string; lecturers: Offering['lecturers'] }) {
+  const coordinator = lecturers.find((lecturer) => lecturer.lecturer_id === coordinatorId)
+  const others = lecturers.filter((lecturer) => lecturer !== coordinator).toSorted((a, b) => a.lecturer_name.localeCompare(b.lecturer_name))
+  const person = (lecturer: Offering['lecturers'][number]) => (
+    <a key={lecturer.lecturer_id} href={`mailto:${lecturer.lecturer_email}`} title={lecturer.lecturer_email} className="text-foreground underline-offset-4 hover:underline">
+      {lecturer.lecturer_name}
+    </a>
+  )
+  return (
+    <span className="mt-1 block">
+      {coordinator && <>Coordinator {person(coordinator)}</>}
+      {coordinator && others.length > 0 && ' · '}
+      {others.length > 0 && (
+        <>
+          {others.length === 1 ? 'Lecturer' : 'Lecturers'}{' '}
+          {others.map((lecturer, index) => (
+            <span key={lecturer.lecturer_id}>
+              {index > 0 && ', '}
+              {person(lecturer)}
+            </span>
+          ))}
+        </>
+      )}
+    </span>
   )
 }
