@@ -353,9 +353,10 @@ async function storedItemProblem(item: StoredItem): Promise<UploadProblem | null
   return hasPdfSignature(await storage.readStart(item.id, PDF_SIGNATURE.length)) ? null : 'not_pdf'
 }
 
-// The stored item goes first. If removing the record then fails, the file is still listed, and
-// deleting it again finishes the job. Deleting a shared file leaves its section Missing in every
-// course file that links it, so the caller must confirm it.
+// The record goes first, since remove_file checks the rule again as it removes it: a timetable that
+// a course file links while the admin deletes it stays whole. If deleting the stored item then
+// fails, the file is no longer listed and its stored item stays in the library. Deleting a shared
+// file leaves its section Missing in every course file that links it, so the caller must confirm it.
 async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
   const [file] = await rest<{ storage_item_id: string; deletable: boolean; semester_id: string | null; lecturer_id: string | null }[]>(
     'GET',
@@ -370,7 +371,7 @@ async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
       403,
       'forbidden',
       file.lecturer_id
-        ? 'Only its lecturer may delete a timetable.'
+        ? 'Only its lecturer may delete a timetable, or the admin while no course file links it.'
         : shared
           ? 'Only the admin may delete shared files.'
           : 'Only the uploader or the coordinator may delete this file.',
@@ -383,8 +384,8 @@ async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
       'The course files that link this shared file lose it, and its section becomes Missing in each. Confirm the delete to go ahead.',
     )
   }
-  await storage.deleteItem(file.storage_item_id)
   await rest('POST', '/rpc/remove_file', { file_id: fileId, actor_id: (await callerUser(caller)).id }, SERVICE)
+  await storage.deleteItem(file.storage_item_id)
   return { fileId }
 }
 
