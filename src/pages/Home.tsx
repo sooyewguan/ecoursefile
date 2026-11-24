@@ -40,7 +40,7 @@ type FacultyOverview = { semester: Semester; summary: FacultySummary; department
 /** What a loader gave: null while it loads, then its data, which is null when there is nothing to show, or failed. */
 type Loaded<Data> = { data: Data | null } | 'failed' | null
 
-/** The result of load, which keeps its identity from one render to the next, with retry to load it again. */
+/** What load gives, with retry to load it again. load keeps its identity from one render to the next. */
 function useLoaded<Data>(load: () => Promise<Data | null>) {
   const [loaded, setLoaded] = useState<{ attempt: number; result: Loaded<Data> }>({ attempt: 0, result: null })
   const [attempt, setAttempt] = useState(0)
@@ -302,7 +302,7 @@ function DepartmentsCard({ data }: { data: FacultyOverview | null }) {
                   <div className="flex items-baseline justify-between gap-3 text-sm">
                     <Link
                       to={`/reports?semester=${data.semester.id}&tab=offerings&department=${row.department_id}`}
-                      className="min-w-0 truncate hover:underline"
+                      className="min-w-0 hover:underline sm:truncate"
                       title={row.department_name}
                     >
                       <span className="font-medium">{row.department_code}</span> <span className="text-muted-foreground">{row.department_name}</span>
