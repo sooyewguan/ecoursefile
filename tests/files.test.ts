@@ -94,6 +94,21 @@ test.each(['coordinator', 'lecturer'] as const)('the %s uploads a PDF to Teachin
   expect(await filesOf(course.coordinator.client, course.slot)).toEqual([{ id: file.id, name: 'Teaching Plan.pdf', deletable: true }])
 })
 
+test("a browser on the app's origin may send chunks to an upload URL", async () => {
+  const course = await createCourse()
+  const session = await createUploadSession(course.lecturer.client, course.slot, 'Teaching Plan.pdf')
+
+  const preflight = await fetch(session.uploadUrl, {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://e-coursefile.web.app', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'content-range,content-type' },
+  })
+
+  expect(preflight.ok).toBe(true)
+  expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  expect(preflight.headers.get('Access-Control-Allow-Methods')).toContain('PUT')
+  expect(preflight.headers.get('Access-Control-Allow-Headers')).toMatch(/content-range/i)
+})
+
 test('a file larger than one chunk is stored byte for byte', async () => {
   const course = await createCourse()
   const bytes = sizedPdf(6 * 1024 * 1024 + 7, (i) => (i * 7 + (i >> 13)) & 255)
