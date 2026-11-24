@@ -1,59 +1,61 @@
-// Sends audit requests and replies to them. The auditor who drafted a request sends it, which emails
-// the offering's coordinator and lecturers every flagged section with its comment. The offering's
-// staff reply once every checklist item is ticked or commented, which emails the auditor. The
-// send_audit_request and reply_to_audit_request RPCs make each step and decide who may. Clients
-// cannot call them, so this function calls them with the service role and the caller's id, and no
-// step happens without its email.
+// Sends audit requests and replies to them. The auditor who drafted a request sends it, which
+// notifies the offering's coordinator and lecturers by push. The offering's staff reply once every
+// checklist item is ticked or commented, which notifies the auditor. The send_audit_request and
+// reply_to_audit_request RPCs make each step and decide who may. Clients cannot call them, so this
+// function calls them with the service role and the caller's id, and no step happens without its
+// notification.
 //
-// Each step commits first, and its email goes after. audit_request_emails records the email's
-// delivery, and a call claims it before it sends, so two calls never send it at once. A step made
-// again, by a retry or a second click, changes nothing, and sends the email only while it is still
-// owed. So a mail failure leaves the step made and its email owed, the caller is told, and a retry
-// sends the email once.
-import { escapeHtml } from '../_shared/html.ts'
-import { callerUser, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
-import { mailerFromEnv, type Mail } from '../_shared/mail.ts'
-import { SECTIONS } from '../_shared/sections.ts'
+// Each step commits first, and its notification goes after. audit_request_notifications records the
+// notification's delivery, and a call claims it before it sends, so two calls never send it at
+// once. A step made again, by a retry or a second click, changes nothing, and sends the
+// notification only while it is still owed. So a push failure leaves the step made and its
+// notification owed, the caller is told, and a retry sends the notification once.
+import { callerUser, inList, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
+import { pusherFromEnv, type PushMessage } from '../_shared/push.ts'
 
-/** A state that owes an email: a sent request owes staff the request, and a replied one owes the auditor the reply. */
+/** A state that owes a notification: a sent request owes staff the request, and a replied one owes the auditor the reply. */
 type Step = 'sent' | 'replied'
 
 type AuditRequest = { id: string; state: 'draft' | Step }
 
 type AuditRequestsRequest = { action: 'send'; requestId: string } | { action: 'reply'; requestId: string; message: string | null }
 
-type Person = { full_name: string; email: string; active: boolean }
+/** display_name is how a notification names a person, with their title. */
+type Person = { id: string; display_name: string; active: boolean }
 
-/** A request as the emails need it, read with the service role. EMAIL_SELECT selects it. */
-type EmailSource = {
+/** A request as the notifications need it, read with the service role. NOTIFICATION_SELECT selects it. */
+type NotificationSource = {
   state: Step
   reply_message: string | null
   auditor: Person
-  replier: { full_name: string } | null
+  replier: { display_name: string } | null
   offering: {
-    coordinator_id: string
+    id: string
     semester: { code: string }
     course: { code: string; title: string }
-    lecturers: { lecturer: Person & { id: string } }[]
+    lecturers: { lecturer: Person }[]
   }
-  items: { section: number; ticked: boolean; comment: string | null; verdict: { comment: string } }[]
+  items: { section: number }[]
 }
 
-const EMAIL_SELECT = [
+const NOTIFICATION_SELECT = [
   'state',
   'reply_message',
-  'auditor:profiles!audit_requests_auditor_id_fkey(full_name,email,active)',
-  'replier:profiles!audit_requests_replied_by_fkey(full_name)',
-  'offering:offerings(coordinator_id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,full_name,email,active)))',
-  'items:audit_request_items(section,ticked,comment,verdict:section_verdicts(comment))',
+  'auditor:profiles!audit_requests_auditor_id_fkey(id,display_name,active)',
+  'replier:profiles!audit_requests_replied_by_fkey(display_name)',
+  'offering:offerings(id,semester:semesters(code),course:courses(code,title),lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer:profiles(id,display_name,active)))',
+  'items:audit_request_items(section)',
 ].join(',')
 
-const MAIL_FAILED: Record<Step, string> = {
-  sent: 'The request is sent, but its email to the coordinator and lecturers could not be sent. Send it again to retry the email.',
-  replied: 'The reply is recorded, but its email to the auditor could not be sent. Reply again to retry the email.',
+const PUSH_FAILED: Record<Step, string> = {
+  sent: 'The request is sent, but its notification to the coordinator and lecturers could not be sent. Send it again to retry the notification.',
+  replied: 'The reply is recorded, but its notification to the auditor could not be sent. Reply again to retry the notification.',
 }
 
-const mailer = mailerFromEnv()
+/** The longest reply message that a notification quotes in full. */
+const QUOTE_LENGTH = 200
+
+const pusher = pusherFromEnv()
 
 serveJson(async (body, caller) => {
   const request = parseRequest(body)
@@ -106,80 +108,65 @@ async function findRequest(requestId: string, caller: string) {
 }
 
 /**
- * Sends the email that the request owes for reaching the step, unless it is delivered or another
- * call is sending it. If it cannot be sent, the claim goes, so a retry sends it.
+ * Sends the notification that the request owes for reaching the step, unless it is delivered or
+ * another call is sending it. If it cannot be sent, the claim goes, so a retry sends it.
  */
 async function deliver(requestId: string, step: Step) {
-  const claimed = await rest<boolean | null>('POST', '/rpc/claim_audit_email', { request_id: requestId, state: step }, SERVICE)
+  const claimed = await rest<boolean | null>('POST', '/rpc/claim_audit_notification', { request_id: requestId, state: step }, SERVICE)
   if (!claimed) return
-  const delivery = `/audit_request_emails?request_id=eq.${requestId}&state=eq.${step}`
+  const delivery = `/audit_request_notifications?request_id=eq.${requestId}&state=eq.${step}`
   try {
-    const [source] = await rest<EmailSource[]>('GET', `/audit_requests?id=eq.${requestId}&select=${EMAIL_SELECT}`, undefined, SERVICE)
-    const mail = step === 'sent' ? requestEmail(source) : replyEmail(source)
-    if (mail.to.length > 0) await mailer.send(mail)
+    const [source] = await rest<NotificationSource[]>('GET', `/audit_requests?id=eq.${requestId}&select=${NOTIFICATION_SELECT}`, undefined, SERVICE)
+    const { to, message } = step === 'sent' ? requestNotification(source) : replyNotification(source)
+    await push(to, { ...message, link: `/course-files/${source.offering.id}#audit-request-${requestId}` })
   } catch (error) {
     console.error(error)
     await rest('PATCH', delivery, { claimed_at: null }, SERVICE)
-    throw new Refusal(502, 'mail_failed', MAIL_FAILED[step])
+    throw new Refusal(502, 'push_failed', PUSH_FAILED[step])
   }
   await rest('PATCH', delivery, { delivered_at: new Date().toISOString() }, SERVICE)
 }
 
 /**
- * The request's email to the coordinator and every lecturer of the offering, once each, the
- * coordinator first. Deactivated staff cannot sign in to fix anything, so they get no email.
+ * Sends the notification to every browser where a recipient turned notifications on, and removes
+ * the tokens that the push service no longer knows. A recipient with no browser gets nothing, and
+ * reads the request in the app.
  */
-function requestEmail({ auditor, offering, items }: EmailSource): Mail {
-  const staff = offering.lecturers
-    .map(({ lecturer }) => lecturer)
-    .filter((lecturer) => lecturer.active)
-    .toSorted((a, b) => Number(b.id === offering.coordinator_id) - Number(a.id === offering.coordinator_id) || a.full_name.localeCompare(b.full_name))
-  const flagged = sorted(items)
+async function push(userIds: string[], message: PushMessage) {
+  if (userIds.length === 0) return
+  const tokens = await rest<{ token: string }[]>('GET', `/push_tokens?select=token&user_id=${inList(userIds)}`, undefined, SERVICE)
+  const { stale } = await pusher.send(tokens.map(({ token }) => token), message)
+  if (stale.length > 0) await rest('DELETE', `/push_tokens?token=${inList(stale)}`, undefined, SERVICE)
+}
+
+/**
+ * The request's notification to the coordinator and every lecturer of the offering, once each.
+ * Deactivated staff cannot sign in to fix anything, so they get none.
+ */
+function requestNotification({ auditor, offering, items }: NotificationSource) {
+  const staff = offering.lecturers.map(({ lecturer }) => lecturer).filter((lecturer) => lecturer.active)
+  const count = items.length === 1 ? 'a section' : `${items.length} sections`
   return {
-    to: [...new Set(staff.map((lecturer) => lecturer.email))],
-    subject: `Audit request for ${courseOf(offering)}`,
-    html: [
-      '<p>Hello,</p>',
-      `<p>${escapeHtml(auditor.full_name)} audited the course file of ${escapeHtml(courseOf(offering))} and asks you to fix ${flagged.length === 1 ? 'this section' : `these ${flagged.length} sections`}:</p>`,
-      `<ul>${flagged.map((item) => `<li><strong>${sectionName(item.section)}</strong>: ${paragraph(item.verdict.comment)}</li>`).join('')}</ul>`,
-      '<p>Open the course file in eCourseFile to work through the checklist. A section ticks itself when it gets a new file. Comment on any section you cannot fix. Once every section is ticked or commented, any of you can reply to the auditor.</p>',
-    ].join('\n'),
+    to: [...new Set(staff.map((lecturer) => lecturer.id))],
+    message: {
+      title: `Audit request for ${offering.course.code}`,
+      body: `${auditor.display_name} asks you to fix ${count} of the course file of ${courseOf(offering)}.`,
+    },
   }
 }
 
-/** The reply's email to the auditor, with the checklist as staff replied. A deactivated auditor gets none. */
-function replyEmail({ auditor, replier, reply_message, offering, items }: EmailSource): Mail {
+/** The reply's notification to the auditor, with the reply's message. A deactivated auditor gets none. */
+function replyNotification({ auditor, replier, reply_message, offering }: NotificationSource) {
+  const quote = reply_message && reply_message.length > QUOTE_LENGTH ? `${reply_message.slice(0, QUOTE_LENGTH - 1)}…` : reply_message
   return {
-    to: auditor.active ? [auditor.email] : [],
-    subject: `Reply to your audit request for ${courseOf(offering)}`,
-    html: [
-      `<p>Hello ${escapeHtml(auditor.full_name)},</p>`,
-      `<p>${escapeHtml(replier!.full_name)} replied to your audit request for ${escapeHtml(courseOf(offering))}.</p>`,
-      ...(reply_message ? [`<blockquote>${paragraph(reply_message)}</blockquote>`] : []),
-      `<ul>${sorted(items)
-        .map((item) => {
-          const answers = [...(item.ticked ? ['It has a new file.'] : []), ...(item.comment ? [`Comment: ${paragraph(item.comment)}`] : [])]
-          return `<li><strong>${sectionName(item.section)}</strong>: ${answers.join(' ')}</li>`
-        })
-        .join('')}</ul>`,
-      '<p>Open the course file in eCourseFile to check these sections again.</p>',
-    ].join('\n'),
+    to: auditor.active ? [auditor.id] : [],
+    message: {
+      title: `Reply to your audit request for ${offering.course.code}`,
+      body: `${replier!.display_name} replied to your audit request for ${courseOf(offering)}.${quote ? ` "${quote}"` : ''}`,
+    },
   }
 }
 
-function courseOf({ course, semester }: EmailSource['offering']) {
+function courseOf({ course, semester }: NotificationSource['offering']) {
   return `${course.code} ${course.title}, ${semester.code}`
-}
-
-function sectionName(section: number) {
-  return escapeHtml(`${section} ${SECTIONS.find((s) => s.number === section)!.title}`)
-}
-
-function sorted(items: EmailSource['items']) {
-  return items.toSorted((a, b) => a.section - b.section)
-}
-
-/** Text that a user wrote, escaped, with its line breaks kept. */
-function paragraph(text: string) {
-  return escapeHtml(text).replaceAll('\n', '<br>')
 }

@@ -1,7 +1,10 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import { FolderOpenIcon } from 'lucide-react'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router'
 import { AppShell } from '@/components/app-shell'
+import { NotFound } from '@/components/page'
+import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
-import { redirectFor, RESET_PASSWORD_PAGE } from './auth.ts'
+import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
 import { Completeness } from './pages/Completeness.tsx'
@@ -11,12 +14,13 @@ import { CourseFileSection } from './pages/CourseFileSection.tsx'
 import { Courses } from './pages/Courses.tsx'
 import { CourseTypes } from './pages/CourseTypes.tsx'
 import { Departments } from './pages/Departments.tsx'
+import { FileViewer } from './pages/FileViewer.tsx'
 import { ForgotPassword } from './pages/ForgotPassword.tsx'
 import { Home } from './pages/Home.tsx'
 import { LecturerTimetables } from './pages/LecturerTimetables.tsx'
+import { Profile } from './pages/Profile.tsx'
 import { ProgramCodes } from './pages/ProgramCodes.tsx'
 import { Reports } from './pages/Reports.tsx'
-import { ResetPassword } from './pages/ResetPassword.tsx'
 import { Semester } from './pages/Semester.tsx'
 import { Semesters } from './pages/Semesters.tsx'
 import { SignIn } from './pages/SignIn.tsx'
@@ -27,15 +31,17 @@ import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 export function App() {
   return (
     <AuthProvider>
+      <Toaster />
       <BrowserRouter>
         <Routes>
           <Route element={<Guard />}>
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path={RESET_PASSWORD_PAGE} element={<ResetPassword />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/files/:fileId" element={<FileViewer />} />
             <Route element={<AppShell />}>
               <Route path="/" element={<Home />} />
+              <Route path="/profile" element={<Profile />} />
               <Route path="/users" element={<Users />} />
               <Route path="/departments" element={<Departments />} />
               <Route path="/course-types" element={<CourseTypes />} />
@@ -44,12 +50,15 @@ export function App() {
               <Route path="/semesters" element={<Semesters />} />
               <Route path="/semesters/:semesterId" element={<Semester />} />
               <Route path="/course-files" element={<CourseFiles />} />
-              <Route path="/course-files/:offeringId" element={<CourseFile />} />
-              <Route path={`/course-files/:offeringId/sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
-              <Route path={`/course-files/:offeringId/sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
-              <Route path="/course-files/:offeringId/sections/:section" element={<CourseFileSection />} />
+              <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
+                <Route index element={<CourseFile />} />
+                <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+                <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
+                <Route path="sections/:section" element={<CourseFileSection />} />
+              </Route>
               <Route path="/completeness" element={<Completeness />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/profile" element={<Profile />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
@@ -57,6 +66,15 @@ export function App() {
       </BrowserRouter>
     </AuthProvider>
   )
+}
+
+/** The form of every id, so an address with any other offering id names no course file. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The pages of one course file, or Course file not found when the address's id cannot be one. */
+function CourseFileRoute() {
+  if (UUID.test(useParams().offeringId ?? '')) return <Outlet />
+  return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
 }
 
 function Guard() {

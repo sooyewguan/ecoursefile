@@ -84,6 +84,17 @@ test.each([1, 9, 17, 19])('section %i has no course type default', async (sectio
   expect((await admin.from('course_types').select('sections_on').eq('id', type.id)).data).toEqual([{ sections_on: [10, 12] }])
 })
 
+test('a course type names each section once', async () => {
+  const type = await createCourseType()
+
+  const created = await admin.from('course_types').insert({ name: unique('Repeated'), sections_on: [10, 10] })
+  const edited = await admin.from('course_types').update({ sections_on: [12, 13, 12] }).eq('id', type.id)
+
+  expect(created.error?.code).toBe(CHECK_VIOLATION)
+  expect(edited.error?.code).toBe(CHECK_VIOLATION)
+  expect((await admin.from('course_types').select('sections_on').eq('id', type.id)).data).toEqual([{ sections_on: [10, 12] }])
+})
+
 test('course type names are unique', async () => {
   const type = await createCourseType()
 
@@ -169,6 +180,53 @@ test('program codes are unique when a code is created or edited', async () => {
   expect(created.error?.code).toBe(UNIQUE_VIOLATION)
   expect(edited.error?.code).toBe(UNIQUE_VIOLATION)
   expect((await admin.from('program_codes').select('code').eq('id', other.id)).data).toEqual([{ code: other.code }])
+})
+
+/** Each catalog table, its text columns, and the other values a new row of it needs. */
+const CATALOG_TEXT = [
+  { table: 'departments', columns: ['code', 'name'], needs: async () => ({}) },
+  { table: 'courses', columns: ['code', 'title'], needs: async () => ({ department_id: departmentId, course_type_id: (await createCourseType()).id }) },
+  { table: 'program_codes', columns: ['code'], needs: async () => ({}) },
+  { table: 'course_types', columns: ['name'], needs: async () => ({ sections_on: [] }) },
+]
+
+/** The values of the columns, each made by text from its column name. */
+function textValues(columns: string[], text: (column: string) => string) {
+  return Object.fromEntries(columns.map((column) => [column, text(column)]))
+}
+
+/** The value with the spaces, tab and newline that a paste can bring around it. */
+function padded(value: string) {
+  return ` \t${value} \n`
+}
+
+test.each(CATALOG_TEXT)('$table saves its codes and names without the spaces around them, whoever writes them',async ({ table, columns, needs }) => {
+  const added = textValues(columns, unique)
+
+  const created = await admin
+    .from(table)
+    .insert({ ...(await needs()), ...textValues(columns, (column) => padded(added[column])) })
+    .select('id')
+    .single()
+  expect(created.error).toBeNull()
+  const id = created.data!.id
+  expect((await admin.from(table).select(columns.join(', ')).eq('id', id)).data).toEqual([added])
+
+  const edited = textValues(columns, unique)
+  const update = await adminClient().from(table).update(textValues(columns, (column) => padded(edited[column]))).eq('id', id)
+  expect(update.error).toBeNull()
+  expect((await admin.from(table).select(columns.join(', ')).eq('id', id)).data).toEqual([edited])
+})
+
+test.each(CATALOG_TEXT)('$table takes a value that differs from a taken one only by the spaces around it as taken', async ({ table, columns, needs }) => {
+  // Each table keeps its first text column unique.
+  const [key] = columns
+  const taken = textValues(columns, unique)
+  expect((await admin.from(table).insert({ ...(await needs()), ...taken })).error).toBeNull()
+
+  const { error } = await admin.from(table).insert({ ...(await needs()), ...textValues(columns, unique), [key]: padded(taken[key]) })
+
+  expect(error?.code).toBe(UNIQUE_VIOLATION)
 })
 
 test.each(['lecturer', 'auditor', 'hod', 'dean', 'deputy_dean', 'root'] as const)(

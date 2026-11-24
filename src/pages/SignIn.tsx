@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
+import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 
 export function SignIn() {
@@ -21,15 +22,19 @@ export function SignIn() {
       password: String(form.get('password')),
     })
     setBusy(false)
-    setError(error?.message ?? null)
+    setError(error && friendlyError(error, { fallback: "Couldn't sign in. Try again." }))
   }
 
   return (
-    <AuthLayout title="Sign in" description="Use your staff email and password.">
+    <AuthLayout
+      title="Sign in"
+      description="Welcome back to eCourseFile."
+      footer="No account yet? Your faculty's eCourseFile administrator creates it."
+    >
       <form onSubmit={onSubmit} className="grid gap-5">
         <div className="grid gap-2">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" autoComplete="username" required />
+          <Input id="email" name="email" type="email" autoComplete="username" autoFocus required />
         </div>
         <div className="grid gap-2">
           <div className="flex items-center">

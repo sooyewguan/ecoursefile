@@ -6,13 +6,24 @@ import { isGlobalRole, type GlobalRole } from './roles.ts'
 export type NewUser = {
   email: string
   fullName: string
+  /** An honorific, such as Dr. or Ts., or null for none. */
+  title: string | null
   departmentId: string | null
   roles: GlobalRole[]
   temporaryPassword: string
 }
 
-/** The columns of an import file, in the template's order. */
-const COLUMNS = ['full_name', 'email', 'department', 'roles', 'temporary_password'] as const
+/** The longest title a profile takes, in characters, as the profiles table checks it. */
+export const MAX_TITLE_LENGTH = 40
+
+/** The columns every import file has. */
+const REQUIRED_COLUMNS = ['full_name', 'email', 'department', 'roles', 'temporary_password'] as const
+
+/** The columns of an import file, in the template's order. A file without a title column gives nobody a title. */
+const COLUMNS = [...REQUIRED_COLUMNS, 'title'] as const
+
+/** The columns whose value a row may leave empty. */
+const MAY_BE_EMPTY: readonly Column[] = ['department', 'title']
 
 type Column = (typeof COLUMNS)[number]
 
@@ -68,9 +79,9 @@ export function readUserImport(csv: string): { problem: string } | { rows: FileR
   for (const column of COLUMNS) {
     if (names.indexOf(column) !== names.lastIndexOf(column)) return { problem: `The file has more than one ${column} column.` }
   }
-  const missing = COLUMNS.filter((column) => !names.includes(column))
+  const missing = REQUIRED_COLUMNS.filter((column) => !names.includes(column))
   if (missing.length > 0) {
-    return { problem: `The file has no ${missing.join(' or ')} column. Its first row must name the columns ${COLUMNS.join(', ')}.` }
+    return { problem: `The file has no ${missing.join(' or ')} column. Its first row must name the columns ${REQUIRED_COLUMNS.join(', ')}.` }
   }
   if (body.length === 0) return { problem: 'The file has no users below its header row.' }
   if (body.length > MAX_IMPORT_ROWS) {
@@ -86,7 +97,8 @@ export function readUserImport(csv: string): { problem: string } | { rows: FileR
 
 /**
  * Each row as the user to create, or the reason it holds none. departments maps the code of each
- * department that the rows name to its id, and a code it lacks names no department.
+ * department that the rows name, in lower case, to its id, and a code it lacks names no department.
+ * A row may write the code in any case.
  */
 export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, string>): ParsedRow[] {
   return rows.map(({ row, cells }): ParsedRow => {
@@ -96,13 +108,13 @@ export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, str
       .split(ROLE_SEPARATOR)
       .map((role) => role.trim())
       .filter(Boolean)
-    const blank = COLUMNS.find((column) => (column === 'roles' ? roles.length === 0 : column !== 'department' && cells[column] === ''))
+    const blank = COLUMNS.find((column) => (column === 'roles' ? roles.length === 0 : !MAY_BE_EMPTY.includes(column) && cells[column] === ''))
     if (blank) return reject('missing_value', `The row has no ${blank.replaceAll('_', ' ')}.`)
     const twins = rows.filter((other) => other.row !== row && other.cells.email.toLowerCase() === email.toLowerCase())
     if (twins.length > 0) return reject('duplicate_email', `The email is also on row ${twins.map((other) => other.row).join(', ')}.`)
     const unknown = roles.filter((role) => !isGlobalRole(matchKey(role)))
     if (unknown.length > 0) return reject('unknown_role', `Unknown role: ${unknown.join(', ')}. Separate roles with "${ROLE_SEPARATOR}".`)
-    const departmentId = cells.department === '' ? null : departments.get(cells.department)
+    const departmentId = cells.department === '' ? null : departments.get(cells.department.toLowerCase())
     if (departmentId === undefined) return reject('unknown_department', `No department has the code "${cells.department}".`)
     return {
       row,
@@ -110,6 +122,7 @@ export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, str
       user: {
         email,
         fullName: cells.full_name,
+        title: cells.title || null,
         departmentId,
         roles: [...new Set(roles.map(matchKey).filter(isGlobalRole))],
         temporaryPassword: cells.temporary_password,

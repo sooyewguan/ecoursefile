@@ -1,6 +1,7 @@
 import { isGlobalRole, type GlobalRole } from './roles.ts'
 
-export type Profile = { id: string; email: string; fullName: string }
+/** The signed-in user. displayName is how the app names them to others: their title and full name. */
+export type Profile = { id: string; email: string; fullName: string; title: string | null; displayName: string }
 
 export type AuthState =
   | { kind: 'loading' }
@@ -29,18 +30,14 @@ export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
   return !page || page.roles.some((role) => roles.includes(role))
 }
 
+/** The shortest password Supabase Auth takes, as minimum_password_length in supabase/config.toml sets it. */
+export const MIN_PASSWORD_LENGTH = 6
+
 /** The pages for signed-out visitors, which a signed-in user is sent away from. */
 const SIGNED_OUT_PAGES = ['/sign-in', '/forgot-password']
 
-/**
- * The page a reset link opens. It stays open in every state, since following the link signs the
- * user in before the page sets their new password.
- */
-export const RESET_PASSWORD_PAGE = '/reset-password'
-
 /** Where to send a visitor in this state who asked for this path, or null to let them stay. */
 export function redirectFor(state: AuthState, path: string): string | null {
-  if (path === RESET_PASSWORD_PAGE) return null
   switch (state.kind) {
     case 'loading':
       return null

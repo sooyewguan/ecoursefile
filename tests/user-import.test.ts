@@ -162,6 +162,73 @@ test('a file may have a byte order mark, CRLF line ends, blank rows, quoted valu
   )
 })
 
+test('a department code in the file matches its department in any case', async () => {
+  const dept = await department()
+  const [lower, mixed] = [uniqueEmail('lower'), uniqueEmail('mixed')]
+  const mixedCase = [...dept.code].map((character, index) => (index % 2 ? character.toUpperCase() : character.toLowerCase())).join('')
+  const csv = [
+    HEADER,
+    `Lower Code,${lower},${dept.code.toLowerCase()},lecturer,${password('lower')}`,
+    `Mixed Code,${mixed},${mixedCase},lecturer,${password('mixed')}`,
+  ].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result.body.rows).toEqual([
+    { row: 2, email: lower, status: 'created', userId: expect.any(String) },
+    { row: 3, email: mixed, status: 'created', userId: expect.any(String) },
+  ])
+  expect((await users([lower, mixed])).map((user) => user.department_id)).toEqual([dept.id, dept.id])
+})
+
+/** The titles and display names of the users with these emails, sorted by email. */
+async function names(emails: string[]) {
+  const { data, error } = await admin.from('profiles').select('email, title, display_name').in('email', emails)
+  if (error) throw error
+  return data.toSorted((a, b) => a.email.localeCompare(b.email))
+}
+
+test('a title column gives each row its title, and an empty title is none', async () => {
+  const [dr, none, long] = [uniqueEmail('dr'), uniqueEmail('none'), uniqueEmail('long')]
+  const csv = [
+    `Title,${HEADER}`,
+    ` Prof. Madya ,Aisyah Titled,${dr},,lecturer,${password('dr')}`,
+    `,Bala Untitled,${none},,lecturer,${password('none')}`,
+    `${'t'.repeat(41)},Chong Long,${long},,lecturer,${password('long')}`,
+  ].join('\n')
+
+  const result = await importUsers(admin, csv)
+
+  expect(result.body.rows).toEqual([
+    { row: 2, email: dr, status: 'created', userId: expect.any(String) },
+    { row: 3, email: none, status: 'created', userId: expect.any(String) },
+    { row: 4, email: long, status: 'rejected', code: 'invalid_request', reason: expect.stringContaining('40') },
+  ])
+  expect(await names([dr, none, long])).toEqual(
+    [
+      { email: dr, title: 'Prof. Madya', display_name: 'Prof. Madya Aisyah Titled' },
+      { email: none, title: null, display_name: 'Bala Untitled' },
+    ].toSorted((a, b) => a.email.localeCompare(b.email)),
+  )
+})
+
+test('a file without a title column gives nobody a title', async () => {
+  const email = uniqueEmail('untitled')
+
+  expect((await importUsers(admin, `${HEADER}\nNo Title,${email},,lecturer,${password('untitled')}`)).body.rows).toMatchObject([{ status: 'created' }])
+
+  expect(await names([email])).toEqual([{ email, title: null, display_name: 'No Title' }])
+})
+
+test('a file made from the template takes a title', async () => {
+  const email = uniqueEmail('template')
+
+  const result = await importUsers(admin, `${USER_IMPORT_TEMPLATE}Template User,${email},,lecturer,${password('template')},Ts.\r\n`)
+
+  expect(result.body.rows).toEqual([{ row: 2, email, status: 'created', userId: expect.any(String) }])
+  expect(await names([email])).toEqual([{ email, title: 'Ts.', display_name: 'Ts. Template User' }])
+})
+
 test('importing the same file again creates nobody twice and leaves the users it created as they are', async () => {
   const email = uniqueEmail('again')
   const first = password('first')

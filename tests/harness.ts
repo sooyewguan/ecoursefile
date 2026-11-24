@@ -136,7 +136,7 @@ export function pickSemester(client: SupabaseClient = adminClient(), number?: nu
 
 /**
  * A semester for report tests that has no offerings yet: a random one of the 300 codes with start
- * years 2800 to 2899, which no other helper returns. Offerings are never deleted, so each semester
+ * years 2800 to 2899, which no other helper returns. The tests never delete offerings, so each semester
  * that a test fills is used up, and a database that has used them all needs a reset.
  */
 export async function emptyReportSemester() {
@@ -225,16 +225,24 @@ export async function fakeStoreItems(folder: string) {
   return data as { id: string; path: string; size: number; mime_type: string }[]
 }
 
-/** The emails in the fake outbox that went to this address, oldest first. */
-export async function fakeOutbox(email: string) {
+/** Registers a push token for the signed-in user, as the app does when they turn notifications on, and returns it. */
+export async function registerPushToken(client: SupabaseClient) {
+  const token = `fake-${randomUUID()}`
+  const { error } = await client.rpc('register_push_token', { token })
+  if (error) throw error
+  return token
+}
+
+/** The notifications in the fake push outbox that went to these tokens, oldest first. */
+export async function fakePushOutbox(...tokens: string[]) {
   const { data, error } = await adminClient()
-    .schema('fake_mail')
+    .schema('fake_push')
     .from('outbox')
-    .select('recipients, subject, html')
-    .contains('recipients', [email])
+    .select('token, title, body, link')
+    .in('token', tokens)
     .order('sent_at')
   if (error) throw error
-  return data as { recipients: string[]; subject: string; html: string }[]
+  return data as { token: string; title: string; body: string; link: string }[]
 }
 
 /**

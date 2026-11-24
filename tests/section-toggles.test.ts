@@ -1,7 +1,8 @@
+import { setTimeout } from 'node:timers/promises'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { numberedPdf } from '../src/pdf/fixtures.ts'
-import { uploadFile } from '../src/uploads.ts'
+import { createUploadSession, finalizeUpload, sendChunks, uploadFile } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, signIn, signInAs } from './harness.ts'
 
 const PERMISSION_DENIED = '42501'
@@ -205,6 +206,33 @@ test('a section switched on takes new items, and one switched off takes none', a
 
   await switchSection(course.coordinator.client, course.offeringId, LAB, false)
   expect((await addLab()).error?.code).toBe(PERMISSION_DENIED)
+})
+
+test('an upload that finalizes while its section is switched off is refused with the upload session refusal, or recorded before the switch', async () => {
+  // Each round switches the section off a few milliseconds after finalize starts, while finalize checks and records the file.
+  for (const delay of [0, 0, 0, 4, 4, 4, 8, 8, 8]) {
+    const course = await createCourse()
+    const notes = { offeringId: course.offeringId, section: LECTURE_NOTES }
+    const session = await createUploadSession(course.lecturer.client, notes, 'notes.pdf')
+    await sendChunks(session.uploadUrl, new File([await numberedPdf(1)], 'notes.pdf', { type: 'application/pdf' }))
+
+    const finalized = finalizeUpload(course.lecturer.client, notes, session.storedName).then(
+      () => null,
+      (refusal: unknown) => refusal,
+    )
+    await setTimeout(delay)
+    expect((await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')).error).toBeNull()
+    const refusal = await finalized
+    const sessionRefusal = await createUploadSession(course.lecturer.client, notes, 'notes.pdf').catch((error: unknown) => error)
+
+    const { data: log } = await auditor.from('activity_log').select('action').eq('offering_id', course.offeringId).order('id')
+    const { data: files } = await auditor.from('files').select('name').eq('offering_id', course.offeringId).eq('section', LECTURE_NOTES)
+    expect({ refusal, log, files }, `switched off ${delay} ms after finalize started`).toEqual(
+      refusal
+        ? { refusal: sessionRefusal, log: [{ action: 'switch_off' }], files: [] }
+        : { refusal: null, log: [{ action: 'upload' }, { action: 'switch_off' }], files: [{ name: 'notes.pdf' }] },
+    )
+  }
 })
 
 test('each switch is recorded in the activity log, and a switch to the setting a section has changes nothing', async () => {

@@ -1,14 +1,15 @@
 // Seam 1: audit requests from draft to sent to replied. Auditors mark sections Needs fix, send the
 // draft through the audit-requests function, staff work through the checklist and reply, all as
-// the app does. The emails are read from the fake outbox. Every auditor, lecturer and program code
-// here is one the test creates, so the outbox and the timetables are the test's own.
+// the app does. Each user turns push notifications on in one browser, and the notifications are read
+// from the fake push outbox. Every auditor, lecturer and program code here is one the test creates,
+// so the outbox and the timetables are the test's own.
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { expect, test } from 'vitest'
 import { AuditRequestError, replyToAuditRequest, sendAuditRequest } from '../src/audit-requests.ts'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
 import { deleteFile, listReusableFiles, reuseFile, uploadFile, type Slot } from '../src/uploads.ts'
-import { adminClient, createOffering, createUser, fakeOutbox, pickSemester, signIn, signInAs } from './harness.ts'
+import { adminClient, createOffering, createUser, fakePushOutbox, pickSemester, registerPushToken, signIn, signInAs } from './harness.ts'
 
 const PERMISSION_DENIED = '42501'
 const CHECK_VIOLATION = '23514'
@@ -23,7 +24,8 @@ const LAB_EXERCISES = 11
 const WEEK_12_MARKS = 17
 const GRADE_LIST = 18
 
-type User = { id: string; email: string; client: SupabaseClient }
+/** A user signed in on a browser with push notifications on, whose token is token. */
+type User = { id: string; email: string; client: SupabaseClient; token: string }
 type Semester = { id: string; code: string; start_year: number; number: number }
 
 /** An offering whose course type has sections 10 and 12 on, with a coordinator and a lecturer, and a lecturer of another offering. */
@@ -39,13 +41,14 @@ type AuditRequest = {
   replier_name: string | null
   reply_message: string | null
   checklist_complete: boolean
-  email_pending: boolean
+  notification_pending: boolean
   items: Item[]
 }
 
 async function createPerson(role: 'lecturer' | 'auditor'): Promise<User> {
   const user = await createUser({ roles: [role] })
-  return { id: user.id, email: user.email, client: await signIn(user.email, user.password) }
+  const client = await signIn(user.email, user.password)
+  return { id: user.id, email: user.email, client, token: await registerPushToken(client) }
 }
 
 async function createCourse(options: { lecturers?: User[]; semester?: Semester } = {}): Promise<Course> {
@@ -79,7 +82,7 @@ async function requestsOf(client: SupabaseClient, offeringId: string): Promise<A
   const { data, error } = await client
     .from('audit_requests')
     .select(
-      'id, state, auditor_id, auditor_name, replier_name, reply_message, checklist_complete, email_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
+      'id, state, auditor_id, auditor_name, replier_name, reply_message, checklist_complete, notification_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
     )
     .eq('offering_id', offeringId)
     .order('created_at')
@@ -132,14 +135,19 @@ async function setActive(userId: string, active: boolean) {
   if (error) throw error
 }
 
-/** Makes the fake mailbox refuse, or take again, email to this address. */
-async function setUndeliverable(address: string, undeliverable: boolean) {
-  const table = adminClient().schema('fake_mail').from('undeliverable')
-  const { error } = undeliverable ? await table.insert({ address }) : await table.delete().eq('address', address)
+/** Makes the fake push service fail, or take again, a notification to this token. */
+async function setUndeliverable(token: string, undeliverable: boolean) {
+  const table = adminClient().schema('fake_push').from('undeliverable')
+  const { error } = undeliverable ? await table.insert({ token }) : await table.delete().eq('token', token)
   if (error) throw error
 }
 
-test('Needs fix marks collect into the auditor’s draft, which only they read, and nobody is emailed before Send', async () => {
+/** The notifications that went to the user's browser, oldest first. */
+function outboxOf(user: User) {
+  return fakePushOutbox(user.token)
+}
+
+test('Needs fix marks collect into the auditor’s draft, which only they read, and nobody is notified before Send', async () => {
   const course = await createCourse()
   const auditor = await createPerson('auditor')
   await upload(course.lecturer.client, { offeringId: course.offeringId, section: TEACHING_PLAN }, 'plan.pdf')
@@ -150,7 +158,7 @@ test('Needs fix marks collect into the auditor’s draft, which only they read, 
   await mark(auditor, course.offeringId, REPLACEMENT_NOTICES, 'verified')
 
   const [draft] = await requestsOf(auditor.client, course.offeringId)
-  expect(draft).toMatchObject({ state: 'draft', auditor_id: auditor.id, auditor_name: 'Seam1 User', email_pending: false })
+  expect(draft).toMatchObject({ state: 'draft', auditor_id: auditor.id, auditor_name: 'Seam1 User', notification_pending: false })
   expect(draft.items.map(({ section, ticked, comment, verdict }) => ({ section, ticked, comment, verdict }))).toEqual([
     { section: TEACHING_PLAN, ticked: false, comment: null, verdict: { comment: 'Sign and date the plan.' } },
     { section: ATTENDANCE, ticked: false, comment: null, verdict: { comment: 'Week 3 is missing.' } },
@@ -161,7 +169,7 @@ test('Needs fix marks collect into the auditor’s draft, which only they read, 
     expect(await requestsOf(client, course.offeringId)).toEqual([])
     expect((await client.from('audit_request_items').select('section').eq('request_id', draft.id)).data).toEqual([])
   }
-  for (const user of [course.coordinator, course.lecturer]) expect(await fakeOutbox(user.email)).toEqual([])
+  for (const user of [course.coordinator, course.lecturer]) expect(await outboxOf(user)).toEqual([])
   expect(await requestActivity(adminClient(), course.offeringId)).toEqual([])
 
   // A Verified takes the section out of the draft, and a draft left empty goes.
@@ -185,7 +193,7 @@ test('clients write requests and items only through the RPCs', async () => {
   expect((await requestIn(auditor, course.offeringId, 'draft')).items).toHaveLength(1)
 })
 
-test('clients cannot send or reply through the RPCs, so every step goes through the function and its email', async () => {
+test('clients cannot send or reply through the RPCs, so every step goes through the function and its notification', async () => {
   const course = await createCourse()
   const { offeringId, coordinator, lecturer } = course
   const auditor = await createPerson('auditor')
@@ -197,7 +205,7 @@ test('clients cannot send or reply through the RPCs, so every step goes through 
   expect((await auditor.client.rpc('send_audit_request', { request_id: id })).error).not.toBeNull()
   expect((await auditor.client.rpc('send_audit_request', { request_id: id, actor_id: auditor.id })).error?.code).toBe(PERMISSION_DENIED)
   expect((await requestIn(auditor, offeringId, 'draft')).id).toBe(id)
-  expect(await fakeOutbox(coordinator.email)).toEqual([])
+  expect(await outboxOf(coordinator)).toEqual([])
 
   await sendAuditRequest(auditor.client, id)
   expect((await comment(lecturer.client, id, TEACHING_PLAN, 'The plan is in section 1.')).error).toBeNull()
@@ -206,7 +214,7 @@ test('clients cannot send or reply through the RPCs, so every step goes through 
     expect((await coordinator.client.rpc('reply_to_audit_request', args)).error?.code).toBe(PERMISSION_DENIED)
   }
   expect(await requestsOf(auditor.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
-  expect(await fakeOutbox(auditor.email)).toEqual([])
+  expect(await outboxOf(auditor)).toEqual([])
   expect((await requestActivity(adminClient(), offeringId)).map((row) => row.action)).toEqual(['send', 'comment'])
 })
 
@@ -226,10 +234,10 @@ test('a user deactivated while signed in can neither send nor reply', async () =
   await setActive(lecturer.id, false)
   expect(await refusal(replyToAuditRequest(lecturer.client, id))).toEqual({ code: 'forbidden', status: 403 })
   expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', checklist_complete: true }])
-  expect(await fakeOutbox(auditor.email)).toEqual([])
+  expect(await outboxOf(auditor)).toEqual([])
 })
 
-test('Send emails the coordinator and every lecturer once with every flagged section, and a second Send changes nothing', async () => {
+test('Send notifies the coordinator and every lecturer once, and a second Send changes nothing', async () => {
   const leaver = await createPerson('lecturer')
   const course = await createCourse({ lecturers: [leaver] })
   await setActive(leaver.id, false)
@@ -251,21 +259,20 @@ test('Send emails the coordinator and every lecturer once with every flagged sec
   expect(await refusal(sendAuditRequest(otherAuditor.client, draft.id))).toEqual({ code: 'forbidden', status: 403 })
   await sendAuditRequest(auditor.client, draft.id)
 
-  const [toCoordinator, toLecturer] = await Promise.all([fakeOutbox(course.coordinator.email), fakeOutbox(course.lecturer.email)])
+  const [toCoordinator, toLecturer] = await Promise.all([outboxOf(course.coordinator), outboxOf(course.lecturer)])
   expect(toCoordinator).toHaveLength(1)
-  expect(toLecturer).toEqual(toCoordinator)
-  const [email] = toCoordinator
-  expect(email.recipients).toEqual([course.coordinator.email, course.lecturer.email])
-  expect(email.subject).toMatch(/^Audit request for BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d$/)
-  expect(email.html).toContain('<strong>2 Teaching Plan</strong>: The plan is for &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; another course.<br>Upload the right one.')
-  expect(email.html).toContain('<strong>7 Replacement Notices</strong>: Upload the notice for week 5.')
-  expect(email.html).not.toContain('<script>')
-  expect(await fakeOutbox(leaver.email)).toEqual([])
+  expect(toLecturer).toHaveLength(1)
+  const [notification] = toCoordinator
+  expect(toLecturer[0]).toEqual({ ...notification, token: course.lecturer.token })
+  expect(notification.title).toMatch(/^Audit request for BITP-[0-9a-f-]+$/)
+  expect(notification.body).toMatch(/^Seam1 User asks you to fix 2 sections of the course file of BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d\.$/)
+  expect(notification.link).toBe(`/course-files/${course.offeringId}#audit-request-${draft.id}`)
+  expect(await outboxOf(leaver)).toEqual([])
 
   // Staff now read the request as their checklist.
   for (const user of [course.coordinator, course.lecturer, otherAuditor]) {
     const [sent] = await requestsOf(user.client, course.offeringId)
-    expect(sent).toMatchObject({ id: draft.id, state: 'sent', email_pending: false, checklist_complete: false })
+    expect(sent).toMatchObject({ id: draft.id, state: 'sent', notification_pending: false, checklist_complete: false })
     expect(sent.items.map((item) => item.section)).toEqual([TEACHING_PLAN, REPLACEMENT_NOTICES])
   }
   expect(await requestsOf(course.outsider.client, course.offeringId)).toEqual([])
@@ -353,11 +360,11 @@ test('Reply is refused while any item is neither ticked nor commented, and only 
   ])
   expect(await refusal(replyToAuditRequest(outsider.client, id))).toEqual({ code: 'not_found', status: 404 })
   expect(await refusal(replyToAuditRequest(auditor.client, id))).toEqual({ code: 'forbidden', status: 403 })
-  expect(await fakeOutbox(auditor.email)).toEqual([])
+  expect(await outboxOf(auditor)).toEqual([])
   expect((await requestIn(auditor, offeringId, 'sent')).id).toBe(id)
 })
 
-test('Reply emails the auditor once and shows in the app, and the log holds the send, the comments and the reply', async () => {
+test('Reply notifies the auditor once and shows in the app, and the log holds the send, the comments and the reply', async () => {
   const course = await createCourse()
   const { offeringId, coordinator, lecturer, outsider } = course
   const auditor = await createPerson('auditor')
@@ -377,21 +384,19 @@ test('Reply emails the auditor once and shows in the app, and the log holds the 
   ])
   await replyToAuditRequest(coordinator.client, id, message)
 
-  const sent = await fakeOutbox(auditor.email)
+  const sent = await outboxOf(auditor)
   expect(sent).toHaveLength(1)
-  const [email] = sent
-  expect(email.recipients).toEqual([auditor.email])
-  expect(email.subject).toMatch(/^Reply to your audit request for BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d$/)
-  expect(email.html).toContain('<li><strong>2 Teaching Plan</strong>: It has a new file.</li>')
-  expect(email.html).toContain('<li><strong>7 Replacement Notices</strong>: Comment: No class was &lt;i&gt;replaced&lt;/i&gt;.</li>')
-  expect(email.html).not.toContain('<b>')
+  const [notification] = sent
+  expect(notification.title).toMatch(/^Reply to your audit request for BITP-[0-9a-f-]+$/)
+  expect(notification.body).toMatch(/^Seam1 User replied to your audit request for BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d\. "/)
+  expect(notification.link).toBe(`/course-files/${offeringId}#audit-request-${id}`)
 
   // Whichever click won, the request shows one reply, to the auditor and to staff.
   for (const client of [auditor.client, coordinator.client, lecturer.client]) {
     const [replied] = await requestsOf(client, offeringId)
-    expect(replied).toMatchObject({ state: 'replied', replier_name: 'Seam1 User', email_pending: false })
+    expect(replied).toMatchObject({ state: 'replied', replier_name: 'Seam1 User', notification_pending: false })
     expect([message, 'A second click']).toContain(replied.reply_message)
-    expect(email.html).toContain(replied.reply_message === message ? 'See the plan &amp; the comment.<br>Thanks &lt;b&gt;Auditor&lt;/b&gt;' : 'A second click')
+    expect(notification.body.endsWith(` "${replied.reply_message}"`)).toBe(true)
   }
   const [replied] = await requestsOf(auditor.client, offeringId)
   const replierId = replied.reply_message === message ? coordinator.id : lecturer.id
@@ -404,6 +409,36 @@ test('Reply emails the auditor once and shows in the app, and the log holds the 
 
   // A replied checklist no longer changes.
   expect((await comment(lecturer.client, id, REPLACEMENT_NOTICES, 'Later.')).error?.code).toBe(PERMISSION_DENIED)
+})
+
+test('the notifications and the app name the auditor, the commenter and the replier by their title and name', async () => {
+  const chong = await createPerson('lecturer')
+  const course = await createCourse({ lecturers: [chong] })
+  const { offeringId, coordinator, lecturer: bala } = course
+  const auditor = await createPerson('auditor')
+  for (const [user, fullName, title] of [
+    [coordinator, 'Zainab Audit', 'Dr.'],
+    [bala, 'Bala Audit', 'Ts.'],
+    [chong, 'Chong Audit', null],
+    [auditor, 'Aminah Audit', 'Prof. Madya'],
+  ] as const) {
+    expect((await user.client.rpc('update_my_profile', { full_name: fullName, title })).error).toBeNull()
+  }
+  await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  await sendAuditRequest(auditor.client, id)
+  expect((await comment(bala.client, id, TEACHING_PLAN, 'The plan is on its way.')).error).toBeNull()
+  await replyToAuditRequest(coordinator.client, id)
+
+  const sent = await fakePushOutbox(coordinator.token, bala.token, chong.token)
+  expect(sent.map((notification) => notification.token).toSorted()).toEqual([coordinator.token, bala.token, chong.token].toSorted())
+  for (const notification of sent) expect(notification.body).toMatch(/^Prof\. Madya Aminah Audit asks you to fix a section of the course file of /)
+  const [reply] = await outboxOf(auditor)
+  expect(reply.body).toMatch(/^Dr\. Zainab Audit replied to your audit request for /)
+  const [shown] = await requestsOf(chong.client, offeringId)
+  expect(shown).toMatchObject({ auditor_name: 'Prof. Madya Aminah Audit', replier_name: 'Dr. Zainab Audit' })
+  expect(shown.items.map((item) => item.commenter_name)).toEqual(['Ts. Bala Audit'])
 })
 
 test('a Needs fix after the send or after the reply goes into a new request, and the earlier ones stay as they were', async () => {
@@ -464,9 +499,9 @@ test('two auditors hold separate requests on the same course file', async () => 
       { id: secondDraft.id, auditor_id: second.id },
     ]),
   )
-  const emails = await fakeOutbox(coordinator.email)
-  expect(emails).toHaveLength(2)
-  expect(emails.map((email) => email.html.includes('First: upload the plan.'))).toEqual([true, false])
+  const notifications = await outboxOf(coordinator)
+  expect(notifications).toHaveLength(2)
+  expect(notifications.map((notification) => notification.body.match(/fix (\d) section/)?.[1] ?? notification.body.includes('fix a section'))).toEqual([true, '2'])
 })
 
 test('Needs fix marks made at the same time by one auditor share one draft', async () => {
@@ -480,33 +515,33 @@ test('Needs fix marks made at the same time by one auditor share one draft', asy
   expect(requests[0].items.map((item) => item.section)).toEqual(sections)
 })
 
-test('a mail failure leaves the step made and its email owed, and a retry sends it once', async () => {
+test('a push failure leaves the step made and its notification owed, and a retry sends it once', async () => {
   const course = await createCourse()
   const { offeringId, coordinator, lecturer } = course
   const auditor = await createPerson('auditor')
   await mark(auditor, offeringId, ATTENDANCE, 'needs_fix', 'Upload the attendance.')
   const { id } = await requestIn(auditor, offeringId, 'draft')
 
-  await setUndeliverable(lecturer.email, true)
-  expect(await refusal(sendAuditRequest(auditor.client, id))).toEqual({ code: 'mail_failed', status: 502 })
-  expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', email_pending: true }])
-  expect(await fakeOutbox(coordinator.email)).toEqual([])
-  await setUndeliverable(lecturer.email, false)
+  await setUndeliverable(lecturer.token, true)
+  expect(await refusal(sendAuditRequest(auditor.client, id))).toEqual({ code: 'push_failed', status: 502 })
+  expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', notification_pending: true }])
+  expect(await outboxOf(coordinator)).toEqual([])
+  await setUndeliverable(lecturer.token, false)
   await Promise.all([sendAuditRequest(auditor.client, id), sendAuditRequest(auditor.client, id)])
   await sendAuditRequest(auditor.client, id)
-  expect(await fakeOutbox(coordinator.email)).toHaveLength(1)
-  expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', email_pending: false }])
+  expect(await outboxOf(coordinator)).toHaveLength(1)
+  expect(await requestsOf(coordinator.client, offeringId)).toMatchObject([{ id, state: 'sent', notification_pending: false }])
 
   await upload(lecturer.client, { offeringId, section: ATTENDANCE }, 'attendance.pdf')
-  await setUndeliverable(auditor.email, true)
-  expect(await refusal(replyToAuditRequest(lecturer.client, id, 'Uploaded.'))).toEqual({ code: 'mail_failed', status: 502 })
-  expect(await requestsOf(auditor.client, offeringId)).toMatchObject([{ id, state: 'replied', reply_message: 'Uploaded.', email_pending: true }])
-  await setUndeliverable(auditor.email, false)
+  await setUndeliverable(auditor.token, true)
+  expect(await refusal(replyToAuditRequest(lecturer.client, id, 'Uploaded.'))).toEqual({ code: 'push_failed', status: 502 })
+  expect(await requestsOf(auditor.client, offeringId)).toMatchObject([{ id, state: 'replied', reply_message: 'Uploaded.', notification_pending: true }])
+  await setUndeliverable(auditor.token, false)
   await replyToAuditRequest(coordinator.client, id, 'A different message')
   await replyToAuditRequest(coordinator.client, id)
-  const sent = await fakeOutbox(auditor.email)
+  const sent = await outboxOf(auditor)
   expect(sent).toHaveLength(1)
-  expect(sent[0].html).toContain('<blockquote>Uploaded.</blockquote>')
+  expect(sent[0].body).toMatch(/ "Uploaded\."$/)
   expect((await requestActivity(adminClient(), offeringId)).map((row) => row.action)).toEqual(['send', 'reply'])
 })
 

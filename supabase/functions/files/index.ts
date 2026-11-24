@@ -1,6 +1,6 @@
 // Uploads and deletes the files of course file sections and shared files, deletes items with their
-// files, reuses files from past offerings, and gives the manifest that the browser compiles a course
-// file's PDF from. The browser asks for an upload session, PUTs the
+// files, reuses files from past offerings, gives a short-lived URL that opens one file, and gives
+// the manifest that the browser compiles a course file's PDF from. The browser asks for an upload session, PUTs the
 // file's chunks straight to the session's URL, and then asks to finalize. The SQL functions
 // can_upload, can_upload_shared_file and deletable decide who may do what, asked as the caller. The
 // add_file, remove_file and reuse_file RPCs write the file records and the activity log with the
@@ -52,6 +52,7 @@ type FilesRequest =
   | { action: 'list-reusable-files'; target: CourseFileTarget }
   | { action: 'reuse-file'; target: CourseFileTarget; fileId: string }
   | { action: 'compile-manifest'; offeringId: string }
+  | { action: 'file-url'; fileId: string; reuseTarget: CourseFileTarget | null }
 
 /** A stored file's name: the upload time, then the name the uploader's file had. */
 const STORED_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z_([^/]+)$/
@@ -75,6 +76,8 @@ serveJson(async (body, caller) => {
       return reuseFile(request.target, request.fileId, caller)
     case 'compile-manifest':
       return compileManifest(request.offeringId, caller)
+    case 'file-url':
+      return fileUrl(request.fileId, request.reuseTarget, caller)
   }
 })
 
@@ -128,9 +131,18 @@ async function parseRequest(body: unknown, caller: string): Promise<FilesRequest
       if (!isUuid(offeringId)) throw invalid('compile-manifest needs offeringId.')
       return { action: 'compile-manifest', offeringId }
     }
+    case 'file-url': {
+      // A file of a past offering that the caller may only reuse comes with the place it would go.
+      const { fileId } = input
+      const reuseTarget = input.offeringId === undefined ? null : await parseReuseTarget(input, caller)
+      if (!isUuid(fileId) || (input.offeringId !== undefined && !reuseTarget)) {
+        throw invalid(`file-url needs fileId, and for a file to reuse ${REUSE_TARGET_FIELDS}.`)
+      }
+      return { action: 'file-url', fileId, reuseTarget }
+    }
     default:
       throw invalid(
-        'action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files, reuse-file or compile-manifest.',
+        'action must be create-upload-session, finalize-upload, delete-file, delete-item, list-reusable-files, reuse-file, compile-manifest or file-url.',
       )
   }
 }
@@ -212,8 +224,9 @@ function storedNameOf(fileName: string) {
 
 // Finalize looks the stored item up by the path its session wrote to, not by an item id from the
 // browser, so a caller can only record or delete stored items in a slot they may upload to. If
-// add_file refuses the file, such as for an item deleted, or a one-file slot or a shared file
-// filled, since the session opened, the stored item goes too.
+// add_file refuses the file, such as for a section switched off, a lecturer unassigned from the
+// semester, an item deleted, or a one-file slot or a shared file filled, since the session opened,
+// the stored item goes too.
 async function finalizeUpload(target: Target, storedName: string, caller: string) {
   const folder = await uploadFolder(target, caller)
   const stored = await storage.getItem(`${folder}/${storedName}`)
@@ -231,6 +244,7 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
     uploaded_by: (await callerUser(caller)).id,
   }, SERVICE).catch(async (error) => {
     await storage.deleteItem(stored.id)
+    await (target.kind === 'course-file' ? checkUpload(target, caller) : checkSharedUpload(target, caller))
     await checkRoom(target, caller)
     throw error
   })
@@ -340,9 +354,10 @@ async function storedItemProblem(item: StoredItem): Promise<UploadProblem | null
   return hasPdfSignature(await storage.readStart(item.id, PDF_SIGNATURE.length)) ? null : 'not_pdf'
 }
 
-// The stored item goes first. If removing the record then fails, the file is still listed, and
-// deleting it again finishes the job. Deleting a shared file leaves its section Missing in every
-// course file that links it, so the caller must confirm it.
+// The record goes first, since remove_file checks the rule again as it removes it: a timetable that
+// a course file links while the admin deletes it stays whole. If deleting the stored item then
+// fails, the file is no longer listed and its stored item stays in the library. Deleting a shared
+// file leaves its section Missing in every course file that links it, so the caller must confirm it.
 async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
   const [file] = await rest<{ storage_item_id: string; deletable: boolean; semester_id: string | null; lecturer_id: string | null }[]>(
     'GET',
@@ -357,7 +372,7 @@ async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
       403,
       'forbidden',
       file.lecturer_id
-        ? 'Only its lecturer may delete a timetable.'
+        ? 'Only its lecturer may delete a timetable, or the admin while no course file links it.'
         : shared
           ? 'Only the admin may delete shared files.'
           : 'Only the uploader or the coordinator may delete this file.',
@@ -370,13 +385,14 @@ async function deleteFile(fileId: string, confirmed: boolean, caller: string) {
       'The course files that link this shared file lose it, and its section becomes Missing in each. Confirm the delete to go ahead.',
     )
   }
-  await storage.deleteItem(file.storage_item_id)
   await rest('POST', '/rpc/remove_file', { file_id: fileId, actor_id: (await callerUser(caller)).id }, SERVICE)
+  await storage.deleteItem(file.storage_item_id)
   return { fileId }
 }
 
 // The item's files go first, each the way delete-file deletes one. If a step fails, the item stays
-// with the files that are left, and deleting it again finishes the job.
+// with the files that are left, and deleting it again finishes the job. A file uploaded or reused
+// into the item while its files go keeps the item, and the caller sees it once they refresh.
 async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller: string) {
   const where = `offering_id=eq.${offeringId}&section=eq.${section}&number=eq.${item}`
   const [found] = await rest<{ deletable: boolean; files: { id: string; storage_item_id: string }[] }[]>(
@@ -392,7 +408,13 @@ async function deleteItemAndFiles({ offeringId, section, item }: ItemRef, caller
     await storage.deleteItem(file.storage_item_id)
     await rest('POST', '/rpc/remove_file', { file_id: file.id, actor_id: actorId }, SERVICE)
   }
-  await rest('DELETE', `/items?${where}`, undefined, SERVICE)
+  await rest('DELETE', `/items?${where}`, undefined, SERVICE).catch(async (error) => {
+    const [left] = await rest<{ files: unknown[] }[]>('GET', `/items?${where}&select=files(id)`, undefined, SERVICE)
+    if (left?.files.length) {
+      throw new Refusal(409, 'item_changed', `${itemName(section, item)} got a new file while you deleted it, so it stays. Refresh and try again.`)
+    }
+    throw error
+  })
   return { item }
 }
 
@@ -406,6 +428,26 @@ async function compileManifest(offeringId: string, caller: string) {
   return buildManifest(offering, (id) => storage.downloadUrl(id))
 }
 
+// A reader opens a file that the files table lets them read: a file of a course file they read, or
+// a shared file it links. Staff may also open a past offering's file from the place that reuse-file
+// would copy it into. The URL works for about an hour, like a manifest's.
+async function fileUrl(fileId: string, reuseTarget: CourseFileTarget | null, caller: string) {
+  const select = `id=eq.${fileId}&select=name,storage_item_id`
+  const [readable] = await rest<StoredFile[]>('GET', `/files?${select}`, undefined, caller)
+  const file = readable ?? (reuseTarget ? await reusableFile(reuseTarget, select, caller) : undefined)
+  if (!file) throw new Refusal(404, 'not_found', 'This file does not exist, or you cannot see it.')
+  return { name: file.name, url: await storage.downloadUrl(file.storage_item_id) }
+}
+
+type StoredFile = { name: string; storage_item_id: string }
+
+/** The past offering's file that select picks, among those the caller may reuse into the target. */
+async function reusableFile(target: CourseFileTarget, select: string, caller: string) {
+  await checkUpload(target, caller)
+  const [file] = await rest<StoredFile[]>('POST', `/rpc/reusable_files?${select}`, placeOf(target), SERVICE)
+  return file
+}
+
 /**
  * The target's folder in the storage library, once the caller is found to be allowed to upload to
  * it: eCourseFile/<semester>/<course code> <course title>/<NN section>, then /<item name> for an
@@ -417,15 +459,8 @@ async function compileManifest(offeringId: string, caller: string) {
  */
 async function uploadFolder(target: Target, caller: string) {
   if (target.kind === 'shared') {
+    await checkSharedUpload(target, caller)
     const { semesterId, section, key } = target
-    const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
-    if (!allowed) {
-      throw new Refusal(
-        403,
-        'forbidden',
-        key?.by === 'lecturer' ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
-      )
-    }
     const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
     return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(key ? [safeName(`${key.id} ${key.name}`)] : [])].join('/')
   }
@@ -444,6 +479,17 @@ async function uploadFolder(target: Target, caller: string) {
     ...(target.item === null ? [] : [itemName(target.section, target.item)]),
     ...(target.slot ? [safeName(target.slot.title)] : []),
   ].join('/')
+}
+
+/** Refuses a caller who may not upload the shared target. */
+async function checkSharedUpload({ semesterId, section, key }: Extract<Target, { kind: 'shared' }>, caller: string) {
+  const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
+  if (allowed) return
+  throw new Refusal(
+    403,
+    'forbidden',
+    key?.by === 'lecturer' ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
+  )
 }
 
 /** Refuses a caller who may not upload to the course file target. */

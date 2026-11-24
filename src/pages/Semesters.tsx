@@ -1,15 +1,18 @@
 import { CalendarRangeIcon, PlusIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router'
+import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
-import { NoticeAlert, type Notice } from '@/components/notice'
-import { PageHeader, TableEmpty, TableSkeleton } from '@/components/page'
+import { PageHeader, TableCard } from '@/components/page'
+import { usePagedList } from '@/components/paged-list'
+import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { friendlyError } from '../errors.ts'
+import { containsFilter } from '../paging.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
 type Semester = { id: string; code: string; offerings: { count: number }[] }
@@ -17,24 +20,20 @@ type Semester = { id: string; code: string; offerings: { count: number }[] }
 /** The table's columns: code and the number of offerings. */
 const COLUMNS = ['', '']
 
+/** The semesters, newest first, a page at a time, searched by code. Each opens its own page. */
 export function Semesters() {
-  const [semesters, setSemesters] = useState<Semester[] | null>(null)
-  const [notice, setNotice] = useState<Notice | null>(null)
   const [adding, setAdding] = useState(false)
-
-  const reload = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('semesters')
-      .select('id, code, offerings(count)')
+  const list = usePagedList((range, search) => {
+    let query = supabase.from('semesters').select('id, code, offerings(count)', { count: 'exact' })
+    const filter = containsFilter(['code'], search)
+    if (filter) query = query.or(filter)
+    return query
       .order('start_year', { ascending: false })
       .order('number', { ascending: false })
-    if (error) setNotice({ tone: 'error', text: error.message })
-    else setSemesters(data)
-  }, [])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
+      .range(range.from, range.to)
+      .overrideTypes<Semester[], { merge: false }>()
+  })
+  const empty = isEmptyList(list)
 
   async function add(form: FormData) {
     const { data, error } = await supabase
@@ -42,94 +41,91 @@ export function Semesters() {
       .insert({ start_year: Number(form.get('start_year')), number: Number(form.get('number')) })
       .select('code')
       .single()
-    await reload()
-    if (error?.code === UNIQUE_VIOLATION) return 'That semester already exists.'
-    if (error) return error.message
-    setNotice({ tone: 'success', text: `Added ${data.code}.` })
+    list.retry()
+    if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'That semester already exists.' } })
+    toast.success(`Added ${data.code}`)
     return null
   }
 
+  const addButton = (
+    <Button onClick={() => setAdding(true)}>
+      <PlusIcon />
+      Add semester
+    </Button>
+  )
+
   return (
     <div className="grid gap-6">
-      <PageHeader
-        title="Semesters"
-        description="Open a semester to offer courses in it and assign their lecturers."
-        action={
-          <Button onClick={() => setAdding(true)}>
-            <PlusIcon />
-            Add semester
-          </Button>
-        }
-      />
-      {notice && <NoticeAlert notice={notice} />}
+      <PageHeader title="Semesters" action={!empty && addButton} />
 
-      <Card className="gap-0 overflow-hidden py-0">
-        <Table>
-          <TableHeader className="bg-muted/50">
-            <TableRow>
-              <TableHead className="px-4">Semester</TableHead>
-              <TableHead className="w-32 px-4 text-right">Offerings</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {!semesters ? (
-              <TableSkeleton columns={COLUMNS} />
-            ) : semesters.length === 0 ? (
-              <TableEmpty
-                columns={COLUMNS.length}
-                icon={CalendarRangeIcon}
-                title="No semesters yet"
-                description="Add a semester, then offer courses from the catalog in it."
-              />
-            ) : (
-              semesters.map((semester) => (
+      <div className="grid gap-3">
+        {!empty && <ListToolbar list={list} label="Search semesters" noun="semester" />}
+        <TableCard>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="px-4">Semester</TableHead>
+                <TableHead className="w-32 px-4 text-right">Offerings</TableHead>
+              </TableRow>
+            </TableHeader>
+            <PagedTableBody
+              list={list}
+              columns={COLUMNS}
+              loadError="Couldn't load semesters"
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={CalendarRangeIcon} noun="semesters" addButton={addButton} />}
+            >
+              {(semester) => (
                 <TableRow key={semester.id} className="relative">
                   <TableCell className="px-4 py-3">
-                    <Link
-                      to={`/semesters/${semester.id}`}
-                      className="font-medium after:absolute after:inset-0 hover:underline"
-                    >
+                    <Link to={`/semesters/${semester.id}`} className="font-medium after:absolute after:inset-0 hover:underline">
                       {semester.code}
                     </Link>
                   </TableCell>
                   <TableCell className="px-4 py-3 text-right tabular-nums">{semester.offerings[0]?.count ?? 0}</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </Card>
+              )}
+            </PagedTableBody>
+          </Table>
+          <TablePager list={list} />
+        </TableCard>
+      </div>
 
-      {adding && (
-        <FormDialog
-          title="Add a semester"
-          description="The code is the start year, the next year and the semester number, such as 2026/2027-1."
-          submitLabel="Add semester"
-          onClose={() => setAdding(false)}
-          onSubmit={add}
-        >
-          <div className="grid gap-2">
-            <Label htmlFor="semester-start-year">Start year</Label>
-            <Input
-              id="semester-start-year"
-              name="start_year"
-              type="number"
-              min={2000}
-              max={2999}
-              defaultValue={new Date().getFullYear()}
-              required
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="semester-number">Semester</Label>
-            <NativeSelect id="semester-number" name="number" defaultValue="1" required>
-              <NativeSelectOption value="1">1</NativeSelectOption>
-              <NativeSelectOption value="2">2</NativeSelectOption>
-              <NativeSelectOption value="3">3 (short semester)</NativeSelectOption>
-            </NativeSelect>
-          </div>
-        </FormDialog>
-      )}
+      {adding && <AddSemesterDialog onClose={() => setAdding(false)} onSubmit={add} />}
     </div>
+  )
+}
+
+/** The add dialog, which shows the code the semester will get as its year and number change. */
+function AddSemesterDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (form: FormData) => Promise<string | null> }) {
+  const [startYear, setStartYear] = useState(String(new Date().getFullYear()))
+  const [number, setNumber] = useState('1')
+  const year = Number(startYear)
+  return (
+    <FormDialog title="Add a semester" submitLabel="Add semester" onClose={onClose} onSubmit={onSubmit}>
+      <div className="grid gap-2">
+        <Label htmlFor="semester-start-year">Start year</Label>
+        <Input
+          id="semester-start-year"
+          name="start_year"
+          type="number"
+          min={2000}
+          max={2999}
+          value={startYear}
+          onChange={(event) => setStartYear(event.target.value)}
+          required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="semester-number">Semester</Label>
+        <NativeSelect id="semester-number" name="number" value={number} onChange={(event) => setNumber(event.target.value)} required>
+          <NativeSelectOption value="1">1</NativeSelectOption>
+          <NativeSelectOption value="2">2</NativeSelectOption>
+          <NativeSelectOption value="3">3 (short semester)</NativeSelectOption>
+        </NativeSelect>
+      </div>
+      <p className="text-muted-foreground text-sm" aria-live="polite">
+        Code: <span className="text-foreground font-medium tabular-nums">{Number.isInteger(year) && year >= 2000 && year <= 2999 ? `${year}/${year + 1}-${number}` : '—'}</span>
+      </p>
+    </FormDialog>
   )
 }

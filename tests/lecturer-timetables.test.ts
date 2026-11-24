@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout } from 'node:timers/promises'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
 import { createUploadSession, deleteFile, deleteSharedFile, finalizeUpload, sendChunks, uploadFile, type SharedSlot } from '../src/uploads.ts'
 import { TEST_DOMAIN } from './global-setup.ts'
-import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, signIn, signInAs } from './harness.ts'
+import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, signIn, signInAs, userIdOf } from './harness.ts'
 
 // Every test gives its timetables to new lecturers. A timetable links only into the offerings its
 // lecturer teaches, so these uploads change no other test's offering, in any semester.
@@ -389,4 +390,102 @@ test('a lecturer who no longer teaches in the semester still reads and deletes t
 
   await deleteSharedFile(lecturer.client, timetable.id)
   expect(await timetablesOf(auditor, semester, [lecturer])).toEqual([])
+})
+
+test('the admin reads every timetable of the semester with its lecturer and course files, and deletes one that no course file links', async () => {
+  const semester = await pickSemester()
+  const [coordinator, former] = [await createStaff(), await createStaff()]
+  const offeringId = await offer(semester, coordinator, [former])
+  const kept = await uploadTimetable(coordinator, semester)
+  const left = await uploadTimetable(former, semester, 'left.pdf')
+  expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+
+  // The semester page reads them this way.
+  const listed = async (client: SupabaseClient) => {
+    const { data, error } = await client
+      .from('files')
+      .select('id, lecturer:profiles!files_lecturer_id_fkey(display_name), deletable, linked_offerings(id)')
+      .eq('semester_id', semester.id)
+      .eq('section', TIMETABLE)
+      .in('id', [kept.id, left.id])
+      .order('name')
+    if (error) throw error
+    return data
+  }
+  expect(await listed(admin)).toEqual([
+    { id: left.id, lecturer: { display_name: 'Seam1 User' }, deletable: true, linked_offerings: [] },
+    { id: kept.id, lecturer: { display_name: 'Seam1 User' }, deletable: false, linked_offerings: [{ id: offeringId }] },
+  ])
+  expect((await listed(auditor)).map((file) => file.deletable)).toEqual([false, false])
+
+  await expect(deleteSharedFile(admin, kept.id)).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+  await deleteSharedFile(admin, left.id)
+
+  expect((await listed(admin)).map((file) => file.id)).toEqual([kept.id])
+  expect(await fakeStoreItems(timetableFolder(semester, former))).toEqual([])
+  const { data: log, error } = await admin.from('activity_log').select('action, actor_id, file_name').eq('lecturer_id', former.id).order('id')
+  expect(error).toBeNull()
+  expect(log).toEqual([
+    { action: 'upload', actor_id: former.id, file_name: 'left.pdf' },
+    { action: 'delete', actor_id: await userIdOf(admin), file_name: 'left.pdf' },
+  ])
+})
+
+test('a timetable that a course file links while the admin deletes it stays, and the admin is refused with the rule', async () => {
+  // Each round links the timetable a few milliseconds after the admin's delete starts, while the delete checks and removes it.
+  for (const delay of [0, 0, 0, 3, 3, 3, 6, 6, 6, 9, 9, 9]) {
+    const semester = await pickSemester()
+    const [coordinator, former] = [await createStaff(), await createStaff()]
+    const offeringId = await offer(semester, coordinator, [former])
+    const timetable = await uploadTimetable(former, semester)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+
+    const deleted = deleteSharedFile(admin, timetable.id).then(
+      () => null,
+      (refusal: unknown) => refusal,
+    )
+    await setTimeout(delay)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [former.id] })).error).toBeNull()
+    const linkedBeforeRemoved = (await timetablesOf(auditor, semester, [former])).length === 1
+    const refusal = await deleted
+
+    // A delete that removes the timetable finishes before the link, so a timetable still there once it is linked stays.
+    const outcome = { refusal, timetables: (await timetablesOf(auditor, semester, [former])).length, stored: (await fakeStoreItems(timetableFolder(semester, former))).length }
+    expect(outcome, `linked ${delay} ms after the delete started`).toEqual(
+      linkedBeforeRemoved
+        ? {
+            refusal: expect.objectContaining({ status: 403, code: 'forbidden', message: 'Only its lecturer may delete a timetable, or the admin while no course file links it.' }),
+            timetables: 1,
+            stored: 1,
+          }
+        : { refusal: null, timetables: 0, stored: 0 },
+    )
+  }
+})
+
+test('a timetable that finalizes while its lecturer is unassigned from the semester is refused with the upload session refusal, or recorded before the unassign', async () => {
+  // Each round unassigns the lecturer a few milliseconds after finalize starts, while finalize checks and records the file.
+  for (const delay of [0, 0, 0, 5, 5, 5, 10, 10, 10, 15, 15, 15]) {
+    const semester = await pickSemester()
+    const [coordinator, lecturer] = [await createStaff(), await createStaff()]
+    const offeringId = await offer(semester, coordinator, [lecturer])
+    const slot = timetableSlot(semester)
+    const storedName = await uploadWithoutFinalize(lecturer.client, slot, pdf('timetable.pdf'))
+
+    const finalized = finalizeUpload(lecturer.client, slot, storedName).then(
+      () => null,
+      (refusal: unknown) => refusal,
+    )
+    await setTimeout(delay)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+    const recordedBeforeUnassigned = (await timetablesOf(auditor, semester, [lecturer])).length === 1
+    const refusal = await finalized
+    const sessionRefusal = await createUploadSession(lecturer.client, slot, 'timetable.pdf').catch((error: unknown) => error)
+
+    // A file recorded at all is recorded before the unassign, so a timetable missing once the lecturer is unassigned stays missing.
+    const outcome = { refusal, timetables: (await timetablesOf(auditor, semester, [lecturer])).length }
+    expect(outcome, `unassigned ${delay} ms after finalize started`).toEqual(
+      recordedBeforeUnassigned ? { refusal: null, timetables: 1 } : { refusal: sessionRefusal, timetables: 0 },
+    )
+  }
 })

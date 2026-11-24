@@ -40,7 +40,7 @@ A web platform where course coordinators and lecturers submit course files for t
 8. Sign in with `ROOT_EMAIL` and `ROOT_PASSWORD`. The app asks root to set a new password before it shows any other page.
 9. On the **Users** page, add the first admin. Root can create only admins. The admin then adds departments, staff and the catalog.
 
-The local stack sends no email. It records each email in the fake outbox instead, so a password reset link is read from there. See [Email](#email).
+The local stack sends no push notification, and needs no Firebase project. The fake push adapter records each notification in `fake_push.outbox`. See [Push notifications](#push-notifications). Nothing sends email. See [Email](#email).
 
 After you change `supabase/config.toml` or add an Edge Function, restart the stack. The edge runtime serves only the functions that existed when it started.
 
@@ -67,6 +67,9 @@ npm run stack:start
 | --- | --- | --- |
 | `VITE_SUPABASE_URL` | Browser app | Supabase API URL. Locally `http://127.0.0.1:54321`. |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser app | Supabase publishable key. |
+| `VITE_PUSH_ADAPTER` | Browser app | `fcm` to register the browser with Firebase Cloud Messaging, or `fake` to register a made-up token. It must match the `PUSH_ADAPTER` secret. Leave it out until push is set up: the profile page then says notifications are not set up, and the rest of the app works. Any other value stops the app, so a typo shows. |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Browser app, with `fcm` | The Firebase web app's config, from the Firebase console under Project settings, General, Your apps. These values are public. |
+| `VITE_FIREBASE_VAPID_KEY` | Browser app, with `fcm` | Optional. The public key of the project's own Web Push certificate, from the Firebase console under Project settings, Cloud Messaging. Without it, the Firebase SDK uses Firebase's default key. |
 | `SUPABASE_URL` | Seed script | Supabase API URL. |
 | `SUPABASE_SECRET_KEY` | Seed script | Supabase secret key. It bypasses row-level security, so never give it a `VITE_` prefix. |
 | `ROOT_EMAIL` | Seed script | Email address of the root user. |
@@ -81,13 +84,13 @@ The Edge Functions read these secrets. On the local stack, `[edge_runtime.secret
 | --- | --- | --- |
 | `STORAGE_ADAPTER` | `files` and `fake-storage` functions | `graph` to store files in SharePoint, or `fake` to store them in the `fake_storage` schema. The local stack uses `fake`. The `files` function does not start without it, and the `fake-storage` function answers only while it is `fake`. |
 | `FAKE_STORAGE_URL` | `files` function, with `fake` | The URL of the `fake-storage` function as the browser reaches it. Locally `http://127.0.0.1:54321/functions/v1/fake-storage`. |
-| `MAIL_ADAPTER` | `send-email` and `audit-requests` functions | `graph` to send email from the shared mailbox, or `fake` to record it in the `fake_mail` schema. The local stack uses `fake`. The functions do not start without it. |
+| `PUSH_ADAPTER` | `audit-requests` function | `fcm` to send push notifications through Firebase Cloud Messaging, or `fake` to record them in the `fake_push` schema. The local stack uses `fake`. Leave it unset until push is set up: audit requests then work, and send no notification. |
+| `FIREBASE_SERVICE_ACCOUNT` | `audit-requests` function, with `fcm` | The JSON key of a service account of the Firebase project, from the Firebase console under Project settings, Service accounts. The function reads the project ID from it. |
 | `SEND_EMAIL_HOOK_SECRET` | `send-email` function | The secret of the Send Email Hook, `v1,whsec_` and a base64 key, the same value as the hook's secret in Supabase Auth. The function does not start without it. |
-| `GRAPH_TENANT_ID` | `files` function with `STORAGE_ADAPTER` `graph`, and `send-email` and `audit-requests` with `MAIL_ADAPTER` `graph` | The Entra tenant ID. |
-| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site, and may send as the shared mailbox. |
+| `GRAPH_TENANT_ID` | `files` function, with `STORAGE_ADAPTER` `graph` | The Entra tenant ID. |
+| `GRAPH_CLIENT_ID` | The same | The client ID of the Entra app that has `Sites.Selected` and the `write` role on the site. |
 | `GRAPH_CLIENT_SECRET` | The same | The client secret of that app. |
 | `GRAPH_SITE_ID` | `files` function, with `graph` | The SharePoint site ID, such as `contoso.sharepoint.com,<site-collection-id>,<web-id>`. Files go to the site's default document library. |
-| `GRAPH_MAILBOX` | `send-email` and `audit-requests` functions, with `graph` | The address of the Exchange Online shared mailbox that every email comes from. |
 
 ## Seeding root again
 
@@ -100,8 +103,8 @@ A user can hold several global roles. The rules for who may change what are SQL 
 | Who | May do |
 | --- | --- |
 | Root | Read every user. Grant and revoke `admin`. Create users whose only role is `admin`. Nothing else. |
-| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers. Upload and delete each semester's Academic Calendar and Appointment Letter. |
-| Everyone else | Read their own profile and roles, read departments, read the catalog, and read semesters. |
+| Admin | Read every user. Grant and revoke `lecturer`, `auditor`, `hod`, `dean` and `deputy_dean`. Create staff users one at a time or from a CSV file, set their title, name and department, reset their password, and deactivate or reactivate them. Add, edit and delete departments. Add and edit the catalog. Add semesters, offer courses and assign their lecturers, and change the course of an offering or delete it while its course file is not in use. Upload and delete each semester's Academic Calendar and Appointment Letter. Delete a lecturer's timetable that no course file links. |
+| Everyone else | Read their own profile and roles, change their own title and name, read departments, read the catalog, and read semesters. |
 
 Some limits apply to everyone:
 
@@ -109,11 +112,21 @@ Some limits apply to everyone:
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
-- Clients can update only `full_name`, `department_id` and `active` on a profile. The email and the must-change-password flag are not writable.
+- A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
+- Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
+- A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
 
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+### Names and titles
+
+A profile has a `full_name` and an optional `title`, an honorific such as `Dr.`, `Prof. Madya` or `Ts.`. A title is trimmed, not empty, and at most 40 characters. `display_name` is a generated column that the database keeps up to date: the title, a space and the full name, or the full name alone. The migration is `supabase/migrations/20261121010000_profile_titles.sql`.
+
+The app names a person by `display_name` wherever it shows them: the header and the home page, the **Users** page, and the staff picker of a semester. The database columns and RPCs that name people read it too: `uploader_name`, the `lecturer_name` of `offering_lecturers` and of `report_lecturers`, `auditor_name`, `replier_name`, `commenter_name`, `actor_name` and `coordinator_name`. So do the PDF cover and the audit request and password reset emails. Lists of people sort by `full_name`, so that people with a title do not group together. The exceptions are the PDF cover and the lecturer timetable section of a course file. They list an offering's lecturers by `lecturer_name` after the coordinator, because lecturers cannot read other profiles.
+
+`update_my_profile(full_name, title)` sets the caller's own name and title, trimmed, and changes nothing else. An empty title clears the title. An empty name fails with Postgres error `23514`, and a name over 200 characters or a title over 40 fails with `22001`. Admins set a user's title and name on the **Users** page, as they set the department.
 
 ### Importing users from a CSV file
 
@@ -121,8 +134,9 @@ On the **Users** page, an admin clicks **Import CSV**, downloads the template, f
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
-- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
-- `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
+- The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`, and optionally `title`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
+- `title` is the user's title, such as `Dr.`, or empty for none. A file without a `title` column gives nobody a title. The template lists `title` last.
+- `department` is the department's code as the **Departments** page shows it, in any case, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
 - A file holds at most 300 users, `MAX_IMPORT_ROWS` in `user-import.ts`. A longer file is refused as a whole with HTTP 400, and the admin splits it. Each row costs the function about 3 ms of CPU and 91 ms in all, and a hosted Edge Function stops after 2 s of CPU or 150 s. A file of 300 rows takes about 0.9 s of CPU and 27 s, so it stays well inside both limits, where a file of about 700 rows would stop part way with no report.
@@ -137,24 +151,32 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
 | `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. |
+| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
 
-### Password reset
+### Passwords
 
-A user who forgot their password asks for a reset link, and sets a new password with it. Supabase Auth sends no email through SMTP. Its Send Email Hook hands each email to the `send-email` Edge Function, which sends it through the mail adapter. See [Email](#email).
+eCourseFile sends no email or SMS, so a password never travels by message.
 
-1. The sign-in page links to **Forgot password?**, which asks for the email. The page calls `supabase.auth.resetPasswordForEmail(email, { redirectTo: <the app's origin> })`, and says the same thing for every email: if the email belongs to an active account, it gets a link.
-2. Supabase Auth calls the hook for an email with an account. The function sends the reset email if the user's profile is active, and sends nothing for a deactivated user. Supabase Auth answers a first request with `{}` and HTTP 200 for an active user, a deactivated user and an email with no account alike.
-3. The email greets the user by their profile's name and links to `/reset-password?token_hash=<token hash>` at the origin of `redirectTo`. Supabase Auth has already checked `redirectTo` against `site_url` and `additional_redirect_urls` in `supabase/config.toml`, and uses `site_url` for any other URL, so the link never leads to another site. Every value the email shows is HTML-escaped.
-4. The reset page asks for the new password twice. Only then does it call `supabase.auth.verifyOtp({ token_hash, type: 'recovery' })`, so a mail scanner that opens the link does not use it up. The token signs the user in, and the page sets the password with `supabase.auth.updateUser({ password })` and goes on to the app.
-5. The link works once, for one hour (`otp_expiry`). A link sent before the user was deactivated signs nobody in, because the access token hook refuses a deactivated user a session with HTTP 403.
+1. The admin creates each user, or imports them from a CSV file, with a temporary password, and gives it to them.
+2. At their first sign-in, the change-password page asks for a new password before any other page. It sets it with `supabase.auth.updateUser({ password })`, which clears the must-change-password flag.
+3. A signed-in user changes their password on **My profile**, from the account menu.
+4. A user who forgot their password follows **Forgot password?** on the sign-in page, which tells them to ask an admin. On the **Users** page, the admin clicks **Reset password** and gives them a new temporary password. The must-change-password flag is set again, so they choose their own at the next sign-in.
 
-Two things in Supabase Auth's answer still differ. A repeat request for an email with an account, within `max_frequency` in `[auth.email]` of the last one, gets HTTP 429 and "you can only request this after N seconds", while an email with no account gets HTTP 200 again. And a request for an email with an account takes longer, because Supabase Auth calls the hook. The page shows its usual text for a 429 too, so the page tells nobody which it was, but someone who calls the Supabase Auth API directly can tell from the status or the time.
+Every new password field, and the temporary password fields of the **Users** page, says "At least 6 characters" and refuses a shorter one before it reaches Supabase Auth, which sets that minimum with `minimum_password_length` in `supabase/config.toml`.
 
-A new password clears the must-change-password flag, whether the user sets it on the change-password page or with a reset link, since they chose it.
+### My profile
+
+Every signed-in user opens **My profile** from the account menu at the top right, at `/profile`. The page splits what an admin sets from what the user sets.
+
+- The card on the left shows the user's initials, their name with its title, and their email, department and roles. It has no inputs. A user with no department sees a dash.
+- **Name and title** is a form for the title, which is optional, and the full name. **Save** calls `update_my_profile`. The page then reads the profile again with `useReloadAuth` from `src/auth-provider.tsx`, so the header shows the new name at once, and a toast says "Saved". A blank name shows the database's "Give your full name." under the field. See [Names and titles](#names-and-titles).
+- **Notifications on this browser** turns push notifications of audit requests on or off for the browser. See [Push notifications](#push-notifications).
+- **Password** asks for the current password and the new one twice. The page checks the current password with `supabase.auth.signInWithPassword`, so a person at an unlocked screen who does not know it cannot take over the account. It then calls `supabase.auth.updateUser({ password })`, and a toast says "Password changed". A wrong current password, a new password equal to the current one, and a confirmation that differs each show under their own field. The user stays signed in. This check runs in the browser only. A caller with the session's access token can still call Supabase Auth directly.
+
+Initials skip words that link a given name to a parent's name, such as "bin", "binti" and "a/l", so "Aisyah binti Rahman" shows as AR. The rule is `initialsOf` in `src/names.ts`.
 
 ## Catalog
 
@@ -187,6 +209,29 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
 
+### Changing and deleting offerings
+
+An offering's coordinator and lecturers change at any time. Its course changes, and the offering can be deleted, only while its course file is not in use. The migration is `supabase/migrations/20261124000200_change_and_delete_offerings.sql`.
+
+A course file is **in use** once it has an item, or an entry in its activity log: an upload, a reuse, a switch, a tick, a verdict, or an audit request, which starts with a verdict. A file that was deleted since still leaves its upload and its delete in the log, so the course file stays in use. The `in_use` column of `offerings` says whether it is, for everyone who reads the offering.
+
+| Change | Course file not in use | Course file in use |
+| --- | --- | --- |
+| Coordinator and lecturers | Yes, with `set_offering_lecturers` | Yes. A lecturer who is taken off loses the course file, and keeps their timetable. |
+| Course | Yes. The offering takes the course type's sections 10 to 16 of the new course, as a new offering does. | No. Fails with Postgres error `23503`. |
+| Delete | Yes. Its lecturers go with it. | No. Fails with Postgres error `23503`. |
+
+An offering in use stays as it is for these reasons:
+
+- The activity log keeps every entry, and each entry names the offering. Deleting the offering would delete the history that auditors check at any time.
+- Files, verdicts and audit requests are about the material of one course. Under another course, a verdict would judge material it never saw. The stored files would also stay in the folder named by the old course code and title.
+
+So an offering made by mistake must be fixed before its staff start on it. Once its course file is in use, it stays in its semester and in the reports.
+
+On the semester page, the row menu of each offering has **Edit** and **Delete**. **Edit** opens the offering's course, coordinator and lecturers. While the course file is in use, the course is disabled, and the dialog says why. **Delete** asks for confirmation, or for an offering in use, says why it stays.
+
+The app changes the course with an update of `course_id` on `offerings`, and deletes with a delete from `offerings`. RLS lets only admins do either. Anyone else's update or delete changes nothing. A course that the semester already offers fails with `23505`. Saving the course an offering already has keeps its sections, even when its course type changed since. Deleting an offering leaves its lecturers' timetables for the semester. See [Shared files](#shared-files).
+
 Who reads an offering, its lecturers and its course file is decided by `public.can_read_offering(offering_id)`:
 
 | Role | Offerings they read |
@@ -197,7 +242,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 
 Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -219,7 +264,7 @@ The coordinator and lecturers of an offering switch sections 10 to 16 on or off 
 | `section_reasons` | A column of `offerings`: a JSON object with one reason for each section set differently from `default_sections_on`, keyed by section number, such as `{ "11": "Labs run this semester" }`. |
 | `sections_on` | A column of `offerings`, generated from the two above: `default_sections_on` with each section that has a reason switched the other way. Nobody writes it. |
 
-The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
+The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. An upload that finalizes after its section is switched off is refused with the same 403 as a new upload session. `add_file` checks the section while it records the file, and a switch waits for it, so a switch made while the file is recorded never lets it in. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
 
 ## Files
 
@@ -304,24 +349,26 @@ A shared file is stored once and linked into many course files. Its key is the s
 | Section | Shared by | Who uploads and deletes it | Course files that link it |
 | --- | --- | --- | --- |
 | 1 Academic Calendar, 3 Appointment Letter | Semester | The admin, under **Shared files** on the semester page | Every offering of the semester, including offerings added later |
-| 4 Lecturer Timetable | Lecturer | Each lecturer, the coordinator included, their own only, on the section 4 page of any course file they teach. The admin cannot. | Every offering the lecturer teaches in the semester, including offerings they are assigned to later |
+| 4 Lecturer Timetable | Lecturer | Each lecturer, the coordinator included, their own only, on the section 4 page of any course file they teach. The admin cannot upload one, and deletes one only while no course file links it, under **Lecturer timetables** on the semester page. | Every offering the lecturer teaches in the semester, including offerings they are assigned to later |
 | 5 Student Timetable | Program code | The admin, one for each program code, under **Student timetables** on the semester page | Every offering of the semester whose coordinator or lecturers tick the code on its section 5 page |
 
 - A semester's file is stored at `eCourseFile/<semester>/_shared/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/_shared/01 Academic Calendar/2026-11-19T10-30-00.123Z_calendar.pdf`. A timetable goes one folder deeper, in a folder named by the lecturer's id and then their email, such as `eCourseFile/2026-2027-1/_shared/04 Lecturer Timetable/0b6c6f2e-5d0b-4a8e-9a43-3f1d2c7e8a10 aisyah@example.edu/2026-11-19T10-30-00.123Z_timetable.pdf`. Finalize looks in the caller's own folder, so nobody records an upload as another lecturer's timetable. The id keeps two lecturers apart whose emails make the same folder name once the characters SharePoint forbids become `-`, such as `a/b@x` and `a-b@x`. A student timetable goes in a folder named by the program code's id and then the code, such as `.../05 Student Timetable/7f3e9a1c-2b4d-4e6f-8a0b-1c2d3e4f5a6b 1 BITS S1G1/<upload time>_<file name>`, so an upload for one code is never recorded for another.
 - To replace a shared file, the user who may delete it deletes it and uploads the new one.
 - Sections 1 and 3 of a course file are `missing` until the semester has the file, and `pending_review` once it has. Section 4 is `missing` while any lecturer of the offering has no timetable for the semester, so assigning a lecturer without one sets it back to `missing`. The section pages of 1 and 3 list the linked file. The section 4 page lists every lecturer of the offering, the coordinator first, with their timetable or Missing.
 - The section 5 page lists the program codes that have a student timetable for the semester, and the offering's coordinator and lecturers tick the codes whose students take the course. Only a code on that list can be ticked. Section 5 is `missing` while no code is ticked, and `pending_review` once one is. Each tick and untick adds a `tick` or `untick` row, with the `program_code_id`, to the offering's activity log. Ticking a ticked code, or unticking an unticked one, changes and logs nothing.
+- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists every lecturer's timetable for the semester, with the course files that link it, or "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete, and the admin who tries is refused with 403 `forbidden`: "Only its lecturer may delete a timetable, or the admin while no course file links it." `remove_file` checks the link again while it removes the timetable, and an assignment of its lecturer waits for it, so a timetable linked while the admin deletes it stays whole. The migrations are `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql` and `supabase/migrations/20261124000500_remove_file_checks_timetable_link.sql`.
 - A tick says which programs take the course, so it outlives its code's timetable. Deleting the timetable unlinks it from every offering that ticks the code, and section 5 of each is `missing` until staff untick the code or the admin uploads its timetable again, which links it back. The section 5 page lists such a code as ticked and Missing.
 - The admin, auditors, HoDs, deans and deputy deans read every shared file. A lecturer reads the calendar, letter and student timetables of each semester in which they teach an offering, their own timetables, and the timetables of the lecturers they teach an offering with. Root reads none.
 - Before a delete, the semester page or the section 4 page lists the offerings whose course files link the file, and the user confirms. After the delete, the section is `missing` in each of those course files.
+- A shared file that finalizes after its uploader lost the right to upload it, such as a lecturer taken off every offering of the semester, is refused with the same 403 as a new upload session, and the function deletes the stored item. `add_file` holds the uploader's `offering_lecturers` rows of the semester and their admin role while it checks and records, so an unassign made while the file is recorded never lets it in. The migration is `supabase/migrations/20261124000600_add_file_checks_shared_file.sql`.
 - Each upload and delete adds a row with the `semester_id`, and the `lecturer_id` of a lecturer timetable or the `program_code_id` of a student timetable, to the activity log. The readers of the file read the row.
 
 | RPC or column | What it does |
 | --- | --- |
-| `can_upload_shared_file(semester_id, section)` | Whether the caller may upload their file of the section for the semester. For sections 1, 3 and 5, true for admins, for a semester that exists. For section 4, true for a lecturer who teaches an offering in the semester. The timetable is always the caller's own. |
+| `can_upload_shared_file(semester_id, section)` | Whether the caller may upload their file of the section for the semester. For sections 1, 3 and 5, true for admins, for a semester that exists. For section 4, true for a lecturer who teaches an offering in the semester. The timetable is always the caller's own. It reads the admin role from `user_roles`, not from the access token, because `add_file` asks the same rule for the uploader with the service role. |
 | `linked_files` | A computed relationship of `offerings`: the shared files that the offering's course file links, which are the semester's calendar and letter, the timetable of each of its lecturers, and the student timetable of each program code it ticks. The app reads it with `select=linked_files(...)`. They are the files of the semester whose key is one of `linked_shared_keys(offering)`, the rule that the course file's activity follows too. |
 | `linked_offerings` | A computed relationship of `files`: the offerings whose course files link the shared file. The semester page and the section 4 page read it to list them before a delete. |
-| `deletable` | For a lecturer timetable, true for its lecturer. For another shared file, true for admins. |
+| `deletable` | For a lecturer timetable, true for its lecturer, and for admins while no course file links it. For another shared file, true for admins. |
 | `offering_program_codes` | A table: one row for each program code ticked in section 5 of an offering. The offering's readers read it. Clients write it only through `tick_program_code`. |
 | `program_code_choices` | A computed relationship of `offerings`: the program codes with a student timetable in the offering's semester, which section 5 can tick. The app reads it with `select=program_code_choices(...)`. |
 | `tick_program_code(offering_id, program_code_id, ticked)` | Ticks or unticks the code in section 5 of the offering and logs it. A caller who is not the offering's coordinator or one of its lecturers fails with Postgres error `42501`. Ticking a code that is not in `program_code_choices` fails with `23503`. Any ticked code can be unticked. |
@@ -353,15 +400,16 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 | `reuse-file` | The fields of `list-reusable-files`, and the `fileId` of a file it lists | Users for whom `can_upload` is true | `{ "file": <the new files row> }` |
 | `compile-manifest` | `offeringId` | Users for whom `can_read_offering` is true | The manifest that the browser compiles the course file's PDF from. See [Compiled PDF](#compiled-pdf). |
 
-`delete-file` deletes the item from storage for good, then deletes the record and logs the delete. `delete-item` does the same for each file of the item, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. On failure, the function returns `{ "code": "...", "message": "..." }`.
+`delete-file` deletes the record and logs the delete, then deletes the item from storage for good. The record goes first because `remove_file` checks the rule for a timetable again as it removes it, and a refused delete must leave the file whole. If deleting from storage then fails, the function answers 500, the file is no longer listed, and its stored item stays in the library. `delete-item` deletes each file of the item from storage, then its record, then deletes the item. If it stops part way, the item stays with the files that are left, and deleting it again finishes the job. If a file is uploaded or reused into the item while its files are deleted, the item stays with that file, and the function answers 409 `item_changed`. On failure, the function returns `{ "code": "...", "message": "..." }`.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
 | 400 | `invalid_request` | The body is not one of the actions above. Sections 11 to 16 need an item number in `item`, and other sections take no `item`. Sections 11 to 16 and 19 need one of the section's slot names in `slot`, and other sections take no `slot`. A body with `semesterId` needs section 1, 3, 4 or 5, and takes no `offeringId`, `item` or `slot`. Section 5 needs the `programCodeId` of a program code that exists, and no other body takes `programCodeId`. `list-reusable-files` and `reuse-file` need a reusable place. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | The caller may not upload to the section, may not delete the file or item, or may not read the course file to compile. At `reuse-file`, the section was switched off, or the caller unassigned, while the file was copied. The function deleted the copy. |
+| 403 | `forbidden` | The caller may not upload to the section, may not delete the file or item, or may not read the course file to compile. At `delete-file`, a course file linked the timetable that the admin deleted, and the timetable stays. At `reuse-file`, the section was switched off, or the caller unassigned, while the file was copied. The function deleted the copy. |
 | 404 | `not_found` | The upload's item does not exist, the offering to compile does not exist, finalize found no uploaded item, or the caller cannot see the file or item to delete. At `reuse-file`, the file is not one that `list-reusable-files` lists for the place, such as a file deleted since, or one of another course, of a later offering or of another slot. |
 | 409 | `slot_full` | The slot holds one file and has it, or the shared file's key has its file, such as the semester's calendar, the caller's timetable for the semester, or a program code's student timetable for the semester. At finalize, the function deleted the stored item. |
+| 409 | `item_changed` | `delete-item`: a file was uploaded or reused into the item while its files were deleted. The item stays with that file, and the files deleted before it stay deleted. |
 | 409 | `confirmation_required` | `delete-file` of a shared file without `confirmed` set to `true`. Nothing was deleted. |
 | 422 | `not_pdf` | `create-upload-session`: the file name does not end in `.pdf`. `finalize-upload`: the stored item is not a PDF or does not start with `%PDF-`, and the function deleted it. |
 | 422 | `too_large` | The stored item is larger than 20 MB. The function deleted it. |
@@ -397,40 +445,42 @@ Auditors read every course file in every semester, and give any section of it a 
 
 An audit request is one batch of Needs fix sections from one auditor on one course file. Its `state` goes from `draft` to `sent` to `replied`, one step at a time, and never back. The migrations are `supabase/migrations/20261120050000_audit_request_values.sql` and `supabase/migrations/20261120050100_audit_requests.sql`.
 
-1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets an email.
-2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one email, listing every flagged section with its comment. Each item keeps its section's file ids at the send, as `section_contents` returns them.
+1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets a notification.
+2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one push notification, which names the course and the number of flagged sections, and opens the request on the course file page when tapped. Each item keeps its section's file ids at the send, as `section_contents` returns them.
 3. **Checklist.** Everyone who reads the course file reads the sent request, and its sections are the staff's checklist. An item is ticked while its section holds a file that it did not hold at the send: an upload, a reuse, or a shared file uploaded or linked into the course file, such as a lecturer's timetable or the timetable of a program code ticked in section 5. A file uploaded before the send ticks nothing, and neither does deleting or reordering files. An item unticks when its new file is deleted. A switched-off section takes no uploads, so staff answer it with a comment, or switch it on and upload. The coordinator and lecturers comment on any item, and a new comment replaces the earlier one.
-4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets an email with the message and each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
+4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets a push notification with the start of the message, which opens the request on the course file page, where they read each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
 5. **New round.** The auditor checks the sections again. Any new Needs fix goes into a new draft, also while a sent request waits for its reply.
 
 Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
 
-The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's email has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the email again**.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. Both notifications link to `/course-files/<offering id>#audit-request-<request id>`, and the page scrolls to that request and marks it. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
 
-The request's email goes to every coordinator and lecturer of the offering whose profile is active, the coordinator first, and to each address once. Deactivated staff cannot sign in to fix anything, so they get none. The reply's email goes to the request's auditor, while their profile is active. Every value a user wrote, such as names, the course code and title, comments and the message, is HTML-escaped.
+The request's notification goes to every coordinator and lecturer of the offering whose profile is active, on every browser where they turned notifications on. Deactivated staff cannot sign in to fix anything, so they get none. The reply's notification goes to the request's auditor, while their profile is active. A recipient with no browser gets nothing, and reads the request in the app. A notification quotes at most 200 characters of the reply's message. See [Push notifications](#push-notifications).
 
-Each step commits first, and its email goes after it. `audit_request_emails` records each email's delivery: the function claims it before it sends it, and marks it delivered after.
+Each step commits first, and its notification goes after it. `audit_request_notifications` records each notification's delivery: the function claims it with `claim_audit_notification` before it sends it, and marks it delivered after.
 
-- A retry or a second click makes no second step, since a step already made changes nothing. It sends no second email, since the email is delivered or another call holds the claim.
-- When the email cannot be sent, the step stays made, the claim goes, and the function answers HTTP 502 `mail_failed`. The request shows that its email is not delivered (`email_pending`), and Send or Reply again sends it once.
-- If the function stops after the mail adapter sent the email and before it marked it delivered, the claim lapses after five minutes, and a retry then sends the email again. This is the only way an email goes twice.
-- The step comes first so that no email is sent for a step that did not happen, and staff read a sent request in the app even when its email failed. With the email first, marks that the auditor made while the email went out would change the draft it listed.
+- A retry or a second click makes no second step, since a step already made changes nothing. It sends no second notification, since the notification is delivered or another call holds the claim.
+- When the notification cannot be sent, the step stays made, the claim goes, and the function answers HTTP 502 `push_failed`. The request shows that its notification is not delivered (`notification_pending`), and Send or Reply again sends it once.
+- If the function stops after the push adapter sent the notification and before it marked it delivered, the claim lapses after five minutes, and a retry then sends the notification again. This is the only way a notification goes twice.
+- The step comes first so that no notification is sent for a step that did not happen, and staff read a sent request in the app even when its notification failed.
+
+Until migration `20261123000200_push_notifications.sql`, the steps sent email, and the table was `audit_request_emails`. That migration renames it, and replaces `email_pending` and `claim_audit_email` with `notification_pending` and `claim_audit_notification`.
 
 | RPC, table or column | What it does |
 | --- | --- |
 | `audit_requests` | One request: the offering, the auditor, the `state`, the times of its send and reply, who replied, and the reply's message. A trigger allows only the two steps, each made by one update. Only the RPCs below write it. |
 | `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
 | `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
-| `checklist_complete`, `email_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the email of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
+| `checklist_complete`, `notification_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
 | `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
 | `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
 | `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
 
-Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its email. The app makes the two steps through the `audit-requests` function, which calls them and sends the emails.
+Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its notification. The app makes the two steps through the `audit-requests` function, which calls them and sends the notifications.
 
 ### The audit-requests Edge Function
 
-The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's email if it is still owed. The JSON body has an `action` field.
+The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditRequest` and `replyToAuditRequest` in `src/audit-requests.ts`, as the signed-in user. The function reads the request as the caller, so nobody else finds a draft. It then makes the step with the RPC as the service role, for the caller's user id, and sends the step's notification if it is still owed. The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
@@ -444,7 +494,7 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 | 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
 | 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
-| 502 | `mail_failed` | The step is made, but its email could not be sent. The same call again sends it. |
+| 502 | `push_failed` | The step is made, but its notification could not be sent. The same call again sends it. |
 
 ## Activity
 
@@ -489,20 +539,22 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_faculty_summary(semester_id)` | Faculty summary | The semester, so always one row |
 | `report_departments(semester_id)` | Department breakdown | Department with offerings in the semester, by department code |
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
-| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by name |
+| `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by full name |
 
 The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. On a phone, the department breakdown scrolls sideways inside its card, with the department column pinned.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
 - **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. On a phone, the table scrolls sideways inside its card, with the course column pinned. A course code wraps at 112 px, so the pinned column leaves room for the sections.
-- **Lecturers**: each lecturer with their offerings and the missing sections linked to them.
+- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
+- **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
 
-The semester and the tab are in the URL, such as `/reports?semester=<id>&tab=heatmap`. Each course code links to its course file.
+The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. Choosing another semester drops the department. A semester, tab, status or department that the page cannot show gives way to what it shows, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
 
-The **My completeness** page shows lecturers the offering list for the offerings they teach or coordinate, in one semester. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
+Each tab loads its report once. A failed load shows "Couldn't load this report" with **Try again** under the tabs. A semester whose report has no offerings shows "No offerings in" and the semester code, in place of the tab's controls.
+
+The **My completeness** page shows lecturers each course file they teach or coordinate in one semester: its status, completeness, coordinator and last upload, and its missing sections and its sections marked Needs fix, by number and title, each linked to its section page. While the lecturer has no timetable for the semester, an alert links to the section 4 page of one of their course files, where they upload it. Its semesters are those in which they teach, newest first. A lecturer who also holds a management role sees only their own offerings there, and every offering on the **Reports** page.
 
 ### What the numbers mean
 
@@ -533,26 +585,26 @@ Each `report_offerings` row also has the course, its department, the coordinator
 
 Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
 
-The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until it holds as many as the API counts. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
+The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which reads it with `readAll`: it asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until a page comes back with fewer than 1,000 rows. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. The **Reports** page reads its list of semesters, and **My completeness** the lecturer's offerings, the same way. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
 ### Export
 
-Each of the five views of the **Reports** page, and the **My completeness** page, has an **Export** menu with **Excel (.xlsx)** and **CSV (.csv)**. The browser builds the file from the rows on screen, with the offering list's department and status filters applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
+Each tab of the **Reports** page has one **Export** menu, at the end of the tab's row of controls, and **My completeness** has one beside the semester. It offers **Excel**, which saves an .xlsx file, and **CSV**, which saves a .csv file. A failed export says "Couldn't export. Try again." in a toast. The browser builds the file from the rows on screen, with the offering list's filters and the lecturer search applied, and saves it as the view's name and the semester code, such as `Offerings 2026-2027-1.xlsx`. The `/` of the code becomes `-`, and so would any other character that Windows, macOS or Linux refuse in a file name. The menu is disabled while the view loads and while it shows no row.
 
 `src/report-tables.ts` describes each view as a table: its name and, for each column, the header, the kind of value and how to read it from a report row. The pages take their headers and values from these descriptions, and `exportReport` in `src/report-export.ts` writes their columns, so a file holds what the screen shows. A screen cell that shows two values is two columns in the file, so that a spreadsheet can sort and filter each one.
 
 | View | Columns |
 | --- | --- |
-| Faculty summary, one row | Offerings, Sections (that count), then Uploaded, Verified and Needs fix, each as a count of sections and as `(%)` |
-| Departments | Department (its code), Department name, and the columns of the faculty summary |
-| Offerings, My completeness | Course (its code), Course title, Department, Department name, Coordinator, Status, Complete (%), Missing sections, Last upload |
-| Heatmap | Course, Course title, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department, Department name, Timetable (`Missing` or `Uploaded`), Course, Course title, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
+| Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
+| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
-- Statuses are the text the screen shows, such as `Needs fix`. Missing sections are their numbers, such as `4, 5, 10`.
+- Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.
 - Last upload is the day the screen shows, in the user's time zone. An .xlsx holds it as a date in the format `yyyy-mm-dd`, and a .csv as text such as `2026-11-20`.
-- Where the screen shows a placeholder for no value, such as a dash, Never, None or Nothing missing, the cell is empty.
+- Where the screen shows a placeholder for no value, such as a dash, No uploads yet or None missing, the cell is empty.
 
 A .csv follows RFC 4180: commas between fields, a field in double quotes when it holds a comma, a quote or a line break, a quote inside one doubled, and CRLF after each row. It starts with a UTF-8 byte order mark, so that Excel reads names outside ASCII correctly. Names, titles and department names are typed by users, so a text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return starts with `'` in a .csv, and a spreadsheet shows it as text rather than run it as a formula.
 
@@ -562,8 +614,8 @@ An .xlsx has one sheet, named after the view, with the header row bold and froze
 
 The app is desktop first. These pages also work on a phone 360 px wide, with no sideways scroll: the course file page with its sections, audit requests and activity, each section page with its status and the auditor's verdict, the **Reports** page with its Export menus, and **My completeness**. An auditor records verdicts and sends an audit request from a phone, and the coordinator and lecturers comment on its checklist and reply.
 
-- A long word, such as a course code with a UUID or a name with no space, breaks anywhere rather than widen the page. `overflow-wrap: anywhere` on `body` in `src/index.css` does this for the whole app, so no element needs its own rule.
-- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, and the offering list's status and completeness. The department breakdown and the heatmap are too wide for that, so they scroll sideways inside their card, with the first column pinned.
+- A long word, such as a course code with a UUID or a name with no space, breaks anywhere rather than widen the page. `overflow-wrap: anywhere` on `body` in `src/index.css` does this for the whole app below 1,024 px, Tailwind's `lg`, so no element needs its own rule. From `lg` up, `body` has `overflow-wrap: break-word`, which breaks a word only when it is wider than its whole line, so an email or a course code keeps its table column wide enough for it.
+- Below 640 px, Tailwind's `sm`, a table moves its secondary columns into its first cell: the course file's section status, the offering list's status and completeness, the department breakdown's offerings and percentages, and each lecturer's courses. The heatmap shows each offering's sections as numbered squares in its course cell, ten to a row.
 - On a touch screen, `pointer: coarse`, the app's controls are at least 44 by 44 px, as WCAG 2.2 success criterion 2.5.5 asks. Buttons, tabs, menu items, selects, inputs and the navigation links grow to 44 px. The checkbox and the close buttons of dialogs and of the navigation keep their size and take taps on a 44 px area around them. With a mouse, the controls keep their desktop size.
 - Uploading and the compiled PDF stay desktop first. They work on a phone without breaking the layout, but are not tuned for it.
 
@@ -610,7 +662,7 @@ The JSON body has an `action` field.
 
 | `action` | Other fields | Who may call it | What it does |
 | --- | --- | --- | --- |
-| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword` | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
+| `create-user` | `email`, `fullName`, `departmentId` (a department id or `null`), `roles`, `temporaryPassword`, and optionally `title` (a string or `null`) | Root, with `roles` set to `["admin"]`. Admins, with staff roles. | Creates the user with the temporary password and the must-change-password flag set. If a later step fails, it deletes the new user. |
 | `import-users` | `csv`, the text of a CSV file | Admins | Creates the user of each valid row as `create-user` does, and rejects the other rows. See [Importing users from a CSV file](#importing-users-from-a-csv-file). |
 | `reset-password` | `userId`, `temporaryPassword` | Admins, for users they manage | Sets the temporary password, then sets the must-change-password flag again. |
 
@@ -618,53 +670,57 @@ On success, `create-user` and `reset-password` return HTTP 200 and `{ "userId": 
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
-| 400 | `invalid_request` | The body is not one of the actions above, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
+| 400 | `invalid_request` | The body is not one of the actions above, the title is longer than 40 characters, Supabase Auth refused a value, such as a short password, or the import file cannot be read. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
 | 403 | `forbidden` | The caller may not do this. |
 | 409 | `email_exists` | A user with this email already exists. |
 
 The Edge Functions import only local files in `supabase/functions/_shared`. They call the Supabase Auth and PostgREST endpoints with `fetch`. In the local edge runtime container, a remote import such as `npm:@supabase/supabase-js` fails at boot when the container cannot verify TLS through a proxy. A function without remote imports does not depend on that.
 
+## Push notifications
+
+Audit requests notify by push through Firebase Cloud Messaging. On **My profile**, each user turns notifications on for each browser and phone they use. The browser asks for permission, registers the service worker `public/push-sw.js`, and gets its FCM registration token, which `register_push_token` stores in `push_tokens` for the user. A token that another user registered on the same browser moves to the new user. Signing out removes the browser's token with `unregister_push_token`, so the next user of the browser gets none of the earlier user's notifications. Each time the app opens, it registers the token again, since FCM may give a browser a new one.
+
+- Chrome, Edge and Firefox take push on a computer and on Android. Safari on an iPhone or iPad takes push only from iOS 16.4, and only when the user adds eCourseFile to the Home Screen and opens it from there. The profile page says so on a browser that cannot take push.
+- A user who blocked notifications for the site unblocks them in the browser's settings.
+
+`supabase/functions/_shared/push.ts` defines the push adapter, with one operation: send a notification, its title, text and the app's path a tap opens, to a list of tokens, and return the tokens that the push service no longer knows. The `audit-requests` function removes those tokens. `PUSH_ADAPTER` picks the implementation, and `VITE_PUSH_ADAPTER` picks the browser side to match, in `src/push.ts`.
+
+- `fcm` (`_shared/fcm-push.ts`) sends each notification as a data message with the FCM HTTP v1 API, as the service account in `FIREBASE_SERVICE_ACCOUNT`, and the service worker shows it. FCM answers 404 for a token it no longer knows, and 403 for a token of another project. No automated test covers it.
+- `fake` (`_shared/fake-push.ts`) records each notification in `fake_push.outbox`, with its token, title, text, link and time. The browser side registers a made-up token. A token in `fake_push.undeliverable` fails the send, as an FCM outage would, and a token in `fake_push.unregistered` comes back as no longer known. Seam 1 tests list tokens there. Only the service role can use the `fake_push` schema.
+
+To set up FCM for production:
+
+1. In the Firebase console, add a web app to the project, and copy its config to the `VITE_FIREBASE_*` variables.
+2. Optionally, under Project settings, Cloud Messaging, generate a Web Push certificate, and copy its public key to `VITE_FIREBASE_VAPID_KEY`. Without it, the Firebase SDK uses Firebase's default key.
+3. Under Project settings, Service accounts, generate a key for the Firebase Admin SDK service account, and set it with `npx supabase secrets set FIREBASE_SERVICE_ACCOUNT="$(cat key.json)"`. Set `PUSH_ADAPTER=fcm` the same way, and `VITE_PUSH_ADAPTER=fcm` for the build.
+
+FCM is free, also on the Spark plan.
+
 ## Email
 
-The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and sends nothing through SMTP itself.
+eCourseFile sends no email. The `send-email` Edge Function, `supabase/functions/send-email/index.ts`, is the Send Email Hook of Supabase Auth: `[auth.hook.send_email]` in `supabase/config.toml`. Supabase Auth calls it in place of SMTP with every email it would send, and the function refuses every one. Without the hook, Supabase Auth would send its recovery and sign-in links through SMTP, and such a link signs the user in without their password.
 
-- Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401 and sends nothing. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
-- It sends password reset (`recovery`) emails. See [Password reset](#password-reset).
-- It refuses every other type, such as `signup`, `invite`, `magiclink`, `email_change` and `reauthentication`, and sends nothing. The admin creates each account with a temporary password, nobody signs up, and the app has no sign-in by link and no change of one's own email. Supabase Auth then fails the request with HTTP 403 and the message "eCourseFile sends only password reset emails.", so `signInWithOtp` makes no link, and `updateUser({ email })` changes nothing.
-- If the email cannot be sent, the request fails with HTTP 500, so the user knows to try again.
+- Supabase Auth signs each call by the Standard Webhooks scheme with the hook's secret. The function checks the signature and its time, within five minutes, against `SEND_EMAIL_HOOK_SECRET`, and answers any other call with HTTP 401. It checks with Web Crypto rather than the `standardwebhooks` package, because the functions import no remote modules.
+- To a signed call, it answers with an error, and Supabase Auth fails the request with HTTP 403 and the message "eCourseFile sends no email. Ask an admin to reset your password." So `resetPasswordForEmail` and `signInWithOtp` make no link, and `updateUser({ email })` changes nothing.
 
 On the local stack, Supabase Auth reaches the function at `http://host.docker.internal:54321/functions/v1/send-email`, and `[functions.send-email]` turns off the JWT check, since the hook sends no JWT. The hook's secret in `supabase/config.toml` serves the local stack and CI only. For a hosted project, set the hook to `https://<project-ref>.supabase.co/functions/v1/send-email` with a new secret under Authentication, Hooks, and set the same secret with `npx supabase secrets set SEND_EMAIL_HOOK_SECRET=...`.
 
-### Mail adapters
-
-`supabase/functions/_shared/mail.ts` defines the mail adapter, with one operation: send an email to a list of recipients, with a subject and an HTML body. The `send-email` and `audit-requests` functions send through it, and escape what users wrote with `escapeHtml` in `_shared/html.ts`. `MAIL_ADAPTER` picks the implementation.
-
-- `graph` (`_shared/graph-mail.ts`) sends from the shared mailbox in `GRAPH_MAILBOX` with Graph `sendMail`, as the Entra app in the `GRAPH_*` secrets, with an app-only token. The storage adapter signs in the same way, through `_shared/graph.ts`. Graph keeps a copy in the mailbox's Sent Items. Exchange limits the app to that mailbox through RBAC for Applications. No automated test covers it.
-- `fake` (`_shared/fake-mail.ts`) records each email in `fake_mail.outbox`, with its recipients, subject, HTML and time. Only the service role can use the `fake_mail` schema. Seam 1 tests read it with the secret key. To read the latest email on the local stack, such as a reset link:
-
-  ```sh
-  curl -s 'http://127.0.0.1:54321/rest/v1/outbox?select=recipients,subject,html&order=sent_at.desc&limit=1' \
-    -H "apikey: $SUPABASE_SECRET_KEY" -H 'Accept-Profile: fake_mail'
-  ```
-
-  The fake refuses an email when any recipient is listed in `fake_mail.undeliverable`, as a failed send, and records nothing. Seam 1 tests list an address there to test what a mail failure does.
-
-`supabase/config.toml` exposes the `fake_mail` schema to the API, so the schema comes from a migration, `supabase/migrations/20261120040000_fake_mail.sql`, and exists in every database. `supabase/migrations/20261120050200_fake_mail_undeliverable.sql` adds `fake_mail.undeliverable`.
+Until migration `20261123000200_push_notifications.sql`, the functions sent email through a mail adapter, and the local stack recorded it in the `fake_mail` schema. The schema stays in the database, with what it recorded, but nothing writes to it or exposes it any more.
 
 ## Tests
 
 `npm test` runs two Vitest projects.
 
-- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too.
-- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The password reset and audit request tests read the fake outbox with `fakeOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
+- `unit` runs the `src/**/*.test.ts` files. These test pure functions, such as the route rules in `src/auth.ts`. They include the seam 3 tests of the PDF engine in `src/pdf/`, which merge and compile PDFs that `src/pdf/fixtures.ts` generates and read the result with pdfjs-dist, the way a viewer shows it. The tests of the report exports in `src/report-export.test.ts` export each view the way the pages do, then read the .xlsx back with read-excel-file and the .csv with csv-parse. Their rows are `src/report-fixture.ts`, what the report RPCs returned for a semester that `scripts/capture-report-fixture.ts` seeded with names and titles that start with `=`, `+`, `-`, `@`, a tab or a carriage return, hold quotes, commas or a line break, or use letters outside ASCII. After a report RPC or its row type changes, run `node scripts/capture-report-fixture.ts` on a stack where `npm test` has run, which writes the fixture again. It takes a semester from the range of `emptyReportSemester`, and prints its lecturers, whose password is `report-fixture`, so the semester can be checked in the app too. `src/copy-rules.test.ts` fails when a source file's words use a phrase from `BANNED_PHRASES` in `src/copy-rules.ts`, such as "SharePoint", "the admin" or "appears here". Comments may use them. Add a phrase there when a review turns up a new kind of filler.
+- `seam1` runs the `tests/**/*.test.ts` files against the local Supabase stack through supabase-js, including the Edge Functions. The upload tests use `src/uploads.ts`, as the app does, and read the fake storage library. The audit request tests read the fake push outbox with `fakePushOutbox` from `tests/harness.ts`. They upload real PDFs, because the browser refuses a PDF that the engine cannot read: `sizedPdf` in `src/pdf/fixtures.ts` makes one of any size, and `protectedPdf` in `tests/harness.ts` gives `tests/fixtures/permissions-password.pdf`, a PDF with only a permissions password, made with pypdf. Before the tests run, `tests/global-setup.ts` reads the stack's keys from `npx supabase status` and seeds one user for each global role, such as `lecturer@seam1.test`. Tests sign in with `signInAs(role)` from `tests/harness.ts`.
 
 Tests that create users give each user a new email address. You can run the tests again without a database reset. Semester codes are limited, so `pickSemester` in `tests/harness.ts` returns an existing semester once its random code is taken. A test offering can share its semester with other tests' offerings.
 
 An upload of a semester's calendar or letter changes sections 1 and 3 of every offering in the semester, and a report counts every offering of its semester. The semesters are therefore split by start year:
 
 - `pickSemester` and `createOffering` use the 2,400 codes with start years 2000 to 2799.
-- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. Offerings are never deleted, so after about 100 runs the helper finds none left and asks for a database reset.
+- `emptyReportSemester` uses the 300 codes with start years 2800 to 2899, and returns one that has no offerings yet. Only `tests/reports.test.ts` uses it, and `scripts/capture-report-fixture.ts` takes one of these semesters the same way. Its tests upload the calendar and letter of their own semesters, so they assert exact numbers. A run fills three semesters, one of them with 1,001 offerings to check that the app reads past the API's 1,000 rows. The tests never delete an offering they fill a semester with, so after about 100 runs the helper finds none left and asks for a database reset.
 - `semesterWithoutSharedFiles` uses the 300 codes with start years 2900 to 2999. It deletes the calendar and letter that an earlier test or run left, through the `files` function as the admin. Of the other tests, only `tests/shared-files.test.ts` uploads calendars and letters, and its tests run one after another.
 
 A timetable changes section 4 only of the offerings its lecturer teaches in the semester. The tests in `tests/lecturer-timetables.test.ts` upload timetables only for lecturers they create, so they take semesters from `pickSemester` and change no other test's offering.
@@ -673,7 +729,7 @@ A student timetable changes section 5 only of the offerings that tick its progra
 
 The tests in `tests/verdicts.test.ts` and `tests/compile-manifest.test.ts` also upload timetables only for lecturers and program codes they create, in semesters from `pickSemester`. A manifest test therefore finds no calendar or letter in sections 1 and 3, and `tests/shared-files.test.ts` tests those.
 
-The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, so each address's fake outbox holds only the test's emails. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
+The tests in `tests/audit-requests.test.ts` create their own auditors and lecturers, each with a push token of their own, so each token's fake outbox holds only the test's notifications. They take semesters from `pickSemester`, and upload timetables only for lecturers and program codes they create.
 
 The tests in `tests/activity.test.ts` create their own lecturers, auditors and program codes, and take semesters from `pickSemester`. Calendars and letters are left to `tests/shared-files.test.ts`, which also checks that they show in the activity of each course file of their semester.
 
@@ -690,7 +746,7 @@ Tests read back the rows they create by id, never a whole table. The API returns
   ```
 
 - If calls to an Edge Function fail with HTTP 404, the edge runtime started before the function existed. If they fail with HTTP 500 and `name resolution failed`, the edge runtime container is not running. In both cases, restart the stack.
-- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than the `fake_storage` or `fake_mail` migration, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
+- If `npm run stack:start` fails with `supabase_rest_ecoursefile unexpected status 503`, the local database is older than a migration that adds a schema `supabase/config.toml` exposes, such as `fake_push`, and PostgREST does not start without an exposed schema. Start from a new local database. This deletes the local data.
 
   ```sh
   npx supabase stop --no-backup
