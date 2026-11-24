@@ -1,4 +1,5 @@
 import { CheckIcon, ClockIcon, MinusIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
+import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { OFFERING_STATUS_LABELS, type OfferingStatus } from '../reports.ts'
@@ -46,6 +47,27 @@ export function OfferingStatusBadge({ status }: { status: OfferingStatus }) {
       {Icon && <Icon aria-hidden="true" />}
       {OFFERING_STATUS_LABELS[status]}
     </Badge>
+  )
+}
+
+/**
+ * A section by number and title in the look of its status, such as 4 Lecturer Timetable as Missing.
+ * With to, it links to the section's page. What the status is comes from the list it sits in, such as
+ * one labelled Missing.
+ */
+export function SectionStatusChip({ section, status, to }: { section: number; status: SectionStatus; to?: string }) {
+  const { className, icon: Icon } = STATUS_LOOK[status]
+  const chip = (
+    <Badge variant="outline" className={cn('h-7 gap-1.5 px-2.5 text-sm font-normal', to && 'underline-offset-2 group-hover:underline', className)}>
+      {Icon && <Icon aria-hidden="true" />}
+      {sectionName(section)}
+    </Badge>
+  )
+  if (!to) return chip
+  return (
+    <Link to={to} className="group focus-visible:ring-ring/40 inline-flex rounded-md outline-none focus-visible:ring-[3px]">
+      {chip}
+    </Link>
   )
 }
 
