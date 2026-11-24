@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest'
 import { exportReport, type ExportFormat } from './report-export.ts'
 import { REPORT_FIXTURE } from './report-fixture.ts'
 import {
+  departmentsOf,
   filterLecturers,
   filterOfferings,
   HEATMAP_TABLE,
@@ -251,6 +252,19 @@ test('the lecturer search keeps the lecturers whose name holds it, in any case a
   expect(names('陈')).toEqual(['陈伟明'])
   expect(names('name')).toEqual(['\tTabbed Name', '\rReturned Name'])
   expect(names('nobody')).toEqual([])
+})
+
+test('the lecturer view by department keeps the lecturers who teach an offering of it, with only those offerings', () => {
+  const [ftmk, jkp] = departmentsOf(REPORT_FIXTURE.lecturers.flatMap((row) => row.offerings))
+  expect([ftmk.department_code, jkp.department_code].map((code) => code.split('-')[0])).toEqual(['FTMK', 'JKP'])
+
+  const inJkp = filterLecturers(REPORT_FIXTURE.lecturers, { search: '', departmentId: jkp.department_id })
+  // Chloé teaches BITP1113 in FTMK and coordinates BITS3343 in JKP. Aisyah, Chen and the HYPERLINK coordinator teach only in FTMK.
+  expect(inJkp.map((row) => row.lecturer_name).toSorted()).toEqual(['\tTabbed Name', '\rReturned Name', '-2+3 Dash', '@SUM(1+1)', 'Chloé Lefèvre'].toSorted())
+  expect(inJkp.find((row) => row.lecturer_name === 'Chloé Lefèvre')!.offerings.map((offering) => offering.course_code)).toEqual([courseCode('BITS3343')])
+  expect(filterLecturers(REPORT_FIXTURE.lecturers, { search: 'chloe', departmentId: ftmk.department_id }).map((row) => row.offerings.map((offering) => offering.course_code))).toEqual([
+    [courseCode('BITP1113')],
+  ])
 })
 
 test('a .csv starts with a UTF-8 byte order mark, quotes by RFC 4180, and shows a text that starts like a formula as text', async () => {

@@ -43,21 +43,27 @@ import {
 } from '../report-tables.ts'
 import { fetchReport, formatPercent, readAll, type DepartmentRow, type FacultySummary, type LecturerRow, type OfferingRow } from '../reports.ts'
 import { sectionName, SECTIONS, type SectionStatus } from '../sections.ts'
+import { useAuth } from '../auth-provider.tsx'
 import { supabase } from '../supabase.ts'
 
 /** A semester of the Reports page, with the code that names its exported files. */
 type ReportSemester = { id: string; code: string }
 
-/** The values the page keeps in its URL: ?semester=<id>&tab=<tab>&department=<id>&status=<status>&search=<text>. */
+/**
+ * The values the page keeps in its URL: ?semester=<id>&tab=<tab>&department=<id>&status=<status>&search=<text>.
+ * department is all for every department, where the user's own department is the default.
+ */
 type Param = 'semester' | 'tab' | 'department' | 'status' | 'search'
 
 /** Changes to the URL's values: a value sets its param, and null or an empty string drops it. */
 type Patch = Partial<Record<Param, string | null>>
 
-/** The URL with patch applied. A new semester also drops the department, which belongs to the old semester's offerings. */
+/** The department param that asks for every department, for an HoD, whose own department is the default. */
+const ALL_DEPARTMENTS = 'all'
+
+/** The URL with patch applied. */
 function patched(current: URLSearchParams, patch: Patch) {
   const next = new URLSearchParams(current)
-  if (patch.semester !== undefined && patch.semester !== current.get('semester')) next.delete('department')
   for (const [param, value] of Object.entries(patch)) {
     if (value) next.set(param, value)
     else next.delete(param)
@@ -67,7 +73,12 @@ function patched(current: URLSearchParams, patch: Patch) {
 
 /** The filters that the URL holds for the views, so that they last across tabs, and how a view changes them. */
 type ReportUrl = {
+  /** The department the URL asks for, else the HoD's own, or null for every department. */
   department: string | null
+  /** Whether the URL names the department, or every department, rather than leaving the default. */
+  departmentChosen: boolean
+  /** The department param that asks for every department. */
+  allDepartments: string | null
   status: StatusFilter | null
   search: string
   set: (patch: Patch) => void
@@ -124,6 +135,8 @@ function useReportSemesters() {
 export function Reports() {
   const { semesters, reload } = useReportSemesters()
   const [searchParams, setSearchParams] = useSearchParams()
+  const auth = useAuth()
+  const ownDepartment = auth.kind === 'ready' && auth.roles.includes('hod') ? auth.profile.departmentId : null
   const list = semesters === 'failed' ? null : semesters
   const semesterParam = searchParams.get('semester')
   const semesterId = pickSemester(list, semesterParam)
@@ -134,8 +147,11 @@ export function Reports() {
   const status = isStatus(statusParam) ? statusParam : null
 
   const set = (patch: Patch) => setSearchParams((current) => patched(current, patch), { replace: true })
+  const departmentParam = searchParams.get('department')
   const url: ReportUrl = {
-    department: searchParams.get('department'),
+    department: departmentParam === ALL_DEPARTMENTS ? null : (departmentParam ?? ownDepartment),
+    departmentChosen: departmentParam !== null,
+    allDepartments: ownDepartment ? ALL_DEPARTMENTS : null,
     status,
     search: searchParams.get('search') ?? '',
     set,
@@ -324,10 +340,14 @@ function DepartmentsTable({ rows, url }: { rows: DepartmentRow[] | null; url: Re
   )
 }
 
-/** The department a view shows: the URL's, when the view's departments hold it, else every department, as null. One they lack gives way, in the URL too. */
+/**
+ * The department a view shows: the one the URL asks for, or the HoD's own, when the view's
+ * departments hold it, else every department, as null. A department in the URL that they lack gives
+ * way to the default, in the URL too.
+ */
 function useShownDepartment(departments: Department[] | null, url: ReportUrl) {
   const department = departments?.some((row) => row.department_id === url.department) ? url.department : null
-  const stale = departments !== null && url.department !== null && department === null
+  const stale = departments !== null && url.departmentChosen && url.department !== null && department === null
   useEffect(() => {
     if (stale) url.set({ department: null })
   })
@@ -338,8 +358,8 @@ function DepartmentSelect({ id, departments, value, url }: { id: string; departm
   return (
     <div className="grid gap-2 sm:w-64">
       <Label htmlFor={id}>Department</Label>
-      <NativeSelect id={id} value={value ?? ''} onChange={(event) => url.set({ department: event.target.value })}>
-        <NativeSelectOption value="">All departments</NativeSelectOption>
+      <NativeSelect id={id} value={value ?? url.allDepartments ?? ''} onChange={(event) => url.set({ department: event.target.value })}>
+        <NativeSelectOption value={url.allDepartments ?? ''}>All departments</NativeSelectOption>
         {departments.map((row) => (
           <NativeSelectOption key={row.department_id} value={row.department_id}>
             {row.department_code} {row.department_name}
@@ -387,7 +407,7 @@ function NoMatchingOfferings({ url }: { url: ReportUrl }) {
         icon={ChartColumnIcon}
         title="No matching offerings"
         action={
-          <Button variant="outline" onClick={() => url.set({ department: null, status: null })}>
+          <Button variant="outline" onClick={() => url.set({ department: url.allDepartments, status: null })}>
             Clear filters
           </Button>
         }
@@ -552,17 +572,20 @@ function loadLecturers(semesterId: string) {
 
 /**
  * The lecturer view: each lecturer, in the report's order, with their offerings and the missing
- * sections linked to them. The search keeps the lecturers whose name holds it.
+ * and Needs fix sections linked to them. The department keeps the lecturers who teach an offering
+ * of it, with only those offerings, and the search the lecturers whose name holds it.
  */
 function LecturersView({ semester, url }: ViewProps) {
   const report = useReport(semester?.id ?? null, loadLecturers)
   // The box keeps its own text, so typing never waits for the URL to change.
   const [search, setSearch] = useState(url.search)
-  if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   const rows = report?.data ?? null
+  const departments = rows && departmentsOf(rows.flatMap((row) => row.offerings))
+  const department = useShownDepartment(departments, url)
+  if (report?.failed) return <ReportLoadError onRetry={report.retry} />
   if (semester && rows?.length === 0) return <NoOfferings semester={semester} />
-  const shown = rows && filterLecturers(rows, { search, departmentId: null })
-  const searching = search.trim() !== ''
+  const shown = rows && filterLecturers(rows, { search, departmentId: department })
+  const filtered = search.trim() !== '' || department !== null
   const searchFor = (text: string) => {
     setSearch(text)
     url.set({ search: text })
@@ -571,16 +594,19 @@ function LecturersView({ semester, url }: ViewProps) {
     <>
       <Toolbar
         start={
-          <Input
-            type="search"
-            aria-label="Search lecturers"
-            placeholder="Search lecturers"
-            value={search}
-            onChange={(event) => searchFor(event.target.value)}
-            className="max-sm:w-full sm:w-64"
-          />
+          <div className="grid gap-4 max-sm:w-full sm:flex sm:items-end">
+            <DepartmentSelect id="lecturers-department" departments={departments ?? []} value={department} url={url} />
+            <Input
+              type="search"
+              aria-label="Search lecturers"
+              placeholder="Search lecturers"
+              value={search}
+              onChange={(event) => searchFor(event.target.value)}
+              className="sm:w-64"
+            />
+          </div>
         }
-        count={rows ? (searching ? `${shown!.length} of ${plural(rows.length, 'lecturer')}` : plural(rows.length, 'lecturer')) : undefined}
+        count={rows ? (filtered ? `${shown!.length} of ${plural(rows.length, 'lecturer')}` : plural(rows.length, 'lecturer')) : undefined}
       >
         <ExportMenu table={LECTURERS_TABLE} rows={shown?.flatMap(lecturerOfferings) ?? null} semesterCode={semester?.code ?? null} />
       </Toolbar>
@@ -590,8 +616,14 @@ function LecturersView({ semester, url }: ViewProps) {
             icon={SearchIcon}
             title="No matching lecturers"
             action={
-              <Button variant="outline" onClick={() => searchFor('')}>
-                Clear search
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearch('')
+                  url.set({ search: null, department: url.allDepartments })
+                }}
+              >
+                Clear filters
               </Button>
             }
           />
