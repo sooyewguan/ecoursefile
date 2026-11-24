@@ -112,11 +112,12 @@ async function importUsers(csv: string, caller: string): Promise<{ rows: Importe
   }
   const file = readUserImport(csv)
   if ('problem' in file) throw invalid(file.problem)
-  // Only the departments the file names, since the API returns at most 1,000 rows.
-  const codes = [...new Set(file.rows.map((row) => row.cells.department).filter(Boolean))]
-  const departments = codes.length === 0 ? [] : await rest<{ id: string; code: string }[]>('GET', `/departments?select=id,code&code=${inList(codes)}`, undefined, caller)
+  // Only the departments the file names, in any case, since the API returns at most 1,000 rows.
+  const codes = [...new Set(file.rows.map((row) => row.cells.department.toLowerCase()).filter(Boolean))]
+  const departments =
+    codes.length === 0 ? [] : await rest<{ id: string; lower_code: string }[]>('GET', `/departments?select=id,lower_code&lower_code=${inList(codes)}`, undefined, caller)
   const rows: ImportedRow[] = []
-  for (const row of toNewUsers(file.rows, new Map(departments.map((department) => [department.code, department.id])))) {
+  for (const row of toNewUsers(file.rows, new Map(departments.map((department) => [department.lower_code, department.id])))) {
     rows.push(await importRow(row, caller))
   }
   return { rows }

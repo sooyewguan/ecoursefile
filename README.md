@@ -112,6 +112,7 @@ Some limits apply to everyone:
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
 - An HoD must have a department. A department can have more than one HoD.
+- A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
 - Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
 - A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
 
@@ -135,7 +136,7 @@ The `accounts` function reads the file, not the browser. It checks every row aga
 
 - The first row that is not blank names the columns: `full_name`, `email`, `department`, `roles` and `temporary_password`, and optionally `title`. They can be in any order and any case, with spaces for underscores, such as `Full Name`. Other columns are ignored.
 - `title` is the user's title, such as `Dr.`, or empty for none. A file without a `title` column gives nobody a title. The template lists `title` last.
-- `department` is the department's code, exactly as the **Departments** page shows it, or empty for none. The import does not match names, because two departments can have the same name.
+- `department` is the department's code as the **Departments** page shows it, in any case, or empty for none. The import does not match names, because two departments can have the same name.
 - `roles` holds one or more roles, separated by `;`, such as `lecturer;hod`. A role is matched in any case, with spaces for underscores, such as `Deputy Dean`.
 - Spaces around a value are ignored. Quoted values can hold commas, line breaks and doubled quotes. A byte order mark, CRLF or LF line ends, and blank rows are fine. The template starts with a byte order mark, so a spreadsheet opens it as UTF-8.
 - A file holds at most 300 users, `MAX_IMPORT_ROWS` in `user-import.ts`. A longer file is refused as a whole with HTTP 400, and the admin splits it. Each row costs the function about 3 ms of CPU and 91 ms in all, and a hosted Edge Function stops after 2 s of CPU or 150 s. A file of 300 rows takes about 0.9 s of CPU and 27 s, so it stays well inside both limits, where a file of about 700 rows would stop part way with no report.
