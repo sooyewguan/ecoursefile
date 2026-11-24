@@ -37,14 +37,31 @@ export const MAX_IMPORT_ROWS = 300
 /** What separates the roles in one cell, such as "lecturer;hod". */
 export const ROLE_SEPARATOR = ';'
 
+/** The template's example row, which shows how each column is filled in. The import skips it. */
+const EXAMPLE_ROW: Record<Column, string> = {
+  full_name: 'Aisyah binti Rahman',
+  email: 'aisyah.rahman@example.com',
+  department: 'FTMK',
+  roles: ['Lecturer', 'HoD'].join(ROLE_SEPARATOR),
+  temporary_password: 'Change-me-2026',
+  title: 'Dr.',
+}
+
 /**
- * The file the admin downloads to fill in: the header row, after a byte order mark so that a
- * spreadsheet opens it as UTF-8.
+ * The file the admin downloads to fill in: the header row and the example row, after a byte order
+ * mark so that a spreadsheet opens it as UTF-8.
  */
-export const USER_IMPORT_TEMPLATE = `\uFEFF${COLUMNS.join(',')}\r\n`
+export const USER_IMPORT_TEMPLATE = `\uFEFF${COLUMNS.join(',')}\r\n${COLUMNS.map((column) => EXAMPLE_ROW[column]).join(',')}\r\n`
+
+/**
+ * An email address as Supabase Auth accepts one: the pattern and the length limit it checks. A row
+ * whose email fails is rejected before it reaches Auth, in the app's words.
+ */
+const EMAIL = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+const MAX_EMAIL_LENGTH = 255
 
 /** Why a row of the file holds no user to create. */
-type RowProblem = 'missing_value' | 'duplicate_email' | 'unknown_role' | 'unknown_department'
+type RowProblem = 'missing_value' | 'example_row' | 'invalid_email' | 'duplicate_email' | 'unknown_role' | 'unknown_department'
 
 /**
  * What the import did with one row of the file. row is its number as a spreadsheet shows it, the
@@ -56,6 +73,16 @@ export type ImportedRow = { row: number; email: string } & (
   | { status: 'created'; userId: string }
   | { status: 'rejected'; code: string; reason: string }
 )
+
+/** The app's wording for the refusals whose reason Supabase Auth writes, by code. */
+const AUTH_REASONS: Record<string, string> = {
+  email_exists: 'An account with this email already exists.',
+}
+
+/** The reason to show for a rejected row: the app's wording where Supabase Auth wrote it, else the row's own reason. */
+export function importReason(row: Extract<ImportedRow, { status: 'rejected' }>) {
+  return AUTH_REASONS[row.code] ?? row.reason
+}
 
 /** A row of the file read as a user to create, or the reason it is not one. */
 export type ParsedRow = { row: number; email: string } & ({ user: NewUser } | { code: RowProblem; reason: string })
@@ -110,6 +137,8 @@ export function toNewUsers(rows: FileRow[], departments: ReadonlyMap<string, str
       .filter(Boolean)
     const blank = COLUMNS.find((column) => (column === 'roles' ? roles.length === 0 : !MAY_BE_EMPTY.includes(column) && cells[column] === ''))
     if (blank) return reject('missing_value', `The row has no ${blank.replaceAll('_', ' ')}.`)
+    if (email.toLowerCase() === EXAMPLE_ROW.email) return reject('example_row', "This is the template's example row. Delete it from the file.")
+    if (email.length > MAX_EMAIL_LENGTH || !EMAIL.test(email)) return reject('invalid_email', 'The email is not a valid address.')
     const twins = rows.filter((other) => other.row !== row && other.cells.email.toLowerCase() === email.toLowerCase())
     if (twins.length > 0) return reject('duplicate_email', `The email is also on row ${twins.map((other) => other.row).join(', ')}.`)
     const unknown = roles.filter((role) => !isGlobalRole(matchKey(role)))

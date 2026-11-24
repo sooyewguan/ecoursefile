@@ -134,7 +134,9 @@ The app names a person by `display_name` wherever it shows them: the header and 
 
 ### Importing users from a CSV file
 
-On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones. **Download CSV** saves the same list, with a Row, Email, Result and Reason column, so the results outlast the page.
+
+The import dialog names the roles a row may hold, by the labels the app shows, and points to the **Departments** page for department codes. The template has the header row and one example row, filled in as a lecturer and HoD of `FTMK` with the email `aisyah.rahman@example.com`. The import rejects any row with that email, so an example row left in the file adds nobody.
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
@@ -150,12 +152,14 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `code` | Reason |
 | --- | --- |
 | `missing_value` | The full name, email, roles or temporary password is empty. |
+| `example_row` | The row is the template's example row. |
+| `invalid_email` | The email is not an address by the pattern and 255-character limit Supabase Auth applies, so the row never reaches Auth. |
 | `duplicate_email` | Another row of the file has the same email, in any case. Every row with that email is rejected. |
 | `unknown_role` | A role is not a global role. |
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
-| `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
+| `email_exists` | A user with the email already exists. The function passes on Supabase Auth's wording, and the page and the downloaded CSV show the app's own, from `importReason` in `user-import.ts`. |
+| `invalid_request` | Supabase Auth refused a value, such as a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
