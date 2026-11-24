@@ -542,6 +542,15 @@ The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy dea
 
 Nobody changes or removes an entry. Clients have no update, delete or truncate grant on `activity_log`, and neither has the service role, so the API refuses them with `42501`. Clients cannot add entries either. Grants do not bind the table's owner. The RPCs that log changes, such as `record_verdict`, run as the owner, and so do migrations and the SQL editor. A trigger therefore refuses every update, delete and truncate of the table, by any role, with `42501`.
 
+## Home
+
+Home routes audit work to the people who must act on it, since push notifications are optional and off until set up. Its lists come first and cover every semester. Each entry names the course, its semester and the request's round, and opens the request on its course file page, at `/course-files/<offering id>#audit-request-<request id>`.
+
+- **Audit requests waiting for you**, for lecturers: each sent request on a course file they teach or coordinate, oldest first, with its auditor, when it was sent, and how many of its sections are answered. A request stays until one of its staff replies, also once every section is fixed. `requestsAwaitingReply` in `src/audit-requests.ts` reads it.
+- **Replies to review**, for auditors: each of their replied requests, oldest reply first, with who replied, when, and the start of the message. A reply stays until its auditor closes the request. `repliesToReview` reads it.
+
+A list with nothing in it says so in one line. Below the lists, management, auditors and the admin see the faculty overview, and lecturers their own course files.
+
 ## Reports
 
 Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows. The migration is `supabase/migrations/20261120070100_reports.sql`.
