@@ -1,12 +1,15 @@
-import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
+import { ArrowLeftIcon, BookOpenIcon, CalendarRangeIcon, CopyIcon, FileTextIcon, FolderOpenIcon, PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { CopyOfferingsDialog, CopyResults, type CopyOutcome, type SemesterRef } from '@/components/copy-offerings'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
+import { StaffNames, type StaffMember } from '@/components/identity'
+import { ReplaceSharedFileDialog } from '@/components/replace-shared-file-dialog'
 import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
@@ -31,41 +34,54 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils'
 import { friendlyError } from '../errors.ts'
 import { containsFilter } from '../paging.ts'
-import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS, type Section } from '../sections.ts'
+import { PROGRAM_CODE_FILE_SECTION, SEMESTER_FILE_SECTIONS } from '../sections.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
-import { uploadFile } from '../uploads.ts'
+import { uploadFile, type SharedSlot } from '../uploads.ts'
 
 /**
- * An offering and its lecturers, the coordinator among them, by the names the app shows. While its
- * course file is not in use, its course can change and it can be deleted.
+ * An offering and its lecturers, the coordinator among them, by the names the app shows, and whether
+ * each one's account is active. While its course file is not in use, its course can change and it
+ * can be deleted.
  */
 type Offering = {
   id: string
   coordinator_id: string
   in_use: boolean
   course: { id: string; code: string; title: string }
-  lecturers: { lecturer_id: string; lecturer_name: string }[]
+  lecturers: { lecturer_id: string; lecturer_name: string; profile: { active: boolean } }[]
 }
 
 /** One of the semester's shared files, and the offerings whose course files link it. */
 type SharedFile = LinkedSharedFile & { section: number; uploaded_at: string; uploader_name: string }
 
-/** A program code's student timetable for the semester. */
-type StudentTimetable = SharedFile & { program_code: { code: string } }
+/** A program code, and its student timetable for the semester, or null while it is missing. */
+type StudentTimetable = { program_code_id: string; code: string; missing: boolean; file: SharedFile | null }
 
-/** A lecturer's timetable for the semester. It is deletable here while no course file links it. */
-type LecturerTimetable = SharedFile & { deletable: boolean; lecturer: { display_name: string } }
+/**
+ * A lecturer who teaches in the semester, by the course codes of their offerings there, and their
+ * timetable for the semester, or null while it is missing. With no courses, the lecturer no longer
+ * teaches there, and the timetable is deletable here, since no course file links it.
+ */
+type LecturerTimetable = {
+  lecturer_id: string
+  display_name: string
+  email: string
+  active: boolean
+  courses: string[]
+  missing: boolean
+  file: (SharedFile & { deletable: boolean }) | null
+}
 
 /** The dialog that is open, and the offering or shared file it acts on. title names the shared file. */
 type OpenDialog =
   | { kind: 'add' }
+  | { kind: 'copy' }
   | { kind: 'edit'; offering: Offering }
   | { kind: 'delete'; offering: Offering }
-  | { kind: 'upload-timetable' }
   | { kind: 'delete-shared'; file: SharedFile; title: string }
+  | { kind: 'replace-shared'; file: SharedFile; title: string; slot: SharedSlot }
 
 const STUDENT_TIMETABLE = PROGRAM_CODE_FILE_SECTION
-const LECTURER_TIMETABLE = LECTURER_FILE_SECTION
 
 /** How many options a picker shows for a search. */
 const PICKER_LIMIT = 20
@@ -82,65 +98,76 @@ const SHARED_COLUMNS = ['', WIDE, '']
 /**
  * One semester: its offerings, with their coordinators and lecturers, a page at a time; the
  * Academic Calendar and Appointment Letter that every course file of the semester links; every
- * lecturer's timetable, with the course files that link it, including one whose lecturer no longer
- * teaches in the semester; and the Student Timetable of each program code that has one, which every
- * course file that ticks the code links. Each file opens in a new tab.
+ * lecturer who teaches in the semester with their timetable or Missing, and each timetable whose
+ * lecturer no longer teaches there; and every program code with its Student Timetable or Missing,
+ * which every course file that ticks the code links. Missing rows come first, and each list counts
+ * them. Each file opens in a new tab.
  */
 export function Semester() {
   const semesterId = useParams().semesterId!
   /** Undefined while it loads, and null when no semester has the id in the address. */
-  const [semester, setSemester] = useState<{ code: string } | null | undefined>(undefined)
+  const [semester, setSemester] = useState<SemesterRef | null | undefined>(undefined)
   const [sharedFiles, setSharedFiles] = useState<SharedFile[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
-  /** The section whose file is uploading. */
-  const [uploading, setUploading] = useState<Section | null>(null)
+  /** What the last copy into a semester did, until dismissed, and the semester it copied into. */
+  const [copied, setCopied] = useState<{ semesterId: string; outcome: CopyOutcome } | null>(null)
+  /** The key of the shared file that is uploading, as keyOf gives it. */
+  const [uploading, setUploading] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
-  /** The section the file picked next goes to. */
-  const picking = useRef<Section | null>(null)
+  /** Where the file picked next goes. */
+  const picking = useRef<SharedSlot | null>(null)
+  /** How many lecturers who teach in the semester, and how many program codes, have no timetable for it. */
+  const [missing, setMissing] = useState<{ lecturers: number | null; programCodes: number | null }>({ lecturers: null, programCodes: null })
 
   const offerings = usePagedList((range, search) => {
     let query = supabase
       .from('offerings')
-      .select('id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
-        count: 'exact',
-      })
+      .select(
+        'id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, profile:profiles!offering_lecturers_lecturer_id_fkey(active))',
+        { count: 'exact' },
+      )
       .eq('semester_id', semesterId)
     const filter = containsFilter(['code', 'title'], search)
     if (filter) query = query.or(filter, { referencedTable: 'course' })
     return query.order('course(code)').range(range.from, range.to).overrideTypes<Offering[], { merge: false }>()
   }, semesterId)
 
-  const lecturerTimetables = usePagedList((range, search) => {
-    let query = supabase
-      .from('files')
-      .select(
-        'id, section, name, uploaded_at, uploader_name, deletable, lecturer:profiles!files_lecturer_id_fkey!inner(display_name, full_name), linked_offerings(id, course:courses(code, title))',
-        { count: 'exact' },
-      )
-      .eq('semester_id', semesterId)
-      .eq('section', LECTURER_TIMETABLE.number)
-    const filter = containsFilter(['display_name', 'email'], search)
-    if (filter) query = query.or(filter, { referencedTable: 'lecturer' })
-    return query.order('lecturer(full_name)').range(range.from, range.to).overrideTypes<LecturerTimetable[], { merge: false }>()
+  /** One page of an outstanding list, its missing rows first, with how many rows that match the search miss their file. */
+  async function outstandingPage<Row>(
+    list: 'semester_lecturer_timetables' | 'semester_student_timetables',
+    order: string,
+    searchColumns: string[],
+    range: { from: number; to: number },
+    search: string,
+  ): Promise<{ data: Row[] | null; count: number | null; error: unknown; missing: number | null }> {
+    const filter = containsFilter(searchColumns, search)
+    const matching = (head: boolean) => {
+      const query = supabase.rpc(list, { semester_id: semesterId }, { count: 'exact', head })
+      return filter ? query.or(filter) : query
+    }
+    const [page, missing] = await Promise.all([
+      matching(false).order('missing', { ascending: false }).order(order).range(range.from, range.to),
+      matching(true).eq('missing', true),
+    ])
+    return { data: page.data as Row[] | null, count: page.count, error: page.error, missing: missing.error ? null : missing.count }
+  }
+
+  const lecturerTimetables = usePagedList(async (range, search) => {
+    const page = await outstandingPage<LecturerTimetable>('semester_lecturer_timetables', 'full_name', ['display_name', 'email'], range, search)
+    setMissing((counts) => ({ ...counts, lecturers: page.missing }))
+    return page
   }, semesterId)
 
-  const studentTimetables = usePagedList((range, search) => {
-    let query = supabase
-      .from('files')
-      .select('id, section, name, uploaded_at, uploader_name, program_code:program_codes!inner(code), linked_offerings(id, course:courses(code, title))', {
-        count: 'exact',
-      })
-      .eq('semester_id', semesterId)
-      .eq('section', STUDENT_TIMETABLE.number)
-    const filter = containsFilter(['code'], search)
-    if (filter) query = query.or(filter, { referencedTable: 'program_code' })
-    return query.order('program_code(code)').range(range.from, range.to).overrideTypes<StudentTimetable[], { merge: false }>()
+  const studentTimetables = usePagedList(async (range, search) => {
+    const page = await outstandingPage<StudentTimetable>('semester_student_timetables', 'code', ['code'], range, search)
+    setMissing((counts) => ({ ...counts, programCodes: page.missing }))
+    return page
   }, semesterId)
 
   const reload = useCallback(async () => {
     const [found, files] = await Promise.all([
-      supabase.from('semesters').select('code').eq('id', semesterId).maybeSingle(),
+      supabase.from('semesters').select('id, code, start_year, number').eq('id', semesterId).maybeSingle(),
       supabase
         .from('files')
         .select('id, section, name, uploaded_at, uploader_name, linked_offerings(id, course:courses(code, title))')
@@ -222,45 +249,64 @@ export function Semester() {
     setDialog(null)
   }
 
-  function pick(section: Section) {
-    picking.current = section
+  function pick(target: SharedSlot) {
+    picking.current = target
     picker.current?.click()
   }
 
-  /** Uploads the picked PDF as the semester's file of the section, then reports the outcome. */
+  /** Reloads every list of shared files: the calendar and letter, and both timetable lists. */
+  async function reloadSharedFiles() {
+    studentTimetables.retry()
+    lecturerTimetables.retry()
+    await reload()
+  }
+
+  /** Uploads the picked PDF as the semester's file of the section, or a program code's timetable, then reports the outcome. */
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ''
-    const section = picking.current
-    if (!file || !section) return
-    setUploading(section)
+    const target = picking.current
+    if (!file || !target) return
+    setUploading(keyOf(target))
     try {
-      await uploadFile(supabase, { semesterId, section: section.number }, file)
+      await uploadFile(supabase, target, file)
       toast.success(`Uploaded ${file.name}`)
     } catch (error) {
       toast.error(friendlyError(error))
     }
-    await reload()
+    await reloadSharedFiles()
     setUploading(null)
+  }
+
+  /** The upload button of a shared file that is missing. */
+  function uploadButton(target: SharedSlot, label: string) {
+    return (
+      <Button variant="outline" size="sm" aria-label={label} onClick={() => pick(target)} disabled={uploading !== null}>
+        {uploading === keyOf(target) ? <Spinner /> : <UploadIcon />}
+        Upload PDF
+      </Button>
+    )
   }
 
   // An empty list offers its action in its empty state, so the heading offers it only once a list has rows.
   const noOfferings = offerings.total === 0 && !offerings.query
-  const noStudentTimetables = studentTimetables.total === 0 && !studentTimetables.query
+  const noProgramCodes = studentTimetables.total === 0 && !studentTimetables.query
   const hasOfferings = offerings.total !== null && !noOfferings
-  const hasStudentTimetables = studentTimetables.total !== null && !noStudentTimetables
-  const noLecturerTimetables = lecturerTimetables.total === 0 && !lecturerTimetables.query
+  const noLecturers = lecturerTimetables.total === 0 && !lecturerTimetables.query
   const addButton = (
     <Button onClick={() => setDialog({ kind: 'add' })}>
       <PlusIcon />
       Add offering
     </Button>
   )
-  const uploadTimetableButton = (
-    <Button variant="outline" onClick={() => setDialog({ kind: 'upload-timetable' })}>
-      <UploadIcon />
-      Upload timetable
-    </Button>
+  const offeringActions = (
+    <div className="flex flex-wrap justify-center gap-2 max-sm:w-full max-sm:*:grow">
+      <Button variant="outline" onClick={() => setDialog({ kind: 'copy' })} disabled={!semester}>
+        <CopyIcon />
+        Copy offerings
+      </Button>
+      {addButton}
+    </div>
   )
 
   return (
@@ -268,7 +314,8 @@ export function Semester() {
       <PageHeader title={semester ? `Semester ${semester.code}` : 'Semester'} action={backLink} />
 
       <section aria-labelledby="offerings-heading" className="grid gap-3">
-        <ListHeading id="offerings-heading" title="Offerings" total={offerings.total} action={hasOfferings && addButton} />
+        <ListHeading id="offerings-heading" title="Offerings" total={offerings.total} action={hasOfferings && offeringActions} />
+        {copied?.semesterId === semesterId && <CopyResults outcome={copied.outcome} onDismiss={() => setCopied(null)} />}
         {hasOfferings && (
           <Input
             type="search"
@@ -301,7 +348,8 @@ export function Semester() {
                   columns={OFFERING_COLUMNS.length}
                   icon={BookOpenIcon}
                   title={noOfferings ? 'No offerings yet' : 'No matching offerings'}
-                  action={noOfferings ? addButton : undefined}
+                  description={noOfferings ? 'Copy the offerings of another semester, or add them one at a time.' : undefined}
+                  action={noOfferings ? offeringActions : undefined}
                 />
               ) : (
                 offerings.rows.map((offering) => (
@@ -347,13 +395,9 @@ export function Semester() {
                       name={`${section.number} ${section.title}`}
                       file={file}
                       actionLabel={`Actions for ${section.title}`}
+                      onReplace={(file) => setDialog({ kind: 'replace-shared', file, title: section.title, slot: { semesterId, section: section.number } })}
                       onDelete={(file) => setDialog({ kind: 'delete-shared', file, title: section.title })}
-                      upload={
-                        <Button variant="outline" size="sm" onClick={() => pick(section)} disabled={uploading !== null}>
-                          {uploading === section ? <Spinner /> : <UploadIcon />}
-                          Upload PDF
-                        </Button>
-                      }
+                      upload={uploadButton({ semesterId, section: section.number }, `Upload the ${section.title}`)}
                     />
                   )
                 })
@@ -364,8 +408,8 @@ export function Semester() {
       </section>
 
       <section aria-labelledby="lecturer-timetables-heading" className="grid gap-3">
-        <ListHeading id="lecturer-timetables-heading" title="Lecturer timetables" total={lecturerTimetables.total} />
-        {lecturerTimetables.total !== null && !noLecturerTimetables && (
+        <ListHeading id="lecturer-timetables-heading" title="Lecturer timetables" total={lecturerTimetables.total} missing={missing.lecturers} />
+        {lecturerTimetables.total !== null && !noLecturers && (
           <Input
             type="search"
             aria-label="Search lecturer timetables"
@@ -392,30 +436,28 @@ export function Semester() {
               ) : !lecturerTimetables.rows ? (
                 <TableSkeleton columns={SHARED_COLUMNS} />
               ) : lecturerTimetables.rows.length === 0 ? (
-                <TableEmpty
-                  columns={SHARED_COLUMNS.length}
-                  icon={FileTextIcon}
-                  title={noLecturerTimetables ? 'No lecturer timetables yet' : 'No matching lecturer timetables'}
-                />
+                <TableEmpty columns={SHARED_COLUMNS.length} icon={FileTextIcon} title={noLecturers ? 'No lecturers in this semester yet' : 'No matching lecturers'} />
               ) : (
-                lecturerTimetables.rows.map((timetable) => {
-                  const name = timetable.lecturer.display_name
-                  const courses = timetable.linked_offerings.map((offering) => offering.course.code).toSorted()
+                lecturerTimetables.rows.map((lecturer) => {
+                  const name = lecturer.display_name
                   return (
                     <SharedFileRow
-                      key={timetable.id}
-                      name={name}
-                      file={timetable}
+                      key={lecturer.lecturer_id}
+                      name={<StaffNames staff={[{ name, active: lecturer.active }]} />}
+                      file={lecturer.file ?? undefined}
                       detail={
-                        courses.length > 0 ? (
-                          <span className="text-muted-foreground text-xs">In {courses.join(', ')}</span>
-                        ) : (
-                          <Badge variant="outline">Not in any course file</Badge>
-                        )
+                        <>
+                          <span className="text-muted-foreground text-xs break-all">{lecturer.email}</span>
+                          {lecturer.courses.length > 0 ? (
+                            <span className="text-muted-foreground text-xs">Teaches {lecturer.courses.join(', ')}</span>
+                          ) : (
+                            <Badge variant="outline">Not in any course file</Badge>
+                          )}
+                        </>
                       }
                       actionLabel={`Actions for the timetable of ${name}`}
                       onDelete={
-                        timetable.deletable ? (file) => setDialog({ kind: 'delete-shared', file, title: `the timetable of ${name}` }) : undefined
+                        lecturer.file?.deletable ? (file) => setDialog({ kind: 'delete-shared', file, title: `the timetable of ${name}` }) : undefined
                       }
                     />
                   )
@@ -428,8 +470,8 @@ export function Semester() {
       </section>
 
       <section aria-labelledby="student-timetables-heading" className="grid gap-3">
-        <ListHeading id="student-timetables-heading" title="Student timetables" total={studentTimetables.total} action={hasStudentTimetables && uploadTimetableButton} />
-        {hasStudentTimetables && (
+        <ListHeading id="student-timetables-heading" title="Student timetables" total={studentTimetables.total} missing={missing.programCodes} />
+        {studentTimetables.total !== null && !noProgramCodes && (
           <Input
             type="search"
             aria-label="Search student timetables"
@@ -459,17 +501,35 @@ export function Semester() {
                 <TableEmpty
                   columns={SHARED_COLUMNS.length}
                   icon={FileTextIcon}
-                  title={noStudentTimetables ? 'No student timetables yet' : 'No matching student timetables'}
-                  action={noStudentTimetables ? uploadTimetableButton : undefined}
+                  title={noProgramCodes ? 'No program codes yet' : 'No matching program codes'}
+                  action={
+                    noProgramCodes ? (
+                      <Button asChild variant="outline">
+                        <Link to="/program-codes">Go to Program codes</Link>
+                      </Button>
+                    ) : undefined
+                  }
                 />
               ) : (
                 studentTimetables.rows.map((timetable) => (
                   <SharedFileRow
-                    key={timetable.id}
-                    name={timetable.program_code.code}
-                    file={timetable}
-                    actionLabel={`Actions for the student timetable of ${timetable.program_code.code}`}
-                    onDelete={(file) => setDialog({ kind: 'delete-shared', file, title: `the student timetable of ${timetable.program_code.code}` })}
+                    key={timetable.program_code_id}
+                    name={timetable.code}
+                    file={timetable.file ?? undefined}
+                    actionLabel={`Actions for the student timetable of ${timetable.code}`}
+                    onReplace={(file) =>
+                      setDialog({
+                        kind: 'replace-shared',
+                        file,
+                        title: `the student timetable of ${timetable.code}`,
+                        slot: { semesterId, section: STUDENT_TIMETABLE.number, programCodeId: timetable.program_code_id },
+                      })
+                    }
+                    onDelete={(file) => setDialog({ kind: 'delete-shared', file, title: `the student timetable of ${timetable.code}` })}
+                    upload={uploadButton(
+                      { semesterId, section: STUDENT_TIMETABLE.number, programCodeId: timetable.program_code_id },
+                      `Upload the student timetable of ${timetable.code}`,
+                    )}
                   />
                 ))
               )}
@@ -492,6 +552,17 @@ export function Semester() {
         />
       )}
 
+      {dialog?.kind === 'copy' && semester && (
+        <CopyOfferingsDialog
+          semester={semester}
+          onClose={close}
+          onCopied={(outcome) => {
+            setCopied({ semesterId, outcome })
+            reloadOfferings()
+          }}
+        />
+      )}
+
       {dialog?.kind === 'edit' && (
         <OfferingDialog
           semesterId={semesterId}
@@ -503,27 +574,28 @@ export function Semester() {
 
       {dialog?.kind === 'delete' && <DeleteOfferingDialog offering={dialog.offering} onClose={close} onDelete={() => remove(dialog.offering)} />}
 
-      {dialog?.kind === 'upload-timetable' && (
-        <UploadTimetableDialog
-          semesterId={semesterId}
-          onClose={close}
-          onUploaded={(name) => {
-            studentTimetables.retry()
-            toast.success(`Uploaded ${name}`)
-          }}
-        />
-      )}
-
       {dialog?.kind === 'delete-shared' && (
         <DeleteSharedFileDialog
           file={dialog.file}
           title={dialog.title}
           onClose={close}
           onDeleted={async () => {
-            await reload()
-            studentTimetables.retry()
-            lecturerTimetables.retry()
+            await reloadSharedFiles()
             toast.success(`Deleted ${dialog.file.name}`)
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'replace-shared' && (
+        <ReplaceSharedFileDialog
+          file={dialog.file}
+          title={dialog.title}
+          slot={dialog.slot}
+          onClose={close}
+          onFailed={reloadSharedFiles}
+          onReplaced={async (name) => {
+            await reloadSharedFiles()
+            toast.success(`Replaced ${dialog.file.name} with ${name}`)
           }}
         />
       )}
@@ -531,27 +603,47 @@ export function Semester() {
   )
 }
 
-/** A list's heading with how many it holds, and the list's action at its end. */
-function ListHeading({ id, title, total, action }: { id: string; title: string; total: number | null; action?: ReactNode }) {
+/** Where a shared file goes, as one string, to tell which upload is running. */
+function keyOf(target: SharedSlot) {
+  return `${target.section}:${target.programCodeId ?? ''}`
+}
+
+/**
+ * A list's heading with how many it holds, how many of them miss their file when the list counts
+ * that, and the list's action at its end.
+ */
+function ListHeading({ id, title, total, missing, action }: { id: string; title: string; total: number | null; missing?: number | null; action?: ReactNode }) {
   return (
     <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
-      <h2 id={id} className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
-        {title}
-        {total !== null && total > 0 && <span className="text-muted-foreground text-sm font-normal tabular-nums">{total.toLocaleString('en-US')}</span>}
-      </h2>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id={id} className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
+          {title}
+          {total !== null && total > 0 && <span className="text-muted-foreground text-sm font-normal tabular-nums">{total.toLocaleString('en-US')}</span>}
+        </h2>
+        {missing != null &&
+          total !== null &&
+          total > 0 &&
+          (missing > 0 ? (
+            <Badge variant="destructive" className="tabular-nums">
+              {missing.toLocaleString('en-US')} missing
+            </Badge>
+          ) : (
+            <Badge variant="success">None missing</Badge>
+          ))}
+      </div>
       {action}
     </div>
   )
 }
 
-/** An offering's row: its course, which opens its course file, its coordinator and its other lecturers. */
+/** An offering's row: its course, which opens its course file, its coordinator and its other lecturers, each marked when deactivated. */
 function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdit: () => void; onDelete: () => void }) {
-  const coordinator = offering.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)?.lecturer_name
+  const member = (lecturer: Offering['lecturers'][number]): StaffMember => ({ name: lecturer.lecturer_name, active: lecturer.profile.active })
+  const coordinator = offering.lecturers.filter((lecturer) => lecturer.lecturer_id === offering.coordinator_id).map(member)
   const others = offering.lecturers
     .filter((lecturer) => lecturer.lecturer_id !== offering.coordinator_id)
-    .map((lecturer) => lecturer.lecturer_name)
-    .toSorted((a, b) => a.localeCompare(b))
-    .join(', ')
+    .map(member)
+    .toSorted((a, b) => a.name.localeCompare(b.name))
   return (
     <TableRow className="relative">
       <TableCell className="px-4 py-3 whitespace-normal">
@@ -561,13 +653,23 @@ function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdi
           </Link>
           <span>{offering.course.title}</span>
           <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs md:hidden">
-            <span>Coordinator: {coordinator}</span>
-            {others && <span>Lecturers: {others}</span>}
+            <span>
+              Coordinator: <StaffNames staff={coordinator} />
+            </span>
+            {others.length > 0 && (
+              <span>
+                Lecturers: <StaffNames staff={others} />
+              </span>
+            )}
           </div>
         </div>
       </TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{coordinator}</TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{others || <span className="text-muted-foreground">—</span>}</TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        <StaffNames staff={coordinator} />
+      </TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        {others.length > 0 ? <StaffNames staff={others} /> : <span className="text-muted-foreground">—</span>}
+      </TableCell>
       <TableCell className="relative z-10 px-4 py-2 text-right">
         <RowActions label={`Actions for ${offering.course.code}`}>
           <DropdownMenuItem asChild>
@@ -593,21 +695,23 @@ function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdi
 
 /**
  * A shared file's row: the section, program code or lecturer it is for, the file, which opens in a
- * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Delete
- * with onDelete. Without a file it is Missing, with the upload button.
+ * new tab, any detail under it, who uploaded it and when, and its row menu, which offers Replace
+ * with onReplace and Delete with onDelete. Without a file it is Missing, with the upload button.
  */
 function SharedFileRow({
   name,
   file,
   detail,
   actionLabel,
+  onReplace,
   onDelete,
   upload,
 }: {
-  name: string
+  name: ReactNode
   file: SharedFile | undefined
   detail?: ReactNode
   actionLabel: string
+  onReplace?: (file: SharedFile) => void
   onDelete?: (file: SharedFile) => void
   upload?: ReactNode
 }) {
@@ -641,6 +745,12 @@ function SharedFileRow({
         {file ? (
           <RowActions label={actionLabel}>
             <FileMenuItems file={file} />
+            {onReplace && (
+              <DropdownMenuItem onSelect={() => onReplace(file)}>
+                <RefreshCwIcon />
+                Replace
+              </DropdownMenuItem>
+            )}
             {onDelete && (
               <>
                 <DropdownMenuSeparator />
@@ -701,14 +811,25 @@ function OfferingDialog({
   const [lecturers, setLecturers] = useState<ComboboxOption[]>(() => (offering?.lecturers ?? []).map(named))
   const others = lecturers.filter((lecturer) => lecturer.value !== coordinator?.value)
 
-  /** Finds the courses the semester does not offer yet whose code or title has the query. */
+  /**
+   * Finds the courses the semester does not offer yet whose code or title has the query. When every
+   * course that matches is offered already, it lists those, disabled, so the picker says why none
+   * can be chosen.
+   */
   async function searchCourses(query: string): Promise<ComboboxOption[]> {
-    let request = supabase.from('courses').select('id, code, title, offerings!left(id)').eq('offerings.semester_id', semesterId).is('offerings', null)
-    const filter = containsFilter(['code', 'title'], query)
-    if (filter) request = request.or(filter)
-    const { data, error } = await request.order('code').limit(PICKER_LIMIT)
-    if (error) throw error
-    return data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}` }))
+    const matching = (offered: boolean) => {
+      let request = supabase.from('courses').select(`id, code, title, offerings!${offered ? 'inner' : 'left'}(id)`).eq('offerings.semester_id', semesterId)
+      if (!offered) request = request.is('offerings', null)
+      const filter = containsFilter(['code', 'title'], query)
+      if (filter) request = request.or(filter)
+      return request.order('code').limit(PICKER_LIMIT)
+    }
+    const open = await matching(false)
+    if (open.error) throw open.error
+    if (open.data.length > 0) return open.data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}` }))
+    const offered = await matching(true)
+    if (offered.error) throw offered.error
+    return offered.data.map((found) => ({ value: found.id, label: `${found.code} ${found.title}`, detail: 'Already offered in this semester', disabled: true }))
   }
 
   return (
@@ -824,56 +945,5 @@ function DeleteOfferingDialog({ offering, onDelete, onClose }: { offering: Offer
       onClose={onClose}
       onConfirm={onDelete}
     />
-  )
-}
-
-/** Finds the program codes whose code has the query. */
-async function searchProgramCodes(query: string): Promise<ComboboxOption[]> {
-  let request = supabase.from('program_codes').select('id, code')
-  const filter = containsFilter(['code'], query)
-  if (filter) request = request.or(filter)
-  const { data, error } = await request.order('code').limit(PICKER_LIMIT)
-  if (error) throw error
-  return data.map((programCode) => ({ value: programCode.id, label: programCode.code }))
-}
-
-/** Uploads a PDF as the student timetable of a program code for the semester. */
-function UploadTimetableDialog({ semesterId, onClose, onUploaded }: { semesterId: string; onClose: () => void; onUploaded: (name: string) => void }) {
-  const [programCode, setProgramCode] = useState<ComboboxOption | null>(null)
-  return (
-    <FormDialog
-      title="Upload a student timetable"
-      submitLabel="Upload"
-      onClose={onClose}
-      onSubmit={async (form) => {
-        if (!programCode) return { field: 'program_code_id', message: 'Choose a program code.' }
-        const file = form.get('file') as File
-        try {
-          await uploadFile(supabase, { semesterId, section: STUDENT_TIMETABLE.number, programCodeId: programCode.value }, file)
-        } catch (error) {
-          return friendlyError(error)
-        }
-        onUploaded(file.name)
-        return null
-      }}
-    >
-      <div className="grid gap-2">
-        <Label htmlFor="timetable-program-code">Program code</Label>
-        <Combobox
-          id="timetable-program-code"
-          name="program_code_id"
-          value={programCode}
-          onChange={setProgramCode}
-          search={searchProgramCodes}
-          placeholder="Choose a program code"
-          searchPlaceholder="Search program codes"
-        />
-        <FieldError name="program_code_id" />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="timetable-file">PDF</Label>
-        <Input id="timetable-file" name="file" type="file" accept="application/pdf,.pdf" required />
-      </div>
-    </FormDialog>
   )
 }

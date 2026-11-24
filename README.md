@@ -114,6 +114,8 @@ Some limits apply to everyone:
 - The **Edit** dialog on the **Users** page refuses to take away a user's last role. To end someone's access, deactivate them. Root's **Remove admin** warns when admin is the user's only role, then goes ahead: root grants no other role and no admin manages another admin, so refusing would leave such an admin in place for good. Once they hold no role, an admin can give them a staff role or deactivate them.
 - The deactivate dialog lists the course files the user coordinates or teaches in the two newest semesters with offerings, each linked to its semester's page. Semesters have no dates, so the semester running now cannot be told from the next one set up early, and the two newest hold both.
 - An HoD must have a department. A department can have more than one HoD.
+
+- An HoD must have a department. A department can have more than one HoD. The **Departments** page lists each department's HoDs, and marks an HoD whose account is deactivated.
 - A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
 - Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
 - A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
@@ -198,9 +200,30 @@ The admin keeps the catalog on three pages. The tables and their RLS policies ar
 
 Only admins add and edit catalog entries. Every signed-in user except root reads them. Nobody deletes them, and a department that has courses cannot be deleted. A write that repeats a name or code fails with Postgres error `23505`, and the pages show it as a plain message.
 
+### Importing courses from a CSV file
+
+On the **Courses** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a course, as **Add course** would. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+
+- The first row that is not blank names the columns: `code`, `title`, `department` and `course_type`, in any order and case, with spaces for underscores. `department code` and `course type name` name the last two as well. Other columns are ignored. CSV quoting, a byte order mark and blank rows work as they do for the [user import](#importing-users-from-a-csv-file).
+- `department` is the department's code, in any case. `course_type` is the course type's name as the **Course types** page shows it. A name in another case matches too, when only one course type has that name in any case.
+- The template holds one example row. A file that keeps it gets that row rejected, so it never adds a course that nobody meant.
+- A file holds at most 500 courses. A longer file is refused as a whole, and the admin splits it.
+
+The browser reads the file (`src/course-import.ts`), and `import_courses(courses)` checks each row and adds the valid ones in one transaction. A rejected row stops no other row. Only admins may import, and anyone else fails with Postgres error `42501`. The migration is `supabase/migrations/20261125000410_import_courses.sql`. Each rejected row gets one `problem` and a `reason`, checked in this order:
+
+| `problem` | Reason |
+| --- | --- |
+| `missing_value` | The code, title, department or course type is empty. |
+| `duplicate_code` | Another row of the file has the same code. Every row with that code is rejected. |
+| `code_exists` | A course with the code already exists. |
+| `unknown_department` | No department has the code. |
+| `unknown_course_type` | No course type has the name. |
+
+A second import of the same file adds nothing. Every row whose course was added is now rejected with `code_exists`. A course with one of the file's codes added by someone else while the import runs fails the whole import with `23505`, and importing again adds the rest.
+
 ## Semesters and offerings
 
-The admin sets up each semester on the **Semesters** page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
+The admin sets up each semester on the **Semesters** page. **Add semester** adds it and opens its page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
 
 | Table | What each entry holds |
 | --- | --- |
@@ -216,6 +239,22 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 | `set_offering_lecturers(offering_id, coordinator_id, lecturer_ids)` | Replaces the offering's coordinator and lecturers. |
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
+
+The course picker of **Add offering** and **Edit** lists the courses that the semester does not offer yet. When every course that matches the search is offered already, it lists those as "Already offered in this semester", and none can be picked.
+
+The semester page marks each coordinator and lecturer whose account is deactivated with **Deactivated**. They cannot sign in to work on the course file, so the admin can give the offering to someone else.
+
+### Copying offerings from another semester
+
+Most courses run again each year with the same staff, so the admin sets up a semester by copying another one. On the semester page, **Copy offerings** asks for the semester to copy from, and starts with the latest earlier semester that has offerings. The copy is `copy_offerings(source_semester_id, target_semester_id)`, in `supabase/migrations/20261125000400_copy_offerings.sql`.
+
+- Each course of the source semester that the target does not offer yet is offered in the target with the same coordinator and lecturers, through `create_offering`. So it takes its course type's sections 10 to 16 as they are now, as a new offering does, and none of the source offering's switches.
+- A course the target offers already is skipped, and its offering in the target stays as it is.
+- Staff who are deactivated, or no longer hold the `lecturer` role, are left off. An offering whose coordinator is one of them is skipped, so the admin adds it with another coordinator.
+- The copy is one transaction, so it adds every offering or none. Only admins may copy. Anyone else fails with Postgres error `42501`, and a course offered in the target while the copy runs fails the copy with `23505`.
+- Copying 100 offerings with three staff each takes about 0.2 s in the local database.
+
+It returns one row per offering of the source semester, by course code: the course, the new `offering_id` or null, `skipped` (`already_offered`, `coordinator_unavailable` or null), the source coordinator's name, and `left_off`, the names of the staff left off. The page shows them above the offerings until the admin dismisses them, the skipped ones and those with staff left off first.
 
 ### Changing and deleting offerings
 
@@ -361,10 +400,12 @@ A shared file is stored once and linked into many course files. Its key is the s
 | 5 Student Timetable | Program code | The admin, one for each program code, under **Student timetables** on the semester page | Every offering of the semester whose coordinator or lecturers tick the code on its section 5 page |
 
 - A semester's file is stored at `eCourseFile/<semester>/_shared/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/_shared/01 Academic Calendar/2026-11-19T10-30-00.123Z_calendar.pdf`. A timetable goes one folder deeper, in a folder named by the lecturer's id and then their email, such as `eCourseFile/2026-2027-1/_shared/04 Lecturer Timetable/0b6c6f2e-5d0b-4a8e-9a43-3f1d2c7e8a10 aisyah@example.edu/2026-11-19T10-30-00.123Z_timetable.pdf`. Finalize looks in the caller's own folder, so nobody records an upload as another lecturer's timetable. The id keeps two lecturers apart whose emails make the same folder name once the characters SharePoint forbids become `-`, such as `a/b@x` and `a-b@x`. A student timetable goes in a folder named by the program code's id and then the code, such as `.../05 Student Timetable/7f3e9a1c-2b4d-4e6f-8a0b-1c2d3e4f5a6b 1 BITS S1G1/<upload time>_<file name>`, so an upload for one code is never recorded for another.
-- To replace a shared file, the user who may delete it deletes it and uploads the new one.
+- To replace a shared file, the user who may delete it deletes it and uploads the new one. On the semester page, the row menu of the calendar, the letter and each student timetable has **Replace**, which does both in one step with `replaceSharedFile` in `src/uploads.ts`. It checks the new PDF first, as an upload checks it: a PDF of 20 MB or less, with a name that ends in `.pdf`, that the PDF engine reads. A file that fails leaves the old one. Then it deletes the old file and uploads the new one at once. A key holds one file and the files function opens no upload for a key that has one, so the course files that link the key show the section as Missing while the new file uploads. If that upload fails, the section stays Missing, the dialog says the old file is deleted, and **Replace** again only uploads.
+- A replaced file is a new file, so in each course file that links it, the section goes back to Pending review until an auditor gives a new verdict, as for any file that enters or leaves a section. See [Auditor verdicts](#auditor-verdicts). The earlier verdicts stay in `section_verdicts` and the activity log. A sent audit request that flags the section counts the new file as its fix.
+- The semester page lists what the semester still lacks, the missing rows first, and each list's heading says how many of its rows are missing, or None missing. **Lecturer timetables** lists every lecturer who teaches an offering of the semester, with their timetable or Missing, their email and the courses they teach there, and each timetable whose lecturer no longer teaches there. **Student timetables** lists every program code, with its timetable, or Missing and **Upload PDF**. The lists are `semester_lecturer_timetables(semester_id)` and `semester_student_timetables(semester_id)`, each row with `missing` and its `file`, in `supabase/migrations/20261125000420_semester_timetable_lists.sql`. They give rows only to admins.
 - Sections 1 and 3 of a course file are `missing` until the semester has the file, and `pending_review` once it has. Section 4 is `missing` while any lecturer of the offering has no timetable for the semester, so assigning a lecturer without one sets it back to `missing`. The section pages of 1 and 3 list the linked file. The section 4 page lists every lecturer of the offering, the coordinator first, with their timetable or Missing.
 - The section 5 page lists the program codes that have a student timetable for the semester, and the offering's coordinator and lecturers tick the codes whose students take the course. Only a code on that list can be ticked. Section 5 is `missing` while no code is ticked, and `pending_review` once one is. Each tick and untick adds a `tick` or `untick` row, with the `program_code_id`, to the offering's activity log. Ticking a ticked code, or unticking an unticked one, changes and logs nothing.
-- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists every lecturer's timetable for the semester, with the course files that link it, or "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete, and the admin who tries is refused with 403 `forbidden`: "Only its lecturer may delete a timetable, or the admin while no course file links it." `remove_file` checks the link again while it removes the timetable, and an assignment of its lecturer waits for it, so a timetable linked while the admin deletes it stays whole. The migrations are `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql` and `supabase/migrations/20261124000500_remove_file_checks_timetable_link.sql`.
+- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists such a timetable as "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete, and the admin who tries is refused with 403 `forbidden`: "Only its lecturer may delete a timetable, or the admin while no course file links it." `remove_file` checks the link again while it removes the timetable, and an assignment of its lecturer waits for it, so a timetable linked while the admin deletes it stays whole. The migrations are `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql` and `supabase/migrations/20261124000500_remove_file_checks_timetable_link.sql`.
 - A tick says which programs take the course, so it outlives its code's timetable. Deleting the timetable unlinks it from every offering that ticks the code, and section 5 of each is `missing` until staff untick the code or the admin uploads its timetable again, which links it back. The section 5 page lists such a code as ticked and Missing.
 - The admin, auditors, HoDs, deans and deputy deans read every shared file. A lecturer reads the calendar, letter and student timetables of each semester in which they teach an offering, their own timetables, and the timetables of the lecturers they teach an offering with. Root reads none.
 - Before a delete, the semester page or the section 4 page lists the offerings whose course files link the file, and the user confirms. After the delete, the section is `missing` in each of those course files.
