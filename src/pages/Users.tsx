@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { DeactivateUserDialog } from '@/components/deactivate-user-dialog'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
@@ -390,25 +391,22 @@ export function Users() {
         </FormDialog>
       )}
 
-      {dialog?.kind === 'set-active' && (
-        <ConfirmDialog
-          title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.display_name}?`}
-          description={
-            dialog.user.active
-              ? "They can't sign in, and any session they have open loses access at once. You can reactivate them later."
-              : 'They can sign in again with their current password.'
-          }
-          confirmLabel={dialog.user.active ? 'Deactivate' : 'Reactivate'}
-          destructive={dialog.user.active}
-          onClose={close}
-          onConfirm={() =>
-            perform(
-              () => updateProfile(dialog.user, { active: !dialog.user.active }),
-              `${dialog.user.active ? 'Deactivated' : 'Reactivated'} ${dialog.user.display_name}`,
-            )
-          }
-        />
-      )}
+      {dialog?.kind === 'set-active' &&
+        (dialog.user.active ? (
+          <DeactivateUserDialog
+            user={dialog.user}
+            onClose={close}
+            onConfirm={() => perform(() => updateProfile(dialog.user, { active: false }), `Deactivated ${dialog.user.display_name}`)}
+          />
+        ) : (
+          <ConfirmDialog
+            title={`Reactivate ${dialog.user.display_name}?`}
+            description="They can sign in again with their current password."
+            confirmLabel="Reactivate"
+            onClose={close}
+            onConfirm={() => perform(() => updateProfile(dialog.user, { active: true }), `Reactivated ${dialog.user.display_name}`)}
+          />
+        ))}
 
       {dialog?.kind === 'admin-role' && (
         <ConfirmDialog
