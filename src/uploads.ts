@@ -2,7 +2,9 @@ import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
 import { hasPdfName, PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 import { friendlyError, UserFacingError } from './errors.ts'
+import type { CourseFileManifest } from './pdf/compile.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
+import { readAll } from './reports.ts'
 import { pagesPerSheet } from './sections.ts'
 
 /**
@@ -219,11 +221,25 @@ export async function reuseFile(client: SupabaseClient, slot: Slot, fileId: stri
 
 /**
  * The manifest that the course file's PDF compiles from: its cover, and its sections in order with
- * their files and a short-lived download URL for each. The files function refuses a user who may
- * not read the course file with forbidden.
+ * their files and a short-lived download URL for each, and the item and slot of each file in a
+ * section that has them, null otherwise. The files function refuses a user who may not read the
+ * course file with forbidden.
  */
-export function compileManifest(client: SupabaseClient, offeringId: string) {
-  return callFiles<CompileManifest>(client, { action: 'compile-manifest', offeringId })
+export async function compileManifest(client: SupabaseClient, offeringId: string): Promise<CourseFileManifest> {
+  const [manifest, places] = await Promise.all([
+    callFiles<CompileManifest>(client, { action: 'compile-manifest', offeringId }),
+    readAll<{ id: string; item: number | null; slot: string | null }>((from, to) =>
+      client.from('files').select('id, item, slot').eq('offering_id', offeringId).order('id').range(from, to),
+    ),
+  ])
+  const placeOf = new Map(places.map((file) => [file.id, file]))
+  return {
+    ...manifest,
+    sections: manifest.sections.map((section) => ({
+      ...section,
+      files: section.files.map((file) => ({ ...file, item: placeOf.get(file.id)?.item ?? null, slot: placeOf.get(file.id)?.slot ?? null })),
+    })),
+  }
 }
 
 /**

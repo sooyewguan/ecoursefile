@@ -1,15 +1,26 @@
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, CopyPlusIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/action-dialogs'
+import { DropZone, useFileDrag } from '@/components/drop-zone'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
+import { ReuseAllDialog } from '@/components/reuse-all-dialog'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
 import { SectionVerdict } from '@/components/section-verdict'
 import { Time } from '@/components/time'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -28,6 +39,7 @@ import {
   type SectionSlot,
   type SectionStatus,
 } from '../sections.ts'
+import { alreadyHeld } from '../duplicates.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 import { deleteFile, deleteItem, listReusableFiles, uploadFile, type ReusableFile } from '../uploads.ts'
@@ -70,6 +82,12 @@ type Place = { item: number | null; slot: string | null }
 type ReuseTarget = Place & { title: string }
 
 /**
+ * Files picked or dropped into a place that holds some of them already, by name and size, waiting
+ * for the user to say whether to upload those again.
+ */
+type HeldUpload = { place: Place; files: File[]; held: File[] }
+
+/**
  * The file being uploaded, where it goes, its place in the batch, and how much of it has been
  * sent: null while the browser merges it.
  */
@@ -101,6 +119,8 @@ export function CourseFileSection() {
   const [deleting, setDeleting] = useState<SectionFile | null>(null)
   const [deletingItem, setDeletingItem] = useState<SectionItem | null>(null)
   const [reusingInto, setReusingInto] = useState<ReuseTarget | null>(null)
+  const [heldUpload, setHeldUpload] = useState<HeldUpload | null>(null)
+  const [reusingAll, setReusingAll] = useState(false)
   /** The files of past offerings that staff may reuse, by slot name, or under null in a section without slots. */
   const [reusable, setReusable] = useState<ReadonlyMap<string | null, ReusableFile[]>>(new Map())
   const auth = useAuth()
@@ -158,16 +178,19 @@ export function CourseFileSection() {
   }, [reload])
 
   const canUpload = data?.canUpload ?? false
-  const firstItem = data?.items[0]?.number
+  const dragging = useFileDrag(canUpload && !loadFailed, dropMissed)
 
   // Reuse from past shows only where there is something to reuse. The list of a slot is the same for
-  // every item, so the first item's stands for all.
+  // every item, so any item number names it.
   useEffect(() => {
-    if (!section || !canUpload || (section.itemTitle && firstItem === undefined)) return
+    if (!section || !canUpload) return
     const slotNames = (SECTION_SLOTS[section.number]?.map((slot) => slot.name) ?? [null]).filter((slot) => isReusable({ section: section.number, slot }))
     let current = true
     Promise.all(
-      slotNames.map(async (slot) => [slot, await listReusableFiles(supabase, { offeringId, section: section.number, item: firstItem, slot: slot ?? undefined })] as const),
+      slotNames.map(
+        async (slot) =>
+          [slot, await listReusableFiles(supabase, { offeringId, section: section.number, item: section.itemTitle ? 1 : undefined, slot: slot ?? undefined })] as const,
+      ),
     ).then(
       (lists) => current && setReusable(new Map(lists)),
       () => {},
@@ -175,7 +198,7 @@ export function CourseFileSection() {
     return () => {
       current = false
     }
-  }, [offeringId, section, canUpload, firstItem])
+  }, [offeringId, section, canUpload])
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId, reload)
 
@@ -212,6 +235,18 @@ export function CourseFileSection() {
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
 
+  const slotOf = (place: Place) => slots?.find((slot) => slot.name === place.slot)
+  /** A place's name, such as Lab 1 Lab Sheet, PO Achievement or Teaching Plan. */
+  const placeTitle = (place: Place) => {
+    const slot = slotOf(place)
+    if (!slot) return section.title
+    return place.item === null ? slot.title : `${itemName(section.number, place.item)} ${slot.title}`
+  }
+  /** Whether a place takes another file: staff may upload to the section, and a place that holds one file does not have it. */
+  const takesFiles = (place: Place) => canUpload && !(slotOf(place)?.oneFile && filesIn(place).length > 0)
+  /** The one place of a section without items or slots, which takes a drop anywhere on the page. */
+  const onlyPlace: Place | null = !section.itemTitle && !slots ? { item: null, slot: null } : null
+
   function pick(place: Place, oneFile: boolean) {
     picking.current = place
     if (!picker.current) return
@@ -219,12 +254,28 @@ export function CourseFileSection() {
     picker.current.click()
   }
 
-  /** Uploads the picked files one after another, then reports what was uploaded and what was refused. */
-  async function upload(event: ChangeEvent<HTMLInputElement>) {
-    const picked = [...(event.target.files ?? [])]
-    event.target.value = ''
+  /**
+   * Takes files picked or dropped into a place. A place that holds one file takes one. Files that the
+   * place already holds wait for the user to say whether to upload them again.
+   */
+  function offer(place: Place, picked: File[]) {
     if (picked.length === 0) return
-    const place = picking.current
+    if (progress) return toast.info(`Wait for ${progress.name} to finish uploading.`)
+    if (!takesFiles(place)) return toast.error(`${placeTitle(place)} holds one file. Delete it to upload another.`)
+    if (slotOf(place)?.oneFile && picked.length > 1) return toast.error(`${placeTitle(place)} holds one file. Drop one PDF.`)
+    const held = alreadyHeld(picked, filesIn(place), { merged: pagesPerSheet({ section: section!.number, slot: place.slot }) !== undefined })
+    if (held.length > 0) setHeldUpload({ place, files: picked, held })
+    else void upload(place, picked)
+  }
+
+  /** A drop on the page outside every list that takes it. */
+  function dropMissed(dropped: File[]) {
+    if (onlyPlace) offer(onlyPlace, dropped)
+    else if (dropped.length > 0) toast.info(section!.itemTitle && data?.items.length === 0 ? `Add ${itemName(section!.number, nextItem)} first, then drop PDFs on its lists.` : 'Drop PDFs on the list they go in.')
+  }
+
+  /** Uploads the files one after another, then reports what was uploaded and what was refused. */
+  async function upload(place: Place, picked: File[]) {
     const target = { offeringId, section: section!.number, item: place.item ?? undefined, slot: place.slot ?? undefined }
     /** Why each refused file was refused, naming the file. */
     const refused: string[] = []
@@ -254,6 +305,12 @@ export function CourseFileSection() {
         duration: 10_000,
       })
     }
+  }
+
+  function picked(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files ?? [])]
+    event.target.value = ''
+    offer(picking.current, files)
   }
 
   /** Puts one list's files in a new order, shows it at once, and saves it. */
@@ -296,11 +353,34 @@ export function CourseFileSection() {
       </Button>
     )
 
-  /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet", for staff who upload to it. */
+  const reuseAllButton = canUpload && [...reusable.values()].some((files) => files.length > 0) && (
+    <Button variant="outline" onClick={() => setReusingAll(true)} disabled={progress !== null}>
+      <CopyPlusIcon />
+      Reuse all from past
+    </Button>
+  )
+
+  /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet · drop PDFs here", for staff who upload to it. */
   const uploadRule = (oneFile: boolean) =>
-    [section.kind === 'may-be-empty' && 'Optional', oneFile ? 'One PDF' : 'PDF', 'max 20 MB', perSheet && `${perSheet} pages per sheet`]
+    [
+      section.kind === 'may-be-empty' && 'Optional',
+      oneFile ? 'One PDF' : 'PDF',
+      'max 20 MB',
+      perSheet && `${perSheet} pages per sheet`,
+      oneFile ? 'drop it here' : 'drop PDFs here',
+    ]
       .filter(Boolean)
       .join(' · ')
+
+  /** The place's list, which takes PDFs dropped on it while it takes files. */
+  const dropTarget = (place: Place, list: ReactNode) =>
+    takesFiles(place) ? (
+      <DropZone label={placeTitle(place)} active={dragging} onDrop={(dropped) => offer(place, dropped)}>
+        {list}
+      </DropZone>
+    ) : (
+      list
+    )
 
   const tableFor = (place: Place, label: string, oneFile = false) => (
     <FileTable
@@ -324,19 +404,24 @@ export function CourseFileSection() {
     const title = item === null ? slot.title : `${itemName(section.number, item)} ${slot.title}`
     const Heading = item === null ? 'h2' : 'h3'
     return (
-      <section key={slot.name} aria-label={title} className="grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
-            {slot.oneFile && <Badge variant="secondary">One file</Badge>}
-            {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages per sheet</Badge>}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {reuseButton(place, title)}
-            {!(slot.oneFile && filesIn(place).length > 0) && uploadButton(place, slot.oneFile)}
-          </div>
-        </div>
-        {tableFor(place, `${title} files`, slot.oneFile)}
+      <section key={slot.name} aria-label={title}>
+        {dropTarget(
+          place,
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
+                {slot.oneFile && <Badge variant="secondary">One file</Badge>}
+                {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages per sheet</Badge>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {reuseButton(place, title)}
+                {takesFiles(place) && uploadButton(place, slot.oneFile)}
+              </div>
+            </div>
+            {tableFor(place, `${title} files`, slot.oneFile)}
+          </div>,
+        )}
       </section>
     )
   }
@@ -391,6 +476,7 @@ export function CourseFileSection() {
         action={
           <PageActions>
             {backLink}
+            {reuseAllButton}
             {section.itemTitle
               ? addItemButton
               : !slots && (
@@ -402,13 +488,15 @@ export function CourseFileSection() {
           </PageActions>
         }
       />
-      <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={(event) => void upload(event)} />
+      <input ref={picker} type="file" accept="application/pdf,.pdf" hidden onChange={picked} />
 
       {progress && (
         <p role="status" className="text-sm">
-          {progress.fraction === null && progressPerSheet
-            ? `Merging ${progress.name} at ${progressPerSheet} pages per sheet (${progress.index + 1} of ${progress.count})`
-            : `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round((progress.fraction ?? 0) * 100)}%`}
+          {progress.fraction !== null
+            ? `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round(progress.fraction * 100)}%`
+            : progressPerSheet
+              ? `Merging ${progress.name} at ${progressPerSheet} pages per sheet (${progress.index + 1} of ${progress.count})`
+              : `Checking ${progress.name} (${progress.index + 1} of ${progress.count})`}
         </p>
       )}
       {isOff && (
@@ -443,7 +531,7 @@ export function CourseFileSection() {
       )}
       {/* A switched-off section shows the files and items it still has. */}
       {!(isOff && files.length === 0 && data?.items.length === 0) &&
-        (section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : tableFor({ item: null, slot: null }, 'Files'))}
+        (section.itemTitle ? itemList : slots ? slots.map((slot) => slotList(null, slot)) : dropTarget(onlyPlace!, tableFor(onlyPlace!, 'Files')))}
 
       <SectionVerdict offeringId={offeringId} section={section.number} sectionTitle={section.title} status={data?.status ?? null} onRecorded={reload} />
       <SectionPager offeringId={offeringId} section={section.number} />
@@ -474,11 +562,35 @@ export function CourseFileSection() {
           title={reusingInto.title}
           courseCode={data.offering.course.code}
           files={reusable.get(reusingInto.slot) ?? []}
+          held={filesIn(reusingInto)}
           onClose={() => setReusingInto(null)}
           onReused={async (file) => {
             await reload()
             toast.success(`Copied ${file.name} from ${file.semester_code}`)
           }}
+        />
+      )}
+
+      {heldUpload && (
+        <HeldFilesDialog
+          title={placeTitle(heldUpload.place)}
+          merged={pagesPerSheet({ section: section.number, slot: heldUpload.place.slot }) !== undefined}
+          {...heldUpload}
+          onClose={() => setHeldUpload(null)}
+          onUpload={(files) => {
+            setHeldUpload(null)
+            void upload(heldUpload.place, files)
+          }}
+        />
+      )}
+
+      {reusingAll && data?.offering && (
+        <ReuseAllDialog
+          offeringId={offeringId}
+          courseCode={data.offering.course.code}
+          sectionsOn={data.offering.sections_on}
+          onCopied={reload}
+          onClose={() => setReusingAll(false)}
         />
       )}
 
@@ -507,6 +619,60 @@ export function CourseFileSection() {
       )}
       {switchDialog}
     </div>
+  )
+}
+
+/**
+ * Asks whether to upload files again that the place, named by title, already holds: held, of the
+ * files picked or dropped. The user uploads them all, only the others, or none. merged says the
+ * place merges PDFs before it stores them, so only the names matched.
+ */
+function HeldFilesDialog({
+  title,
+  merged,
+  files,
+  held,
+  onUpload,
+  onClose,
+}: {
+  title: string
+  merged: boolean
+  files: File[]
+  held: File[]
+  onUpload: (files: File[]) => void
+  onClose: () => void
+}) {
+  const others = files.filter((file) => !held.includes(file))
+  const match = merged ? 'name' : 'name and size'
+  return (
+    <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="break-words">{held.length === 1 ? `Upload ${held[0].name} again?` : `Upload ${held.length} files again?`}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {held.length === 1 ? `${title} already has a file with this ${match}.` : `${title} already has files with these ${merged ? 'names' : 'names and sizes'}.`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {held.length > 1 && (
+          <ul aria-label="Already uploaded" className="text-sm grid gap-1">
+            {held.map((file) => (
+              <li key={file.name} className="break-words">
+                {file.name} <span className="text-muted-foreground">· {formatSize(file.size)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          {others.length > 0 && (
+            <Button variant="outline" onClick={() => onUpload(others)}>
+              Upload only the other {others.length === 1 ? 'file' : plural(others.length, 'file')}
+            </Button>
+          )}
+          <Button onClick={() => onUpload(files)}>Upload {held.length === 1 && others.length === 0 ? 'again' : 'all'}</Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

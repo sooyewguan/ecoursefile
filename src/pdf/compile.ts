@@ -1,10 +1,18 @@
 // The PDF engine's compile, a pure function over bytes that runs in the browser and in Node. It
 // builds one course file's PDF from its compile manifest.
-import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
+import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage, type RGB } from 'pdf-lib'
 import type { CompileManifest, ManifestCover, ManifestFile, ManifestSection } from '../../supabase/functions/_shared/manifest.ts'
+import { itemName, SECTION_SLOTS } from '../../supabase/functions/_shared/sections.ts'
 import { loadPdf } from './load.ts'
 
-export type { CompileManifest }
+/** A file to compile, with the number of its item and the name of its slot in a section that has them. */
+export type CompileFile = ManifestFile & { item?: number | null; slot?: string | null }
+
+/** A section to compile, with its files in order. */
+export type CompileSection = Omit<ManifestSection, 'files'> & { files: CompileFile[] }
+
+/** The manifest, with the item and slot of each file in a section that has them. */
+export type CourseFileManifest = Omit<CompileManifest, 'sections'> & { sections: CompileSection[] }
 
 /** Gets the bytes at a file's download URL. The browser passes a wrapper of fetch. */
 export type FetchBytes = (url: string) => Promise<Uint8Array>
@@ -25,45 +33,76 @@ class FetchFailed extends Error {}
 /** A4 portrait in PDF points, the size of the cover, contents and divider pages. */
 const SHEET = { width: 595.28, height: 841.89 }
 const MARGIN = 72
-/** How many sections each contents page lists. The 19 sections fit on one. */
+/** How many lines each contents page lists: sections, and the items under them. The 19 sections fit on one. */
 const CONTENTS_PER_PAGE = 28
 const CONTENTS_LINE = 22
 const MUTED = rgb(0.4, 0.4, 0.4)
 
 type Fonts = { regular: PDFFont; bold: PDFFont }
 
+/** A line of the contents: a section, or one of its items, such as Lab 2, under it. */
+type ContentsLine = { section: CompileSection; item: number | null }
+
+/** The contents: each section, and under a section with items each of its items that has files, in order. */
+function contentsLines(sections: CompileSection[]): ContentsLine[] {
+  return sections.flatMap((section) => [
+    { section, item: null },
+    ...[...new Set(section.files.flatMap((file) => (file.item == null ? [] : [file.item])))].map((item) => ({ section, item })),
+  ])
+}
+
+/** The label of a file's item and slot, such as Lab 1, Answer Scheme, or PO Achievement. Null outside items and slots. */
+function placeLabel(section: number, { item, slot }: CompileFile) {
+  const slotTitle = SECTION_SLOTS[section]?.find((s) => s.name === slot)?.title
+  const parts = [item == null ? undefined : itemName(section, item), slotTitle].filter((part) => part !== undefined)
+  return parts.length > 0 ? parts.join(', ') : null
+}
+
 /**
  * The course file as one PDF: a cover page, the table of contents, and for each section of the
  * manifest a divider page followed by the pages of its files in order. Every page has its number
- * at the bottom, "Page n of N". The contents give the page of each divider.
+ * at the bottom, "Page n of N". The contents give the page of each divider, and under a section
+ * with items the page each item starts on. The first page of each item and slot is labelled at its
+ * top, such as "Lab 1, Answer Scheme".
  *
  * Files are fetched and copied one at a time, so the browser holds one source file besides the PDF
  * it builds. A file that cannot be fetched or read stops the compile with a CompileError naming it.
  */
-export async function compile(manifest: CompileManifest, fetchBytes: FetchBytes): Promise<Uint8Array<ArrayBuffer>> {
+export async function compile(manifest: CourseFileManifest, fetchBytes: FetchBytes): Promise<Uint8Array<ArrayBuffer>> {
   const output = await PDFDocument.create()
   output.setTitle(`${manifest.cover.courseCode} ${manifest.cover.courseTitle} ${manifest.cover.semester}`)
   const fonts = { regular: await output.embedFont(StandardFonts.Helvetica), bold: await output.embedFont(StandardFonts.HelveticaBold) }
   const addSheet = () => output.addPage([SHEET.width, SHEET.height])
 
   drawCover(addSheet(), manifest.cover, fonts)
-  const contentsPages = Array.from({ length: Math.max(1, Math.ceil(manifest.sections.length / CONTENTS_PER_PAGE)) }, addSheet)
-  const dividerPages: number[] = []
+  const lines = contentsLines(manifest.sections)
+  const contentsPages = Array.from({ length: Math.max(1, Math.ceil(lines.length / CONTENTS_PER_PAGE)) }, addSheet)
+  /** The page each contents line starts on, in the order of the lines. */
+  const startPages: number[] = []
   for (const section of manifest.sections) {
-    dividerPages.push(output.getPageCount() + 1)
+    startPages.push(output.getPageCount() + 1)
     drawDivider(addSheet(), section, fonts)
+    let previous: CompileFile | undefined
     for (const file of section.files) {
-      for (const page of await copyPages(output, file, section, fetchBytes)) output.addPage(page)
+      const label = placeLabel(section.number, file)
+      const startsItem = file.item != null && file.item !== previous?.item
+      const startsPlace = label !== null && (startsItem || file.slot !== previous?.slot)
+      if (startsItem) startPages.push(output.getPageCount() + 1)
+      for (const [index, page] of (await copyPages(output, file, section, fetchBytes)).entries()) {
+        output.addPage(page)
+        if (index === 0 && startsPlace) drawLabel(page, label, fonts.bold)
+      }
+      previous = file
     }
   }
-  drawContents(contentsPages, manifest.sections, dividerPages, fonts)
+  drawContents(contentsPages, lines, startPages, fonts)
   stampPageNumbers(output.getPages(), fonts.regular)
   // save builds a new Uint8Array over its own ArrayBuffer. pdf-lib's types predate typed array generics.
   return (await output.save()) as Uint8Array<ArrayBuffer>
 }
 
 /** The file's pages, copied into the output. Any failure to fetch the file or to read or copy its pages is a CompileError naming it. */
-async function copyPages(output: PDFDocument, file: ManifestFile, section: ManifestSection, fetchBytes: FetchBytes) {
+async function copyPages(output: PDFDocument, file: CompileFile, section: CompileSection, fetchBytes: FetchBytes) {
   const bytes = await fetchBytes(file.url).catch((error: unknown) => {
     throw new CompileError(file, section, new FetchFailed(String(error), { cause: error }))
   })
@@ -113,43 +152,77 @@ function drawDivider(page: PDFPage, section: ManifestSection, fonts: Fonts) {
   if (section.files.length === 0) page.drawText('No files in this section.', { x: MARGIN, y: y - 32, size: 12, font: fonts.regular, color: MUTED })
 }
 
-/** Each contents line gives a section's number and title, and the page of its divider at the right. */
-function drawContents(pages: PDFPage[], sections: ManifestSection[], dividerPages: number[], fonts: Fonts) {
+/**
+ * Each contents line gives a section's number and title and the page of its divider at the right,
+ * or, under a section with items, an item's name and the page it starts on.
+ */
+function drawContents(pages: PDFPage[], lines: ContentsLine[], startPages: number[], fonts: Fonts) {
   const size = 12
   pages[0].drawText('Contents', { x: MARGIN, y: SHEET.height - MARGIN - 24, size: 22, font: fonts.bold })
-  sections.forEach((section, index) => {
+  lines.forEach(({ section, item }, index) => {
     const page = pages[Math.floor(index / CONTENTS_PER_PAGE)]
     const y = SHEET.height - MARGIN - 72 - (index % CONTENTS_PER_PAGE) * CONTENTS_LINE
-    const number = String(dividerPages[index])
-    page.drawText(String(section.number), { x: MARGIN, y, size, font: fonts.regular, color: MUTED })
-    page.drawText(printable(section.title, fonts.regular), { x: MARGIN + 32, y, size, font: fonts.regular })
+    const number = String(startPages[index])
+    if (item === null) {
+      page.drawText(String(section.number), { x: MARGIN, y, size, font: fonts.regular, color: MUTED })
+      page.drawText(printable(section.title, fonts.regular), { x: MARGIN + 32, y, size, font: fonts.regular })
+    } else {
+      page.drawText(itemName(section.number, item), { x: MARGIN + 48, y, size, font: fonts.regular })
+    }
     page.drawText(number, { x: SHEET.width - MARGIN - fonts.regular.widthOfTextAtSize(number, size), y, size, font: fonts.regular })
   })
 }
 
-/**
- * Writes "Page n of N" centred at the bottom of each page as a viewer shows it: inside its crop
- * box, and turned with its /Rotate so that it reads upright.
- */
+/** Writes "Page n of N" centred at the bottom of each page as a viewer shows it. */
 function stampPageNumbers(pages: PDFPage[], font: PDFFont) {
   const size = 9
-  const fromBottom = 20
   pages.forEach((page, index) => {
     const text = `Page ${index + 1} of ${pages.length}`
-    const turn = (((page.getRotation().angle % 360) + 360) % 360) as 0 | 90 | 180 | 270
-    const box = page.getCropBox()
-    const shownWidth = turn === 90 || turn === 270 ? box.height : box.width
-    // Where the text starts on the page as shown, then the same point in the page's own coordinates.
-    const x = (shownWidth - font.widthOfTextAtSize(text, size)) / 2
-    const y = fromBottom
-    const start = {
+    drawShown(page, text, { x: (shownSize(page).width - font.widthOfTextAtSize(text, size)) / 2, y: 20, size, font, color: MUTED })
+  })
+}
+
+/** Writes the label of an item and slot at the top left of its first page as a viewer shows it, on white so that it reads on a scan. */
+function drawLabel(page: PDFPage, label: string, font: PDFFont) {
+  const size = 10
+  drawShown(page, printable(label, font), { x: 24, y: shownSize(page).height - 24 - size, size, font, color: rgb(0, 0, 0), background: true })
+}
+
+/** The page's size as a viewer shows it: its crop box, turned by its /Rotate. */
+function shownSize(page: PDFPage) {
+  const box = page.getCropBox()
+  return page.getRotation().angle % 180 === 0 ? { width: box.width, height: box.height } : { width: box.height, height: box.width }
+}
+
+/**
+ * Writes text that starts at x and y on the page as a viewer shows it, from its bottom left: inside
+ * its crop box, and turned with its /Rotate so that it reads upright. background puts a white box
+ * behind the text.
+ */
+function drawShown(
+  page: PDFPage,
+  text: string,
+  { x, y, size, font, color, background = false }: { x: number; y: number; size: number; font: PDFFont; color: RGB; background?: boolean },
+) {
+  const turn = (((page.getRotation().angle % 360) + 360) % 360) as 0 | 90 | 180 | 270
+  const box = page.getCropBox()
+  // A point of the page as shown, in the page's own coordinates.
+  const at = (x: number, y: number) =>
+    ({
       0: { x, y },
       90: { x: box.width - y, y: x },
       180: { x: box.width - x, y: box.height - y },
       270: { x: y, y: box.height - x },
-    }[turn]
-    page.drawText(text, { x: box.x + start.x, y: box.y + start.y, size, font, color: MUTED, rotate: degrees(turn) })
-  })
+    })[turn]
+  const rotate = degrees(turn)
+  if (background) {
+    const pad = 4
+    const corner = at(x - pad, y - pad - size * 0.25)
+    const width = font.widthOfTextAtSize(text, size) + 2 * pad
+    page.drawRectangle({ x: box.x + corner.x, y: box.y + corner.y, width, height: size * 1.25 + 2 * pad, color: rgb(1, 1, 1), rotate })
+  }
+  const start = at(x, y)
+  page.drawText(text, { x: box.x + start.x, y: box.y + start.y, size, font, color, rotate })
 }
 
 /** The text with each character that the font cannot encode, such as one outside Windows-1252, as "?". */
