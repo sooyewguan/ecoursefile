@@ -42,12 +42,12 @@ const READERS = ['admin', 'auditor', 'hod', 'dean', 'deputy_dean'] as const sati
 const REPORTS = ['report_faculty_summary', 'report_departments', 'report_offerings', 'report_lecturers'] as const
 
 type Semester = { id: string; code: string }
-type Staff = { id: string; name: string; client: SupabaseClient }
+type Staff = { id: string; name: string; email: string; client: SupabaseClient }
 type Offering = Awaited<ReturnType<typeof createOffering>>
 
 async function createStaff(name: string, departmentId?: string): Promise<Staff> {
   const user = await createUser({ roles: ['lecturer'], fullName: name, departmentId })
-  return { id: user.id, name, client: await signIn(user.email, user.password) }
+  return { id: user.id, name, email: user.email, client: await signIn(user.email, user.password) }
 }
 
 function upload(client: SupabaseClient, slot: Slot | SharedSlot) {
@@ -192,8 +192,11 @@ beforeAll(async () => {
   }
 }, 120_000)
 
-/** The offering list and heatmap rows of the seeded semester, by course code. */
-async function expectedOfferings() {
+/**
+ * The offering list and heatmap rows of the seeded semester, by course code. Readers who open the
+ * Reports page get each coordinator's email, and lecturers get none.
+ */
+async function expectedOfferings({ emails = true } = {}) {
   const { departments, staff, offerings } = seeded
   const [department1, department2] = departments
   const row = (offering: Offering, department: { id: string; code: string }, coordinator: Staff) => ({
@@ -205,6 +208,7 @@ async function expectedOfferings() {
     department_name: 'Seam1 Department',
     coordinator_id: coordinator.id,
     coordinator_name: coordinator.name,
+    coordinator_email: emails ? coordinator.email : null,
   })
   return byCourseCode([
     {
@@ -276,10 +280,13 @@ test('the offering list and heatmap give each offering its status, completeness,
   for (const row of rows) expect(Date.parse(row.last_upload_at as string)).toBeLessThan(Date.parse(calendar.uploaded_at))
 })
 
-test('the faculty summary pools the counted sections of every offering of the semester', async () => {
+test('the faculty summary pools the counted sections of every offering of the semester, and counts the complete and the verified offerings', async () => {
   expect(await report(await signInAs('auditor'), 'report_faculty_summary', seeded.semester)).toEqual([
     {
       offerings: 4,
+      // A is verified, and C and D are complete with sections not yet verified.
+      complete_offerings: 3,
+      verified_offerings: 1,
       counted_sections: 40,
       uploaded_sections: 33,
       verified_sections: 11,
@@ -299,6 +306,8 @@ test('the department breakdown gives the same numbers for each department, by de
       department_code: department1.code,
       department_name: 'Seam1 Department',
       offerings: 2,
+      complete_offerings: 1,
+      verified_offerings: 1,
       counted_sections: 20,
       uploaded_sections: 13,
       verified_sections: 9,
@@ -312,6 +321,8 @@ test('the department breakdown gives the same numbers for each department, by de
       department_code: department2.code,
       department_name: 'Seam1 Department',
       offerings: 2,
+      complete_offerings: 2,
+      verified_offerings: 0,
       counted_sections: 20,
       uploaded_sections: 20,
       verified_sections: 2,
@@ -324,21 +335,27 @@ test('the department breakdown gives the same numbers for each department, by de
   expect(await report(await signInAs('auditor'), 'report_departments', seeded.semester)).toEqual(expected)
 })
 
-/** The lecturer view rows of the seeded semester, by name, for the lecturers given. */
-function expectedLecturers(names: (keyof Seeded['staff'])[] = ['aminah', 'badrul', 'chong', 'devi']) {
+/**
+ * The lecturer view rows of the seeded semester, by name, for the lecturers given. Readers who open
+ * the Reports page get each lecturer's email, and lecturers get none.
+ */
+function expectedLecturers(names: (keyof Seeded['staff'])[] = ['aminah', 'badrul', 'chong', 'devi'], { emails = true } = {}) {
   const { departments, staff, offerings } = seeded
   const [department1, department2] = departments
-  const taught = (offering: Offering, coordinator: boolean, missing: number[]) => ({
-    offering_id: offering.id,
-    course_code: offering.course.code,
-    course_title: offering.course.title,
-    coordinator,
-    missing_sections: missing,
-  })
   const department = (value: { id: string; code: string } | null) => ({
     department_id: value?.id ?? null,
     department_code: value?.code ?? null,
     department_name: value ? 'Seam1 Department' : null,
+  })
+  const offeringDepartment = new Map([offerings.a, offerings.b, offerings.c, offerings.d].map((offering, index) => [offering, index < 2 ? department1 : department2]))
+  const taught = (offering: Offering, coordinator: boolean, missing: number[], needsFix: number[] = []) => ({
+    offering_id: offering.id,
+    course_code: offering.course.code,
+    course_title: offering.course.title,
+    ...department(offeringDepartment.get(offering)!),
+    coordinator,
+    missing_sections: missing,
+    needs_fix_sections: needsFix,
   })
   const rows = {
     aminah: { ...department(department1), timetable_missing: false, offerings: [taught(offerings.a, true, [])] },
@@ -346,19 +363,24 @@ function expectedLecturers(names: (keyof Seeded['staff'])[] = ['aminah', 'badrul
     badrul: {
       ...department(department1),
       timetable_missing: false,
-      offerings: byCourseCode([taught(offerings.a, false, []), taught(offerings.b, true, [5, 6, 10, 17, 18, 19])]),
+      offerings: byCourseCode([taught(offerings.a, false, []), taught(offerings.b, true, [5, 6, 10, 17, 18, 19], [TEACHING_PLAN])]),
     },
-    chong: { ...department(null), timetable_missing: true, offerings: [taught(offerings.b, false, [4, 5, 6, 10, 17, 18, 19])] },
+    chong: { ...department(null), timetable_missing: true, offerings: [taught(offerings.b, false, [4, 5, 6, 10, 17, 18, 19], [TEACHING_PLAN])] },
     devi: {
       ...department(department2),
       timetable_missing: false,
-      offerings: byCourseCode([taught(offerings.c, true, []), taught(offerings.d, true, [])]),
+      offerings: byCourseCode([taught(offerings.c, true, [], [ATTENDANCE, LECTURE_NOTES]), taught(offerings.d, true, [])]),
     },
   }
-  return names.map((name) => ({ lecturer_id: staff[name].id, lecturer_name: staff[name].name, ...rows[name] }))
+  return names.map((name) => ({
+    lecturer_id: staff[name].id,
+    lecturer_name: staff[name].name,
+    lecturer_email: emails ? staff[name].email : null,
+    ...rows[name],
+  }))
 }
 
-test('the lecturer view lists each lecturer with their offerings and the missing sections linked to them', async () => {
+test('the lecturer view lists each lecturer with their offerings, and the missing and Needs fix sections linked to them', async () => {
   expect(await report(await signInAs('auditor'), 'report_lecturers', seeded.semester)).toEqual(expectedLecturers())
 })
 
@@ -376,13 +398,16 @@ test('management, auditors and the admin read every offering of the semester', a
 
 test('lecturers and coordinators read the reports of the offerings they teach only', async () => {
   const { semester, staff, offerings } = seeded
-  const all = await expectedOfferings()
+  // A lecturer cannot read other profiles, so the reports give them no one's email.
+  const all = await expectedOfferings({ emails: false })
   const badrul = staff.badrul.client
 
   expect(await report(badrul, 'report_offerings', semester)).toEqual(all.filter((row) => [offerings.a.id, offerings.b.id].includes(row.offering_id)))
   expect(await report(badrul, 'report_faculty_summary', semester)).toEqual([
     {
       offerings: 2,
+      complete_offerings: 1,
+      verified_offerings: 1,
       counted_sections: 20,
       uploaded_sections: 13,
       verified_sections: 9,
@@ -393,7 +418,7 @@ test('lecturers and coordinators read the reports of the offerings they teach on
     },
   ])
   expect((await report(badrul, 'report_departments', semester)).map((row) => row.department_id)).toEqual([seeded.departments[0].id])
-  expect(await report(badrul, 'report_lecturers', semester)).toEqual(expectedLecturers(['aminah', 'badrul', 'chong']))
+  expect(await report(badrul, 'report_lecturers', semester)).toEqual(expectedLecturers(['aminah', 'badrul', 'chong'], { emails: false }))
 
   expect(await report(staff.devi.client, 'report_offerings', semester)).toEqual(all.filter((row) => [offerings.c.id, offerings.d.id].includes(row.offering_id)))
 
@@ -406,6 +431,8 @@ test('lecturers and coordinators read the reports of the offerings they teach on
   expect(await report(outsider.client, 'report_faculty_summary', semester)).toEqual([
     {
       offerings: 0,
+      complete_offerings: 0,
+      verified_offerings: 0,
       counted_sections: 0,
       uploaded_sections: 0,
       verified_sections: 0,
@@ -493,6 +520,69 @@ test('an offering is complete when every section that is on has a file, with sec
   await switchSection(lecturer.client, offering.id, LAB_EXERCISES, false)
   await switchSection(lecturer.client, offering.id, LECTURE_NOTES, false, 'Notes are in the textbook')
   expect(await completeness()).toEqual({ status: 'pending_review', counted: 10, uploaded: 10, percent: 100, missing: [] })
+})
+
+test('a switched-off section that an auditor marks Needs fix is missing in the reports while it holds no file', async () => {
+  const semester = await emptyReportSemester()
+  const [admin, auditor, coordinator, lecturer] = await Promise.all([
+    signInAs('admin'),
+    signInAs('auditor'),
+    createStaff('Coordinator Switched'),
+    createStaff('Lecturer Switched'),
+  ])
+  const offering = await createOffering({ coordinatorId: coordinator.id, lecturerIds: [lecturer.id], sectionsOn: [], semester })
+  await Promise.all([
+    upload(admin, { semesterId: semester.id, section: CALENDAR }),
+    upload(admin, { semesterId: semester.id, section: LETTER }),
+    uploadPlainSections(coordinator.client, offering.id),
+    ...[coordinator, lecturer].map((staff) => upload(staff.client, { semesterId: semester.id, section: LECTURER_TIMETABLE })),
+  ])
+  await tick(coordinator.client, offering.id, await programCodeWithTimetable(semester))
+  const reports = async () => {
+    const dean = await signInAs('dean')
+    const [[row], [summary], lecturers] = await Promise.all([
+      report(dean, 'report_offerings', semester),
+      report(dean, 'report_faculty_summary', semester),
+      report(dean, 'report_lecturers', semester),
+    ])
+    return {
+      status: row.status,
+      counted: row.counted_sections,
+      uploaded: row.uploaded_sections,
+      needsFix: row.needs_fix_sections,
+      percent: row.percent_complete,
+      missing: row.missing_sections,
+      statuses: [CALENDAR, LAB_EXERCISES].map((section) => (row.section_statuses as string[])[section - 1]),
+      complete: summary.complete_offerings,
+      lecturers: (lecturers as LecturerRow[]).map((lecturer) => lecturer.offerings.map((taught) => [taught.missing_sections, taught.needs_fix_sections])),
+    }
+  }
+  expect(await reports()).toMatchObject({ status: 'pending_review', counted: 9, uploaded: 9, missing: [], complete: 1 })
+
+  // Lab Exercises is off by the course type. The auditor's Needs fix makes it count, and it has no
+  // file, so it is missing, as an on section without files is. The calendar's Needs fix is not
+  // the lecturers' to fix.
+  await mark(auditor, offering.id, [LAB_EXERCISES], 'needs_fix', 'The course has labs.')
+  await mark(auditor, offering.id, [CALENDAR], 'needs_fix', 'The calendar is of another year.')
+  expect(await reports()).toEqual({
+    status: 'incomplete',
+    counted: 10,
+    uploaded: 9,
+    needsFix: 1,
+    percent: 90,
+    missing: [LAB_EXERCISES],
+    statuses: ['needs_fix', 'missing'],
+    complete: 0,
+    lecturers: [[[[LAB_EXERCISES], []]], [[[LAB_EXERCISES], []]]],
+  })
+  // The course file page still shows the auditor's verdict on the switched-off section.
+  const { data, error } = await auditor.rpc('section_statuses', { offering_id: offering.id })
+  if (error) throw error
+  expect(data[LAB_EXERCISES - 1].status).toBe('needs_fix')
+
+  // Once the auditor accepts the switch, the section leaves the count.
+  await mark(auditor, offering.id, [LAB_EXERCISES], 'verified')
+  expect(await reports()).toMatchObject({ status: 'needs_fix', counted: 9, uploaded: 9, needsFix: 1, percent: 100, missing: [], complete: 1 })
 })
 
 test('the app reads every offering of a semester with more than the 1,000 rows the API returns at once', async () => {
