@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { FileLink } from '@/components/file-link'
 import { ErrorAlert } from '@/components/notice'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatSize } from '@/lib/utils'
+import { alreadyHeld, type NamedFile } from '../duplicates.ts'
 import { friendlyError } from '../errors.ts'
 import { itemName } from '../sections.ts'
 import { supabase } from '../supabase.ts'
@@ -17,6 +19,7 @@ const WIDE = 'hidden sm:table-cell'
 /**
  * The reuse picker: files, the files of past offerings of the same course in the slot, the latest
  * semester first. Each opens in a new tab, and picking one copies it into the slot as a new file.
+ * A file with the name and size of one in held, the slot's files, is marked as already here.
  * title names the slot, such as Lab 2 Lab Sheet. The dialog is open while it is mounted.
  */
 export function ReuseDialog({
@@ -24,6 +27,7 @@ export function ReuseDialog({
   title,
   courseCode,
   files,
+  held,
   onClose,
   onReused,
 }: {
@@ -31,6 +35,7 @@ export function ReuseDialog({
   title: string
   courseCode: string
   files: ReusableFile[]
+  held: NamedFile[]
   onClose: () => void
   onReused: (file: ReusableFile) => Promise<void>
 }) {
@@ -75,7 +80,10 @@ export function ReuseDialog({
                   <TableCell className={`px-4 py-3 align-top ${WIDE}`}>{file.semester_code}</TableCell>
                   <TableCell className="px-4 py-3 whitespace-normal">
                     <div className="grid gap-0.5">
-                      <FileLink file={file} reuseInto={slot} />
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <FileLink file={file} reuseInto={slot} />
+                        {alreadyHeld([file], held).length > 0 && <Badge variant="secondary">Already here</Badge>}
+                      </div>
                       <span className="text-muted-foreground text-xs">
                         <span className="sm:hidden">{file.semester_code}, </span>
                         {file.item !== null && `${itemName(slot.section, file.item)}, `}

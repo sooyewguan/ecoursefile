@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
+import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, CopyPlusIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/action-dialogs'
 import { DropZone, useFileDrag } from '@/components/drop-zone'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
+import { ReuseAllDialog } from '@/components/reuse-all-dialog'
 import { ReuseDialog } from '@/components/reuse-dialog'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
@@ -118,6 +119,7 @@ export function CourseFileSection() {
   const [deletingItem, setDeletingItem] = useState<SectionItem | null>(null)
   const [reusingInto, setReusingInto] = useState<ReuseTarget | null>(null)
   const [heldUpload, setHeldUpload] = useState<HeldUpload | null>(null)
+  const [reusingAll, setReusingAll] = useState(false)
   /** The files of past offerings that staff may reuse, by slot name, or under null in a section without slots. */
   const [reusable, setReusable] = useState<ReadonlyMap<string | null, ReusableFile[]>>(new Map())
   const auth = useAuth()
@@ -175,17 +177,19 @@ export function CourseFileSection() {
   }, [reload])
 
   const canUpload = data?.canUpload ?? false
-  const firstItem = data?.items[0]?.number
   const dragging = useFileDrag(canUpload && !loadFailed, dropMissed)
 
   // Reuse from past shows only where there is something to reuse. The list of a slot is the same for
-  // every item, so the first item's stands for all.
+  // every item, so any item number names it.
   useEffect(() => {
-    if (!section || !canUpload || (section.itemTitle && firstItem === undefined)) return
+    if (!section || !canUpload) return
     const slotNames = (SECTION_SLOTS[section.number]?.map((slot) => slot.name) ?? [null]).filter((slot) => isReusable({ section: section.number, slot }))
     let current = true
     Promise.all(
-      slotNames.map(async (slot) => [slot, await listReusableFiles(supabase, { offeringId, section: section.number, item: firstItem, slot: slot ?? undefined })] as const),
+      slotNames.map(
+        async (slot) =>
+          [slot, await listReusableFiles(supabase, { offeringId, section: section.number, item: section.itemTitle ? 1 : undefined, slot: slot ?? undefined })] as const,
+      ),
     ).then(
       (lists) => current && setReusable(new Map(lists)),
       () => {},
@@ -193,7 +197,7 @@ export function CourseFileSection() {
     return () => {
       current = false
     }
-  }, [offeringId, section, canUpload, firstItem])
+  }, [offeringId, section, canUpload])
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId, reload)
 
@@ -348,6 +352,13 @@ export function CourseFileSection() {
       </Button>
     )
 
+  const reuseAllButton = canUpload && [...reusable.values()].some((files) => files.length > 0) && (
+    <Button variant="outline" onClick={() => setReusingAll(true)} disabled={progress !== null}>
+      <CopyPlusIcon />
+      Reuse all from past
+    </Button>
+  )
+
   /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet · drop PDFs here", for staff who upload to it. */
   const uploadRule = (oneFile: boolean) =>
     [
@@ -463,6 +474,7 @@ export function CourseFileSection() {
         action={
           <PageActions>
             {backLink}
+            {reuseAllButton}
             {section.itemTitle
               ? addItemButton
               : !slots && (
@@ -540,6 +552,7 @@ export function CourseFileSection() {
           title={reusingInto.title}
           courseCode={data.offering.course.code}
           files={reusable.get(reusingInto.slot) ?? []}
+          held={filesIn(reusingInto)}
           onClose={() => setReusingInto(null)}
           onReused={async (file) => {
             await reload()
@@ -558,6 +571,16 @@ export function CourseFileSection() {
             setHeldUpload(null)
             void upload(heldUpload.place, files)
           }}
+        />
+      )}
+
+      {reusingAll && data?.offering && (
+        <ReuseAllDialog
+          offeringId={offeringId}
+          courseCode={data.offering.course.code}
+          sectionsOn={data.offering.sections_on}
+          onCopied={reload}
+          onClose={() => setReusingAll(false)}
         />
       )}
 
