@@ -1,10 +1,11 @@
-import { BookOpenIcon, PencilIcon, PlusIcon } from 'lucide-react'
+import { BookOpenIcon, FileUpIcon, PencilIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog, type Action } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { CourseImportResults, ImportCoursesDialog } from '@/components/course-import'
 import { FieldError } from '@/components/form-errors'
-import { PageHeader, TableCard } from '@/components/page'
+import { PageActions, PageHeader, TableCard } from '@/components/page'
 import { usePagedList } from '@/components/paged-list'
 import { isEmptyList, ListEmpty, ListToolbar, PagedTableBody, TablePager } from '@/components/paged-table'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import {
   type CourseType,
   type Department,
 } from '../catalog.ts'
+import type { ImportedCourse } from '../course-import.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 
@@ -31,7 +33,7 @@ type Course = { id: string; code: string; title: string; department: Department;
 type CourseValues = { code: string; title: string; department_id: string; course_type_id: string }
 
 /** The dialog that is open, and the course it acts on. */
-type OpenDialog = { kind: 'add' } | { kind: 'edit'; course: Course }
+type OpenDialog = { kind: 'add' } | { kind: 'edit'; course: Course } | { kind: 'import' }
 
 /** Below md the department and course type move into the course cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
@@ -53,6 +55,8 @@ export function Courses() {
       .overrideTypes<Course[], { merge: false }>(),
   )
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
+  /** What the last import did with each row of its file, until dismissed. */
+  const [imported, setImported] = useState<ImportedCourse[] | null>(null)
   const empty = isEmptyList(list)
 
   /** Runs one write, reloads the list, and returns why it failed or null. */
@@ -69,16 +73,23 @@ export function Courses() {
     setDialog(null)
   }
 
-  const addButton = (
-    <Button onClick={() => setDialog({ kind: 'add' })}>
-      <PlusIcon />
-      Add course
-    </Button>
+  const actions = (
+    <PageActions>
+      <Button variant="outline" onClick={() => setDialog({ kind: 'import' })}>
+        <FileUpIcon />
+        Import CSV
+      </Button>
+      <Button onClick={() => setDialog({ kind: 'add' })}>
+        <PlusIcon />
+        Add course
+      </Button>
+    </PageActions>
   )
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Courses" action={!empty && addButton} />
+      <PageHeader title="Courses" action={!empty && actions} />
+      {imported && <CourseImportResults rows={imported} onDismiss={() => setImported(null)} />}
 
       <div className="grid gap-3">
         {!empty && <ListToolbar list={list} label="Search courses" noun="course" />}
@@ -98,7 +109,7 @@ export function Courses() {
               list={list}
               columns={COLUMNS}
               loadError="Couldn't load courses"
-              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={BookOpenIcon} noun="courses" addButton={addButton} />}
+              empty={<ListEmpty list={list} columns={COLUMNS.length} icon={BookOpenIcon} noun="courses" addButton={actions} />}
             >
               {(course) => (
                 <TableRow key={course.id}>
@@ -132,6 +143,16 @@ export function Courses() {
         <CourseDialog
           onClose={close}
           onSave={(values) => write(supabase.from('courses').insert(values), values.code, `Added ${values.code}`)}
+        />
+      )}
+
+      {dialog?.kind === 'import' && (
+        <ImportCoursesDialog
+          onClose={close}
+          onImported={(rows) => {
+            setImported(rows)
+            list.retry()
+          }}
         />
       )}
 

@@ -190,6 +190,27 @@ The admin keeps the catalog on three pages. The tables and their RLS policies ar
 
 Only admins add and edit catalog entries. Every signed-in user except root reads them. Nobody deletes them, and a department that has courses cannot be deleted. A write that repeats a name or code fails with Postgres error `23505`, and the pages show it as a plain message.
 
+### Importing courses from a CSV file
+
+On the **Courses** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a course, as **Add course** would. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+
+- The first row that is not blank names the columns: `code`, `title`, `department` and `course_type`, in any order and case, with spaces for underscores. `department code` and `course type name` name the last two as well. Other columns are ignored. CSV quoting, a byte order mark and blank rows work as they do for the [user import](#importing-users-from-a-csv-file).
+- `department` is the department's code, in any case. `course_type` is the course type's name as the **Course types** page shows it. A name in another case matches too, when only one course type has that name in any case.
+- The template holds one example row. A file that keeps it gets that row rejected, so it never adds a course that nobody meant.
+- A file holds at most 500 courses. A longer file is refused as a whole, and the admin splits it.
+
+The browser reads the file (`src/course-import.ts`), and `import_courses(courses)` checks each row and adds the valid ones in one transaction. A rejected row stops no other row. Only admins may import, and anyone else fails with Postgres error `42501`. The migration is `supabase/migrations/20261125000410_import_courses.sql`. Each rejected row gets one `problem` and a `reason`, checked in this order:
+
+| `problem` | Reason |
+| --- | --- |
+| `missing_value` | The code, title, department or course type is empty. |
+| `duplicate_code` | Another row of the file has the same code. Every row with that code is rejected. |
+| `code_exists` | A course with the code already exists. |
+| `unknown_department` | No department has the code. |
+| `unknown_course_type` | No course type has the name. |
+
+A second import of the same file adds nothing. Every row whose course was added is now rejected with `code_exists`. A course with one of the file's codes added by someone else while the import runs fails the whole import with `23505`, and importing again adds the rest.
+
 ## Semesters and offerings
 
 The admin sets up each semester on the **Semesters** page. **Add semester** adds it and opens its page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
