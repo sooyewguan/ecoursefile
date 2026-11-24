@@ -7,6 +7,7 @@ import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { FieldError } from '@/components/form-errors'
+import { StaffNames, type StaffMember } from '@/components/identity'
 import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionStatusBadge } from '@/components/section-status'
@@ -36,15 +37,16 @@ import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
 import { uploadFile } from '../uploads.ts'
 
 /**
- * An offering and its lecturers, the coordinator among them, by the names the app shows. While its
- * course file is not in use, its course can change and it can be deleted.
+ * An offering and its lecturers, the coordinator among them, by the names the app shows, and whether
+ * each one's account is active. While its course file is not in use, its course can change and it
+ * can be deleted.
  */
 type Offering = {
   id: string
   coordinator_id: string
   in_use: boolean
   course: { id: string; code: string; title: string }
-  lecturers: { lecturer_id: string; lecturer_name: string }[]
+  lecturers: { lecturer_id: string; lecturer_name: string; profile: { active: boolean } }[]
 }
 
 /** One of the semester's shared files, and the offerings whose course files link it. */
@@ -102,9 +104,10 @@ export function Semester() {
   const offerings = usePagedList((range, search) => {
     let query = supabase
       .from('offerings')
-      .select('id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name)', {
-        count: 'exact',
-      })
+      .select(
+        'id, coordinator_id, in_use, course:courses!inner(id, code, title), lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, profile:profiles!offering_lecturers_lecturer_id_fkey(active))',
+        { count: 'exact' },
+      )
       .eq('semester_id', semesterId)
     const filter = containsFilter(['code', 'title'], search)
     if (filter) query = query.or(filter, { referencedTable: 'course' })
@@ -544,14 +547,14 @@ function ListHeading({ id, title, total, action }: { id: string; title: string; 
   )
 }
 
-/** An offering's row: its course, which opens its course file, its coordinator and its other lecturers. */
+/** An offering's row: its course, which opens its course file, its coordinator and its other lecturers, each marked when deactivated. */
 function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdit: () => void; onDelete: () => void }) {
-  const coordinator = offering.lecturers.find((lecturer) => lecturer.lecturer_id === offering.coordinator_id)?.lecturer_name
+  const member = (lecturer: Offering['lecturers'][number]): StaffMember => ({ name: lecturer.lecturer_name, active: lecturer.profile.active })
+  const coordinator = offering.lecturers.filter((lecturer) => lecturer.lecturer_id === offering.coordinator_id).map(member)
   const others = offering.lecturers
     .filter((lecturer) => lecturer.lecturer_id !== offering.coordinator_id)
-    .map((lecturer) => lecturer.lecturer_name)
-    .toSorted((a, b) => a.localeCompare(b))
-    .join(', ')
+    .map(member)
+    .toSorted((a, b) => a.name.localeCompare(b.name))
   return (
     <TableRow className="relative">
       <TableCell className="px-4 py-3 whitespace-normal">
@@ -561,13 +564,23 @@ function OfferingRow({ offering, onEdit, onDelete }: { offering: Offering; onEdi
           </Link>
           <span>{offering.course.title}</span>
           <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs md:hidden">
-            <span>Coordinator: {coordinator}</span>
-            {others && <span>Lecturers: {others}</span>}
+            <span>
+              Coordinator: <StaffNames staff={coordinator} />
+            </span>
+            {others.length > 0 && (
+              <span>
+                Lecturers: <StaffNames staff={others} />
+              </span>
+            )}
           </div>
         </div>
       </TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{coordinator}</TableCell>
-      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{others || <span className="text-muted-foreground">—</span>}</TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        <StaffNames staff={coordinator} />
+      </TableCell>
+      <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>
+        {others.length > 0 ? <StaffNames staff={others} /> : <span className="text-muted-foreground">—</span>}
+      </TableCell>
       <TableCell className="relative z-10 px-4 py-2 text-right">
         <RowActions label={`Actions for ${offering.course.code}`}>
           <DropdownMenuItem asChild>
