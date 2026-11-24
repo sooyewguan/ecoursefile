@@ -62,14 +62,6 @@ export function SectionVerdict({
     void load()
   }, [load])
 
-  async function record(verdict: Verdict, comment: string) {
-    const { error } = await supabase.rpc('record_verdict', { offering_id: offeringId, section, verdict, comment })
-    if (error) return friendlyError(error)
-    await Promise.all([load(), onRecorded()])
-    toast.success(verdict === 'verified' ? 'Marked verified' : 'Marked needs fix')
-    return null
-  }
-
   return (
     <Card aria-labelledby="review-heading" className="gap-3 px-4 py-4 md:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -113,19 +105,59 @@ export function SectionVerdict({
       {loadFailed && <LoadError title="Couldn't load the review" onRetry={load} />}
 
       {recording && (
-        <FormDialog
-          title={`Mark ${sectionTitle} ${recording === 'verified' ? 'verified' : 'needs fix'}`}
-          description={recording === 'needs_fix' ? 'It goes into your draft audit request.' : undefined}
-          submitLabel={recording === 'verified' ? 'Mark verified' : 'Mark needs fix'}
+        <VerdictDialog
+          offeringId={offeringId}
+          section={section}
+          sectionTitle={sectionTitle}
+          verdict={recording}
           onClose={() => setRecording(null)}
-          onSubmit={(form) => record(recording, String(form.get('comment')))}
-        >
-          <div className="grid gap-2">
-            <Label htmlFor="verdict-comment">{recording === 'verified' ? 'Comment (optional)' : 'Comment'}</Label>
-            <Textarea id="verdict-comment" name="comment" rows={4} required={recording === 'needs_fix'} />
-          </div>
-        </FormDialog>
+          onRecorded={() => Promise.all([load(), onRecorded()])}
+        />
       )}
     </Card>
+  )
+}
+
+/**
+ * Asks an auditor for the comment on a verdict and records it: a Needs fix needs one, and goes into
+ * their draft audit request, and a Verified takes one if they like. onRecorded runs once the verdict
+ * is recorded, so the page can show it, before the dialog closes.
+ */
+export function VerdictDialog({
+  offeringId,
+  section,
+  sectionTitle,
+  verdict,
+  onClose,
+  onRecorded,
+}: {
+  offeringId: string
+  section: number
+  sectionTitle: string
+  verdict: Verdict
+  onClose: () => void
+  onRecorded: () => Promise<unknown>
+}) {
+  async function record(comment: string) {
+    const { error } = await supabase.rpc('record_verdict', { offering_id: offeringId, section, verdict, comment })
+    if (error) return friendlyError(error)
+    await onRecorded()
+    toast.success(verdict === 'verified' ? `Marked ${sectionTitle} verified` : `Marked ${sectionTitle} needs fix`)
+    return null
+  }
+
+  return (
+    <FormDialog
+      title={`Mark ${sectionTitle} ${verdict === 'verified' ? 'verified' : 'needs fix'}`}
+      description={verdict === 'needs_fix' ? 'It goes into your draft audit request.' : undefined}
+      submitLabel={verdict === 'verified' ? 'Mark verified' : 'Mark needs fix'}
+      onClose={onClose}
+      onSubmit={(form) => record(String(form.get('comment')))}
+    >
+      <div className="grid gap-2">
+        <Label htmlFor="verdict-comment">{verdict === 'verified' ? 'Comment (optional)' : 'Comment'}</Label>
+        <Textarea id="verdict-comment" name="comment" rows={4} required={verdict === 'needs_fix'} />
+      </div>
+    </FormDialog>
   )
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog, type Action } from '@/components/action-dialogs'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { DeactivateUserDialog } from '@/components/deactivate-user-dialog'
 import { FieldError, type ActionError } from '@/components/form-errors'
 import { RoleBadges } from '@/components/identity'
 import { PasswordHint } from '@/components/password-fields'
@@ -390,30 +391,31 @@ export function Users() {
         </FormDialog>
       )}
 
-      {dialog?.kind === 'set-active' && (
-        <ConfirmDialog
-          title={`${dialog.user.active ? 'Deactivate' : 'Reactivate'} ${dialog.user.display_name}?`}
-          description={
-            dialog.user.active
-              ? "They won't be able to sign in. You can reactivate them later."
-              : 'They can sign in again with their current password.'
-          }
-          confirmLabel={dialog.user.active ? 'Deactivate' : 'Reactivate'}
-          destructive={dialog.user.active}
-          onClose={close}
-          onConfirm={() =>
-            perform(
-              () => updateProfile(dialog.user, { active: !dialog.user.active }),
-              `${dialog.user.active ? 'Deactivated' : 'Reactivated'} ${dialog.user.display_name}`,
-            )
-          }
-        />
-      )}
+      {dialog?.kind === 'set-active' &&
+        (dialog.user.active ? (
+          <DeactivateUserDialog
+            user={dialog.user}
+            onClose={close}
+            onConfirm={() => perform(() => updateProfile(dialog.user, { active: false }), `Deactivated ${dialog.user.display_name}`)}
+          />
+        ) : (
+          <ConfirmDialog
+            title={`Reactivate ${dialog.user.display_name}?`}
+            description="They can sign in again with their current password."
+            confirmLabel="Reactivate"
+            onClose={close}
+            onConfirm={() => perform(() => updateProfile(dialog.user, { active: true }), `Reactivated ${dialog.user.display_name}`)}
+          />
+        ))}
 
       {dialog?.kind === 'admin-role' && (
         <ConfirmDialog
           title={dialog.grant ? `Make ${dialog.user.display_name} admin?` : `Remove ${dialog.user.display_name} as admin?`}
-          description="Applies at their next sign-in."
+          description={
+            !dialog.grant && rolesOf(dialog.user).length === 1
+              ? 'Admin is their only role, so they will hold none and see nothing until they get a staff role or are deactivated. Applies at their next sign-in.'
+              : 'Applies at their next sign-in.'
+          }
           confirmLabel={dialog.grant ? 'Make admin' : 'Remove admin'}
           destructive={!dialog.grant}
           onClose={close}
@@ -660,6 +662,9 @@ function EditUserDialog({
       onClose={onClose}
       onSubmit={async () => {
         if (fullName.trim() === '') return { field: 'fullName', message: 'Enter a full name.' }
+        if (changes.revoke.length > 0 && changes.grant.length === 0 && held.every((role) => changes.revoke.includes(role))) {
+          return { field: 'roles', message: 'A user needs at least one role. To end their access, deactivate them.' }
+        }
         if (roles.includes('hod') && departmentId === null) {
           const message = 'An HoD needs a department.'
           return editsDepartment ? { field: 'departmentId', message } : message

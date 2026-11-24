@@ -111,7 +111,11 @@ Some limits apply to everyone:
 - Nobody can grant `root`.
 - Nobody can change their own roles or the roles of a root user.
 - An admin cannot edit, reset or deactivate themselves, another admin or a root user.
+- The **Edit** dialog on the **Users** page refuses to take away a user's last role. To end someone's access, deactivate them. Root's **Remove admin** warns when admin is the user's only role, then goes ahead: root grants no other role and no admin manages another admin, so refusing would leave such an admin in place for good. Once they hold no role, an admin can give them a staff role or deactivate them.
+- The deactivate dialog lists the course files the user coordinates or teaches in the two newest semesters with offerings, each linked to its semester's page. Semesters have no dates, so the semester running now cannot be told from the next one set up early, and the two newest hold both.
 - An HoD must have a department. A department can have more than one HoD.
+
+- An HoD must have a department. A department can have more than one HoD. The **Departments** page lists each department's HoDs, and marks an HoD whose account is deactivated.
 - A department code is unique in any case, so `FTMK` and `ftmk` are one code. Adding or saving a department with a code that another department has in another case fails with Postgres error `23505`. The migration that adds this, `supabase/migrations/20261124000400_department_code_any_case.sql`, stops with an error that names any departments whose codes differ only by case. Merge each set into one department, then apply it again.
 - Clients can update only `full_name`, `title`, `department_id` and `active` on a profile, and only on a profile an admin manages. The email and the must-change-password flag are not writable.
 - A user changes their own title and name only through `update_my_profile`. No policy lets a user update their own profile row, because that would let them change their own department and active state too.
@@ -119,6 +123,8 @@ Some limits apply to everyone:
 A Custom Access Token Hook, `public.custom_access_token_hook`, puts the user's roles in the `app_roles` claim of each access token. RLS reads the roles from that claim, and so does the app. A role change therefore takes effect at the user's next sign-in or token refresh, which is at most one hour later (`jwt_expiry` in `supabase/config.toml`).
 
 When a profile is inactive, the hook refuses to issue a token. The deactivated user gets HTTP 403 at sign-in and at the next token refresh. Their profile stays, so their name still appears wherever it is shown.
+
+An access token issued before the deactivation stays valid until it expires, so every access rule also asks `is_active(user_id)`, and a deactivated user reads and changes nothing from the moment their profile is inactive. `jwt_roles()` returns no roles for them, `teaches`, `can_read_offering` and `can_read_shared_file` refuse them, `user_can_upload` and `user_can_upload_shared_file` refuse their uploads and reuses, the read-all policies on departments, semesters and the catalog leave them out, and `switch_section`, `tick_program_code` and `update_my_profile` fail with Postgres error `42501`. They still read their own profile and roles. Reactivating them restores access to the same token. The migration is `supabase/migrations/20261125000100_inactive_profiles_access_nothing.sql`.
 
 ### Names and titles
 
@@ -130,7 +136,9 @@ The app names a person by `display_name` wherever it shows them: the header and 
 
 ### Importing users from a CSV file
 
-On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+On the **Users** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a user, as **Add user** would, with the must-change-password flag set. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones. **Download CSV** saves the same list, with a Row, Email, Result and Reason column, so the results outlast the page.
+
+The import dialog names the roles a row may hold, by the labels the app shows, and points to the **Departments** page for department codes. The template has the header row and one example row, filled in as a lecturer and HoD of `FTMK` with the email `aisyah.rahman@example.com`. The import rejects any row with that email, so an example row left in the file adds nobody.
 
 The `accounts` function reads the file, not the browser. It checks every row against the database anyway, for departments, roles the caller may give and emails in use, so one reader in one place applies every rule. The code is in `supabase/functions/_shared/user-import.ts`.
 
@@ -146,12 +154,14 @@ The function reads all rows before it creates anyone. It creates the users of th
 | `code` | Reason |
 | --- | --- |
 | `missing_value` | The full name, email, roles or temporary password is empty. |
+| `example_row` | The row is the template's example row. |
+| `invalid_email` | The email is not an address by the pattern and 255-character limit Supabase Auth applies, so the row never reaches Auth. |
 | `duplicate_email` | Another row of the file has the same email, in any case. Every row with that email is rejected. |
 | `unknown_role` | A role is not a global role. |
 | `unknown_department` | No department has the code. |
 | `forbidden` | The admin may not give a role, which includes `admin` and `root`. Or the row gives `hod` without a department. |
-| `email_exists` | A user with the email already exists. |
-| `invalid_request` | Supabase Auth refused a value, such as an email in the wrong format or a password shorter than 6 characters. Or the title is longer than 40 characters. |
+| `email_exists` | A user with the email already exists. The function passes on Supabase Auth's wording, and the page and the downloaded CSV show the app's own, from `importReason` in `user-import.ts`. |
+| `invalid_request` | Supabase Auth refused a value, such as a password shorter than 6 characters. Or the title is longer than 40 characters. |
 | `internal_error` | The server failed while it added the user, such as when Supabase Auth answered with HTTP 500. The rows before and after it are still added. Import the row again later. |
 
 A second import of the same file adds nobody. Every row whose user was added is now rejected with `email_exists`, and those users stay as they are. The import never writes the temporary passwords anywhere but Supabase Auth. They are not in any response, log or activity log row.
@@ -190,9 +200,30 @@ The admin keeps the catalog on three pages. The tables and their RLS policies ar
 
 Only admins add and edit catalog entries. Every signed-in user except root reads them. Nobody deletes them, and a department that has courses cannot be deleted. A write that repeats a name or code fails with Postgres error `23505`, and the pages show it as a plain message.
 
+### Importing courses from a CSV file
+
+On the **Courses** page, an admin clicks **Import CSV**, downloads the template, fills it in, and uploads it. Each valid row adds a course, as **Add course** would. The page then lists every row of the file: the rejected rows first, each with its reason, then the added ones.
+
+- The first row that is not blank names the columns: `code`, `title`, `department` and `course_type`, in any order and case, with spaces for underscores. `department code` and `course type name` name the last two as well. Other columns are ignored. CSV quoting, a byte order mark and blank rows work as they do for the [user import](#importing-users-from-a-csv-file).
+- `department` is the department's code, in any case. `course_type` is the course type's name as the **Course types** page shows it. A name in another case matches too, when only one course type has that name in any case.
+- The template holds one example row. A file that keeps it gets that row rejected, so it never adds a course that nobody meant.
+- A file holds at most 500 courses. A longer file is refused as a whole, and the admin splits it.
+
+The browser reads the file (`src/course-import.ts`), and `import_courses(courses)` checks each row and adds the valid ones in one transaction. A rejected row stops no other row. Only admins may import, and anyone else fails with Postgres error `42501`. The migration is `supabase/migrations/20261125000410_import_courses.sql`. Each rejected row gets one `problem` and a `reason`, checked in this order:
+
+| `problem` | Reason |
+| --- | --- |
+| `missing_value` | The code, title, department or course type is empty. |
+| `duplicate_code` | Another row of the file has the same code. Every row with that code is rejected. |
+| `code_exists` | A course with the code already exists. |
+| `unknown_department` | No department has the code. |
+| `unknown_course_type` | No course type has the name. |
+
+A second import of the same file adds nothing. Every row whose course was added is now rejected with `code_exists`. A course with one of the file's codes added by someone else while the import runs fails the whole import with `23505`, and importing again adds the rest.
+
 ## Semesters and offerings
 
-The admin sets up each semester on the **Semesters** page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
+The admin sets up each semester on the **Semesters** page. **Add semester** adds it and opens its page. The tables, their RLS policies and the RPCs are in `supabase/migrations/20261119040000_semesters_and_offerings.sql`.
 
 | Table | What each entry holds |
 | --- | --- |
@@ -208,6 +239,22 @@ The app writes offerings through two RPCs. Both run as the caller, so RLS lets o
 | `set_offering_lecturers(offering_id, coordinator_id, lecturer_ids)` | Replaces the offering's coordinator and lecturers. |
 
 Both add the coordinator to the lecturers when `lecturer_ids` leaves them out. An offering whose coordinator is not one of its lecturers fails with Postgres error `23503`, and a course offered twice in a semester fails with `23505`.
+
+The course picker of **Add offering** and **Edit** lists the courses that the semester does not offer yet. When every course that matches the search is offered already, it lists those as "Already offered in this semester", and none can be picked.
+
+The semester page marks each coordinator and lecturer whose account is deactivated with **Deactivated**. They cannot sign in to work on the course file, so the admin can give the offering to someone else.
+
+### Copying offerings from another semester
+
+Most courses run again each year with the same staff, so the admin sets up a semester by copying another one. On the semester page, **Copy offerings** asks for the semester to copy from, and starts with the latest earlier semester that has offerings. The copy is `copy_offerings(source_semester_id, target_semester_id)`, in `supabase/migrations/20261125000400_copy_offerings.sql`.
+
+- Each course of the source semester that the target does not offer yet is offered in the target with the same coordinator and lecturers, through `create_offering`. So it takes its course type's sections 10 to 16 as they are now, as a new offering does, and none of the source offering's switches.
+- A course the target offers already is skipped, and its offering in the target stays as it is.
+- Staff who are deactivated, or no longer hold the `lecturer` role, are left off. An offering whose coordinator is one of them is skipped, so the admin adds it with another coordinator.
+- The copy is one transaction, so it adds every offering or none. Only admins may copy. Anyone else fails with Postgres error `42501`, and a course offered in the target while the copy runs fails the copy with `23505`.
+- Copying 100 offerings with three staff each takes about 0.2 s in the local database.
+
+It returns one row per offering of the source semester, by course code: the course, the new `offering_id` or null, `skipped` (`already_offered`, `coordinator_unavailable` or null), the source coordinator's name, and `left_off`, the names of the staff left off. The page shows them above the offerings until the admin dismisses them, the skipped ones and those with staff left off first.
 
 ### Changing and deleting offerings
 
@@ -240,9 +287,9 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 | Lecturer | The offerings they teach or coordinate, in every semester |
 | Root | None |
 
-Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
+Readers of an offering also read `lecturer_name` and `lecturer_email` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name, lecturer_email)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with, and how to reach them. The migration that adds `lecturer_email` is `supabase/migrations/20261125000210_lecturer_email.sql`.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. **All course files** on that page, and **Course files** in the top bar of it and of its section pages, lead back to the list of its semester, at `/course-files?semester=<semester id>`. Its header names the semester and department, then the coordinator and the other lecturers by name and title, each a `mailto:` link to their email. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -264,7 +311,7 @@ The coordinator and lecturers of an offering switch sections 10 to 16 on or off 
 | `section_reasons` | A column of `offerings`: a JSON object with one reason for each section set differently from `default_sections_on`, keyed by section number, such as `{ "11": "Labs run this semester" }`. |
 | `sections_on` | A column of `offerings`, generated from the two above: `default_sections_on` with each section that has a reason switched the other way. Nobody writes it. |
 
-The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. An upload that finalizes after its section is switched off is refused with the same 403 as a new upload session. `add_file` checks the section while it records the file, and a switch waits for it, so a switch made while the file is recorded never lets it in. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
+The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook", and so does the Off card of the section's own page. Files in a switched-off section stay, and can still be deleted. An upload that finalizes after its section is switched off is refused with the same 403 as a new upload session. `add_file` checks the section while it records the file, and a switch waits for it, so a switch made while the file is recorded never lets it in. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
 
 ## Files
 
@@ -305,7 +352,7 @@ In sections 11 to 16, staff add numbered items with no fixed count. Each item ha
 | --- | --- |
 | `files` | One file in one section of an offering: its `item` number in sections 11 to 16 and its `slot` in sections 11 to 16 and 19 (`null` elsewhere), the storage item ID, the file name, the size, its `position` in its section, item and slot, the uploader and the upload time. A shared file has a `semester_id` in place of the `offering_id`. A lecturer timetable also has the `lecturer_id` whose timetable it is, and a student timetable the `program_code_id`. |
 | `items` | One item of sections 11 to 16: the offering, the section and the item's `number`. A file's `item` refers to it, so an item's files go before the item does. |
-| `activity_log` | One upload, delete, reuse, switch, tick, verdict, or send of, comment on or reply to an audit request: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section (none for a send or a reply), the `program_code_id` of every row of section 5 except a verdict's or a comment's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified`, `needs_fix`, `send`, `comment` or `reply`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, the `comment` of a verdict, of a staff comment or of a reply's message, and the `audit_request_id` of a send, comment or reply. Rows are never changed or removed, by anyone. See [Activity](#activity). |
+| `activity_log` | One upload, delete, reuse, switch, tick, verdict, or send of, comment on, reply to or close of an audit request: the offering, or the `semester_id` for a shared file and the `lecturer_id` for a lecturer timetable, the section (none for a send, a reply or a close), the `program_code_id` of every row of section 5 except a verdict's or a comment's, the `action` (`upload`, `delete`, `reuse`, `switch_on`, `switch_off`, `tick`, `untick`, `verified`, `needs_fix`, `send`, `comment`, `reply` or `close`), the actor, the file name of an upload, delete or reuse, the `source_offering_id` of a reuse, which is the past offering the file came from, the reason of a switch away from the course type default, the `comment` of a verdict, of a staff comment or of a reply's message, and the `audit_request_id` of a send, comment, reply or close. Rows are never changed or removed, by anyone. See [Activity](#activity). |
 
 Readers of an offering read all three tables, and the readers of a shared file read its rows. Clients write none of them. The `files` Edge Function writes them with the service role, and `add_item` adds items. Staff can also copy a file in from a past offering. See [Reuse from past offerings](#reuse-from-past-offerings).
 
@@ -353,10 +400,12 @@ A shared file is stored once and linked into many course files. Its key is the s
 | 5 Student Timetable | Program code | The admin, one for each program code, under **Student timetables** on the semester page | Every offering of the semester whose coordinator or lecturers tick the code on its section 5 page |
 
 - A semester's file is stored at `eCourseFile/<semester>/_shared/<NN section>/<upload time>_<file name>`, such as `eCourseFile/2026-2027-1/_shared/01 Academic Calendar/2026-11-19T10-30-00.123Z_calendar.pdf`. A timetable goes one folder deeper, in a folder named by the lecturer's id and then their email, such as `eCourseFile/2026-2027-1/_shared/04 Lecturer Timetable/0b6c6f2e-5d0b-4a8e-9a43-3f1d2c7e8a10 aisyah@example.edu/2026-11-19T10-30-00.123Z_timetable.pdf`. Finalize looks in the caller's own folder, so nobody records an upload as another lecturer's timetable. The id keeps two lecturers apart whose emails make the same folder name once the characters SharePoint forbids become `-`, such as `a/b@x` and `a-b@x`. A student timetable goes in a folder named by the program code's id and then the code, such as `.../05 Student Timetable/7f3e9a1c-2b4d-4e6f-8a0b-1c2d3e4f5a6b 1 BITS S1G1/<upload time>_<file name>`, so an upload for one code is never recorded for another.
-- To replace a shared file, the user who may delete it deletes it and uploads the new one.
+- To replace a shared file, the user who may delete it deletes it and uploads the new one. On the semester page, the row menu of the calendar, the letter and each student timetable has **Replace**, which does both in one step with `replaceSharedFile` in `src/uploads.ts`. It checks the new PDF first, as an upload checks it: a PDF of 20 MB or less, with a name that ends in `.pdf`, that the PDF engine reads. A file that fails leaves the old one. Then it deletes the old file and uploads the new one at once. A key holds one file and the files function opens no upload for a key that has one, so the course files that link the key show the section as Missing while the new file uploads. If that upload fails, the section stays Missing, the dialog says the old file is deleted, and **Replace** again only uploads.
+- A replaced file is a new file, so in each course file that links it, the section goes back to Pending review until an auditor gives a new verdict, as for any file that enters or leaves a section. See [Auditor verdicts](#auditor-verdicts). The earlier verdicts stay in `section_verdicts` and the activity log. A sent audit request that flags the section counts the new file as its fix.
+- The semester page lists what the semester still lacks, the missing rows first, and each list's heading says how many of its rows are missing, or None missing. **Lecturer timetables** lists every lecturer who teaches an offering of the semester, with their timetable or Missing, their email and the courses they teach there, and each timetable whose lecturer no longer teaches there. **Student timetables** lists every program code, with its timetable, or Missing and **Upload PDF**. The lists are `semester_lecturer_timetables(semester_id)` and `semester_student_timetables(semester_id)`, each row with `missing` and its `file`, in `supabase/migrations/20261125000420_semester_timetable_lists.sql`. They give rows only to admins.
 - Sections 1 and 3 of a course file are `missing` until the semester has the file, and `pending_review` once it has. Section 4 is `missing` while any lecturer of the offering has no timetable for the semester, so assigning a lecturer without one sets it back to `missing`. The section pages of 1 and 3 list the linked file. The section 4 page lists every lecturer of the offering, the coordinator first, with their timetable or Missing.
 - The section 5 page lists the program codes that have a student timetable for the semester, and the offering's coordinator and lecturers tick the codes whose students take the course. Only a code on that list can be ticked. Section 5 is `missing` while no code is ticked, and `pending_review` once one is. Each tick and untick adds a `tick` or `untick` row, with the `program_code_id`, to the offering's activity log. Ticking a ticked code, or unticking an unticked one, changes and logs nothing.
-- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists every lecturer's timetable for the semester, with the course files that link it, or "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete, and the admin who tries is refused with 403 `forbidden`: "Only its lecturer may delete a timetable, or the admin while no course file links it." `remove_file` checks the link again while it removes the timetable, and an assignment of its lecturer waits for it, so a timetable linked while the admin deletes it stays whole. The migrations are `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql` and `supabase/migrations/20261124000500_remove_file_checks_timetable_link.sql`.
+- A lecturer's timetable outlives their offerings. When the lecturer is taken off every offering of the semester, or their only offering is deleted, no course file links the timetable, and no section 4 page lists it. The semester page lists such a timetable as "Not in any course file". The admin deletes such a timetable there, since its lecturer has no page to reach it from. A timetable that a course file links stays its lecturer's to delete, and the admin who tries is refused with 403 `forbidden`: "Only its lecturer may delete a timetable, or the admin while no course file links it." `remove_file` checks the link again while it removes the timetable, and an assignment of its lecturer waits for it, so a timetable linked while the admin deletes it stays whole. The migrations are `supabase/migrations/20261124000210_admins_delete_unlinked_timetables.sql` and `supabase/migrations/20261124000500_remove_file_checks_timetable_link.sql`.
 - A tick says which programs take the course, so it outlives its code's timetable. Deleting the timetable unlinks it from every offering that ticks the code, and section 5 of each is `missing` until staff untick the code or the admin uploads its timetable again, which links it back. The section 5 page lists such a code as ticked and Missing.
 - The admin, auditors, HoDs, deans and deputy deans read every shared file. A lecturer reads the calendar, letter and student timetables of each semester in which they teach an offering, their own timetables, and the timetables of the lecturers they teach an offering with. Root reads none.
 - Before a delete, the semester page or the section 4 page lists the offerings whose course files link the file, and the user confirms. After the delete, the section is `missing` in each of those course files.
@@ -427,7 +476,7 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migrations are `supabase/migrations/20261120010100_auditor_verdicts.sql` and `supabase/migrations/20261120020000_open_needs_fix_counts.sql`.
 
-- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. Staff see the card once the section has a verdict. When the section changed after it, so that its status is neither that verdict nor `missing`, the card says the verdict was given before the latest change.
+- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. The **Review** column of the course file page's section table gives auditors the same two buttons on each row, with the same dialog, so they mark sections without opening each page. A Needs fix recorded there shows in their draft request on the same page at once. Staff see the card once the section has a verdict. When the section changed after it, so that its status is neither that verdict nor `missing`, the card says the verdict was given before the latest change.
 - A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section whose latest verdict is Verified, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
 - A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its latest verdict is Needs fix, until a new verdict replaces it. A Needs fix on a switched-off section challenges the switch, and a later change, such as a deleted file or switching a flagged section off, leaves the switch just as wrong. So the section keeps counting, and its status is `pending_review` until the auditor checks it again.
 - Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
@@ -443,19 +492,27 @@ Auditors read every course file in every semester, and give any section of it a 
 
 ## Audit requests
 
-An audit request is one batch of Needs fix sections from one auditor on one course file. Its `state` goes from `draft` to `sent` to `replied`, one step at a time, and never back. The migrations are `supabase/migrations/20261120050000_audit_request_values.sql` and `supabase/migrations/20261120050100_audit_requests.sql`.
+An audit request is one batch of Needs fix sections from one auditor on one course file. Its `state` goes from `draft` to `sent` to `replied` to `closed`, one step at a time, and never back. The migrations are `supabase/migrations/20261120050000_audit_request_values.sql`, `supabase/migrations/20261120050100_audit_requests.sql`, `supabase/migrations/20261125000220_audit_request_closed_value.sql`, `supabase/migrations/20261125000230_close_audit_requests.sql` and `supabase/migrations/20261125000235_audit_request_rounds.sql`.
 
 1. **Draft.** Each Needs fix that an auditor records goes into their draft request for the course file, with the verdict's comment, and `record_verdict` makes the draft when they have none. Marking the section Needs fix again replaces its comment, and marking it Verified takes it out of the draft. A draft left with no sections goes. An auditor has at most one draft per course file, by the unique index `audit_requests_one_draft_idx`, so marks made at the same time share it. Only its auditor reads a draft, and nobody gets a notification.
 2. **Send.** The auditor sends the draft by hand. The coordinator and the lecturers of the offering get one push notification, which names the course and the number of flagged sections, and opens the request on the course file page when tapped. Each item keeps its section's file ids at the send, as `section_contents` returns them.
-3. **Checklist.** Everyone who reads the course file reads the sent request, and its sections are the staff's checklist. An item is ticked while its section holds a file that it did not hold at the send: an upload, a reuse, or a shared file uploaded or linked into the course file, such as a lecturer's timetable or the timetable of a program code ticked in section 5. A file uploaded before the send ticks nothing, and neither does deleting or reordering files. An item unticks when its new file is deleted. A switched-off section takes no uploads, so staff answer it with a comment, or switch it on and upload. The coordinator and lecturers comment on any item, and a new comment replaces the earlier one.
+3. **Checklist.** Everyone who reads the course file reads the sent request, and its sections are the staff's checklist. An item is ticked while its section holds a file that it did not hold at the send: an upload, a reuse, or a shared file uploaded or linked into the course file, such as a lecturer's timetable or the timetable of a program code ticked in section 5. A file uploaded before the send ticks nothing, and neither does deleting or reordering files. An item unticks when its new file is deleted. A switched-off section takes no uploads, so staff answer it with a comment, or switch it on and upload. Its checklist item shows why it is off, and offers staff **Switch on to upload** in place of **Upload fix**. That switches it as the course file page's switch does, and asks for a reason when on differs from the course type. The coordinator and lecturers comment on any item, and a new comment replaces the earlier one.
 4. **Reply.** Once every item is ticked or commented, any coordinator or lecturer of the offering replies, with an optional message. The auditor gets a push notification with the start of the message, which opens the request on the course file page, where they read each section's answer. Each item keeps its section's file ids at the reply, so its tick stays as staff replied. The course file page shows the reply to the auditor and to staff.
 5. **New round.** The auditor checks the sections again. Any new Needs fix goes into a new draft, also while a sent request waits for its reply.
+6. **Close.** Once the auditor has checked the sections of a replied request again, they close it with **Close request**, and it leaves their **Replies to review** on Home. A closed request keeps its checklist and reply, and changes no further: staff no longer comment on it, and a send or reply of it again changes nothing and sends no notification. Only a replied request closes, and only its auditor closes it.
 
-Several auditors keep their own requests on one course file. Each send, staff comment and reply adds a row to the offering's activity log.
+Several auditors keep their own requests on one course file. Each auditor's requests on a course file are numbered as rounds, 1, 2 and on, in the order they were sent, and a draft takes the next number. Each send, staff comment, reply and close adds a row to the offering's activity log.
 
-The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. Both notifications link to `/course-files/<offering id>#audit-request-<request id>`, and the page scrolls to that request and marks it. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. Each card shows its round. A replied or closed request folds to one line, with its round, its number of sections and when it was replied or closed, and its title opens it. It stays open while it waits on the user, as a replied request waits on its auditor, and when the address targets it. Both notifications link to `/course-files/<offering id>#audit-request-<request id>`, and the page scrolls to that request and marks it. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
 
 The request's notification goes to every coordinator and lecturer of the offering whose profile is active, on every browser where they turned notifications on. Deactivated staff cannot sign in to fix anything, so they get none. The reply's notification goes to the request's auditor, while their profile is active. A recipient with no browser gets nothing, and reads the request in the app. A notification quotes at most 200 characters of the reply's message. See [Push notifications](#push-notifications).
+
+A notification can reach nobody: push is off while `PUSH_ADAPTER` is unset, and a recipient may have no browser with notifications on. The function counts the browsers each notification reached, and records the count with its delivery. The migration is `supabase/migrations/20261125000200_notification_reach.sql`.
+
+- A notification that reached no browser counts as delivered, since sending it again would reach nobody either. The request's `notified_browsers` is then 0.
+- The send and reply dialogs say what happens to the step. While the build has no push, `VITE_PUSH_ADAPTER` unset, they say that nobody is notified and to tell the people it is for. With push, they say it goes to each browser where they turned notifications on.
+- A step that reached nobody says so in its toast. Its card then tells whoever made the step, the auditor of a sent request or the staff of a replied one, that nobody was notified, with **Email them** or **Email** and the auditor's name, a `mailto:` link to the coordinator and lecturers or to the auditor.
+- A delivery recorded before the count was kept has no count, so its request says nothing.
 
 Each step commits first, and its notification goes after it. `audit_request_notifications` records each notification's delivery: the function claims it with `claim_audit_notification` before it sends it, and marks it delivered after.
 
@@ -471,10 +528,11 @@ Until migration `20261123000200_push_notifications.sql`, the steps sent email, a
 | `audit_requests` | One request: the offering, the auditor, the `state`, the times of its send and reply, who replied, and the reply's message. A trigger allows only the two steps, each made by one update. Only the RPCs below write it. |
 | `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
 | `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
-| `checklist_complete`, `notification_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
+| `checklist_complete`, `notification_pending`, `notified_browsers`, `round_number`, `auditor_name`, `auditor_email`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, how many browsers it reached once delivered, the request's round, the auditor's name and email, and the name of the staff member who replied. A closed request owes no notification. |
 | `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
-| `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
-| `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
+| `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft, replied or closed request fails with `42501`, and a blank comment with `23514`. |
+| `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied or closed stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
+| `close_audit_request(request_id)` | Closes a replied request for the caller, its auditor, and logs the close. A closed request stays as it is. A caller who is not the request's auditor, lacks the `auditor` role or an active profile, or a draft or sent request, fails with `42501`. |
 
 Clients cannot call `send_audit_request` or `reply_to_audit_request`, so no step happens without its notification. The app makes the two steps through the `audit-requests` function, which calls them and sends the notifications.
 
@@ -484,15 +542,17 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
-| `send` | `requestId` | The request's auditor | `{ "request": { "id", "state" } }` |
-| `reply` | `requestId`, and `message`, text or `null` | The coordinator and lecturers of the request's offering | `{ "request": { "id", "state" } }` |
+| `send` | `requestId` | The request's auditor | `{ "request": { "id", "state" }, "notified" }` |
+| `reply` | `requestId`, and `message`, text or `null` | The coordinator and lecturers of the request's offering | `{ "request": { "id", "state" }, "notified" }` |
+
+`notified` is the number of browsers that the step's notification reached, also on a retry of a step whose notification went before. It is `null` while another call sends the notification.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |
 | 400 | `invalid_request` | The body is not one of the actions above. |
 | 401 | `unauthorized` | The request has no valid signed-in user. |
-| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. A user deactivated while signed in gets it too. |
-| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. |
+| 403 | `forbidden` | A `send` by anyone but the request's auditor, or a `reply` by anyone but the offering's coordinator and lecturers, whether or not the checklist is complete. |
+| 404 | `not_found` | The caller cannot read the request, such as another auditor's draft. A user deactivated while signed in reads no request, so they get it too. |
 | 409 | `checklist_incomplete` | A `reply` by the offering's staff while an item is neither ticked nor commented. |
 | 502 | `push_failed` | The step is made, but its notification could not be sent. The same call again sends it. |
 
@@ -509,7 +569,8 @@ The **Activity** tab of a course file page, at `/course-files/<offering id>?tab=
 | `switch_on`, `switch_off` | Switched the section on or off, with the reason for a switch away from the course type's setting |
 | `tick`, `untick` | Ticked or unticked the program code in section 5 |
 | `verified`, `needs_fix` | Marked the section Verified or Needs fix, with the comment |
-| `send`, `comment`, `reply` | Sent an audit request, commented on a section of one, or replied to one, with the comment or the reply's message |
+| `send`, `close` | Sent or closed an audit request, with its round and sections, such as "Sent audit request round 2 on 10 Lecture Notes and 13 Quiz" |
+| `comment`, `reply` | Commented on a section of an audit request, or replied to one, naming its auditor and round, with the comment or the reply's message, such as "Replied to Dr. Aminah's audit request round 2 on 10 Lecture Notes and 13 Quiz" |
 
 The activity of a course file holds the entries of its offering, and those of the shared files it links: the calendar and letter of its semester, the timetables of its lecturers, and the student timetables of the codes it ticks. It follows the lecturers and ticks that the offering has now, as `linked_files` does, and both read `linked_shared_keys`.
 
@@ -517,11 +578,11 @@ The activity of a course file holds the entries of its offering, and those of th
 - The activity holds a program code's timetable entries while the code is ticked. The tick and untick entries belong to the offering, so they stay.
 - A timetable deleted while its lecturer or code is still linked keeps its entries.
 
-The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy deans and the admin read it, as `can_read_offering` says. An HoD reads every course file, whatever its department. Other lecturers and root cannot. The migrations are `supabase/migrations/20261120060000_append_only_activity_log.sql` and `supabase/migrations/20261120060100_course_file_activity.sql`.
+The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy deans and the admin read it, as `can_read_offering` says. An HoD reads every course file, whatever its department. Other lecturers and root cannot. The migrations are `supabase/migrations/20261120060000_append_only_activity_log.sql`, `supabase/migrations/20261120060100_course_file_activity.sql` and `supabase/migrations/20261125000240_activity_names_audit_requests.sql`.
 
 | RPC | What it does |
 | --- | --- |
-| `course_file_activity(offering_id, before_created_at, before_id, page_size)` | Up to `page_size` entries (50 by default) of the course file's activity, newest first by time and then id, older than the entry with `before_created_at` and `before_id`, or the newest entries when both are null. Each has its `id`, `created_at`, `action`, `section` (null for a send or a reply), `actor_name`, `file_name`, `program_code`, `source_course_code` and `source_semester_code` of a reuse, `reason` and `comment`. A deactivated actor keeps their name. It names the past offering of a reuse only by its codes, so a lecturer still reads nothing else of it. A caller who may not read the offering, or an offering that does not exist, fails with Postgres error `42501`. |
+| `course_file_activity(offering_id, before_created_at, before_id, page_size)` | Up to `page_size` entries (50 by default) of the course file's activity, newest first by time and then id, older than the entry with `before_created_at` and `before_id`, or the newest entries when both are null. Each has its `id`, `created_at`, `action`, `section` (null for a send, a reply or a close), `actor_name`, `file_name`, `program_code`, `source_course_code` and `source_semester_code` of a reuse, `reason` and `comment`, and for an entry of an audit request its auditor's name, round and flagged sections, `request_auditor_name`, `request_round` and `request_sections`. A deactivated actor keeps their name. It names the past offering of a reuse only by its codes, so a lecturer still reads nothing else of it. A caller who may not read the offering, or an offering that does not exist, fails with Postgres error `42501`. |
 | `linked_shared_keys(offering)` | The keys of the shared files that the offering's course file links, in its semester: no lecturer and no program code for the calendar and letter, each of its lecturers, and each code it ticks. |
 
 `activityPage(client, offeringId, after?)` in `src/activity.ts` reads one page for the app and the tests. It asks for one entry more than it shows, to know whether there is another page. A page starts after the last entry shown, by time and id, so entries added meanwhile neither repeat an entry nor skip one.
@@ -530,9 +591,18 @@ The coordinator and lecturers of the offering, auditors, HoDs, deans, deputy dea
 
 Nobody changes or removes an entry. Clients have no update, delete or truncate grant on `activity_log`, and neither has the service role, so the API refuses them with `42501`. Clients cannot add entries either. Grants do not bind the table's owner. The RPCs that log changes, such as `record_verdict`, run as the owner, and so do migrations and the SQL editor. A trigger therefore refuses every update, delete and truncate of the table, by any role, with `42501`.
 
+## Home
+
+Home routes audit work to the people who must act on it, since push notifications are optional and off until set up. Its lists come first and cover every semester. Each entry names the course, its semester and the request's round, and opens the request on its course file page, at `/course-files/<offering id>#audit-request-<request id>`.
+
+- **Audit requests waiting for you**, for lecturers: each sent request on a course file they teach or coordinate, oldest first, with its auditor, when it was sent, and how many of its sections are answered. A request stays until one of its staff replies, also once every section is fixed. `requestsAwaitingReply` in `src/audit-requests.ts` reads it.
+- **Replies to review**, for auditors: each of their replied requests, oldest reply first, with who replied, when, and the start of the message. A reply stays until its auditor closes the request. `repliesToReview` reads it.
+
+A list with nothing in it says so in one line. Below the lists, management, auditors and the admin see the faculty overview, and lecturers their own course files, of one semester. The **Semester** select at the top picks it from the semesters in which the user reads an offering, so a lecturer picks from those they teach in. Home shows the semester in `?semester=`, else the one the user last picked on this browser, which `localStorage` keeps, else the newest. A lecturer who also holds a management role and teaches nothing in the semester is told so.
+
 ## Reports
 
-Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows. The migration is `supabase/migrations/20261120070100_reports.sql`.
+Four RPCs report the completeness of one semester's course files. Each takes the `semester_id`, and each counts from the same section statuses that the course file page shows, with one exception that [What the numbers mean](#what-the-numbers-mean) gives. The migrations are `supabase/migrations/20261120070100_reports.sql` and `supabase/migrations/20261125000300_report_readiness.sql`.
 
 | RPC | View | One row for each |
 | --- | --- | --- |
@@ -541,16 +611,16 @@ Four RPCs report the completeness of one semester's course files. Each takes the
 | `report_offerings(semester_id)` | Offering list, section heatmap, and the lecturers' completeness view | Offering, by course code |
 | `report_lecturers(semester_id)` | Lecturer view | Lecturer of an offering in the semester, the coordinators included, by full name |
 
-The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file.
+The reports cover the offerings of the semester that `can_read_offering` lets the caller read. The admin, auditors, HoDs, deans and deputy deans get every offering. A lecturer gets the offerings they teach or coordinate, so their summary sums only those, and their lecturer view lists only the lecturers of those offerings, with only those offerings. Root gets Postgres error `42501`. Each report calls `can_read_offering` once for each offering of the semester, and then reads as its owner. So names show for every reader, and the RLS policy of `files` does not run on each file. Emails are the exception: `coordinator_email` and `lecturer_email` hold the person's email for the admin, auditors, HoDs, deans and deputy deans, who open the **Reports** page to chase people, and are null for a lecturer, who cannot read other profiles.
 
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
-- **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
-- **Offerings**: the offering list, which you can filter by department and by `status`.
-- **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
-- **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
+- **Summary**: the faculty summary as four figures, and the department breakdown below it. The Offerings figure, and each department, say how many offerings are complete and how many are verified. Each department links to its offerings on the **Offerings** tab.
+- **Offerings**: the offering list, which you can filter by department and by `status`, or by **Not ready** (`not_ready`), which keeps the offerings that are `incomplete` or `needs_fix`. The **See all** link of the home page's least complete offerings opens it with Not ready. Each offering shows its missing and Needs fix sections, each linked to its section page, and its coordinator's email as a link that starts a message.
+- **Heatmap**: one row for each offering that the department and status filters keep, which it shares with the **Offerings** tab, and one column for each section. Each cell shows the section's status as a color and an icon, and opens the section's page. The last row, **Missing**, counts the offerings that miss each section. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone, and so does the Missing row.
+- **Lecturers**: each lecturer with their email, as a link that starts a message, and their offerings with the missing and Needs fix sections linked to them, each linked to its section page. You can search it by name, and filter it by department, which keeps the lecturers who teach an offering of the department, with only those offerings, whatever their own department.
 
-The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. Choosing another semester drops the department. A semester, tab, status or department that the page cannot show gives way to what it shows, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
+The semester, the tab and the filters are in the URL, such as `/reports?semester=<id>&tab=offerings&department=<id>&status=incomplete` or `/reports?semester=<id>&tab=lecturers&search=chloe`, so the filters last across tabs. An HoD's department is their own department until they choose another, and **All departments** is then `department=all`, so it lasts across a reload. Everyone else starts with every department. Choosing another semester keeps the department. A semester, tab, status or department that the page cannot show gives way to what it shows, or to the HoD's own department, in the URL too, so that the URL and the controls agree. A semester in which the user reads no offering gives way to the newest. Each course code links to its course file.
 
 Each tab loads its report once. A failed load shows "Couldn't load this report" with **Try again** under the tabs. A semester whose report has no offerings shows "No offerings in" and the semester code, in place of the tab's controls.
 
@@ -560,17 +630,20 @@ The **My completeness** page shows lecturers each course file they teach or coor
 
 A section **counts** when `counts_toward_completeness` is true and its status is not `empty`. A switched-off section therefore counts only while its latest verdict is Needs fix, and sections 7 to 9 count once they hold a file or a verdict. A section that counts is `missing`, `pending_review`, `verified` or `needs_fix`.
 
+In the reports, a switched-off section that counts and has no file is `missing`, as a section that is on and has no files is. The auditor's Needs fix asks for its files, and a verdict never hides missing. The course file page still shows it as `needs_fix`, or `pending_review` after a change. So the reports count it neither as uploaded nor as Needs fix, and list it with the missing sections. With a file, it is uploaded.
+
 | Column | What it counts |
 | --- | --- |
 | `counted_sections` | The sections that count |
-| `uploaded_sections` | The sections that count and are not `missing`. A section marked Needs fix has its files, so it is uploaded. |
+| `uploaded_sections` | The sections that count and are not `missing` |
 | `verified_sections`, `needs_fix_sections` | The sections that count whose status is `verified` or `needs_fix`. A verdict counts only while the section is as the auditor judged it. |
 | `percent_complete` | Of one offering, `uploaded_sections` as a percentage of `counted_sections` |
+| `complete_offerings`, `verified_offerings` | Of a department or the faculty, the offerings that are complete, and those whose `status` is `verified` |
 | `percent_uploaded`, `percent_verified`, `percent_needs_fix` | Of a department or the faculty, the sum of `uploaded_sections`, `verified_sections` or `needs_fix_sections` over its offerings, as a percentage of the sum of their `counted_sections`. Every section weighs the same, so an offering with more sections weighs more. It is not the average of the offerings' percentages. |
 
 Percentages have one decimal place, and are null when no section counts, as for a semester without offerings.
 
-An offering is **complete** when no section that counts is missing, which is `percent_complete` 100. So every section that is on has at least one file, except sections 7 to 9, which never count as missing. Section 4 needs the timetable of every lecturer of the offering, the coordinator included. Section 5 needs at least one ticked program code, and a timetable for each ticked code, since a code whose timetable was deleted leaves the section missing. For example, an offering with Lecture Notes on and nothing uploaded counts 10 sections, 1 to 6, 10 and 17 to 19, and is 0% complete. Uploading every one of them makes it 100%. A file in section 7 then makes 11 that count, all uploaded.
+An offering is **complete** when no section that counts is missing, which is `percent_complete` 100. So every section that is on has at least one file, except sections 7 to 9, which never count as missing, and so does every switched-off section that an auditor marked Needs fix. Section 4 needs the timetable of every lecturer of the offering, the coordinator included. Section 5 needs at least one ticked program code, and a timetable for each ticked code, since a code whose timetable was deleted leaves the section missing. For example, an offering with Lecture Notes on and nothing uploaded counts 10 sections, 1 to 6, 10 and 17 to 19, and is 0% complete. Uploading every one of them makes it 100%. A file in section 7 then makes 11 that count, all uploaded.
 
 `report_offerings` also gives each offering's `status`, which the offering list filters on:
 
@@ -581,9 +654,9 @@ An offering is **complete** when no section that counts is missing, which is `pe
 | `pending_review` | None is missing or Needs fix, and one is Pending review |
 | `verified` | Every section that counts is Verified |
 
-Each `report_offerings` row also has the course, its department, the coordinator's `coordinator_name`, `missing_sections` in section order, `section_statuses`, the 19 statuses in section order for the heatmap, and `last_upload_at`. That is the latest upload or reuse into the offering's own sections, or null. The shared files it links, such as the calendar and the timetables, are left out, because each is uploaded once for many course files.
+Each `report_offerings` row also has the course, its department, the coordinator's `coordinator_name` and `coordinator_email`, `missing_sections` in section order, `section_statuses`, the 19 statuses in section order for the heatmap, and `last_upload_at`. That is the latest upload or reuse into the offering's own sections, or null. The shared files it links, such as the calendar and the timetables, are left out, because each is uploaded once for many course files.
 
-Each `report_lecturers` row has the lecturer's id, name and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, `coordinator`, true for the one they coordinate, and the `missing_sections` linked to the lecturer. Those are the offering's missing sections, without sections 1 and 3, which the admin uploads, and without section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
+Each `report_lecturers` row has the lecturer's id, name, `lecturer_email` and profile department, `timetable_missing`, which is true while they have no timetable for the semester, and `offerings`, a JSON array of their offerings by course code. Each has its `offering_id`, `course_code`, `course_title`, the offering's `department_id`, `department_code` and `department_name`, `coordinator`, true for the one they coordinate, and the `missing_sections` and `needs_fix_sections` linked to the lecturer. Those are the offering's missing and Needs fix sections, without sections 1 and 3, which the admin uploads, and without a missing section 4 unless the lecturer's own timetable is missing. Section 5 stays, since staff tick the codes.
 
 The API returns at most 1,000 rows for one request (`max_rows` in `supabase/config.toml`). The app reads a report with `fetchReport(client, rpc, semesterId)` in `src/reports.ts`, which reads it with `readAll`: it asks for the rows a page at a time with `range`, sorted as the RPC sorts them, until a page comes back with fewer than 1,000 rows. A semester of 1,001 offerings takes two requests, and one of about 100 takes one. The **Reports** page reads its list of semesters, and **My completeness** the lecturer's offerings, the same way. Each page is its own query, so an offering that the admin adds while a report of more than 1,000 rows loads can show twice, or be left out, until the page loads the report again.
 
@@ -595,11 +668,11 @@ Each tab of the **Reports** page has one **Export** menu, at the end of the tab'
 
 | View | Columns |
 | --- | --- |
-| Summary | Department code, Department, Offerings, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
-| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Status, Complete (%), Missing sections, Last upload |
+| Summary | Department code, Department, Offerings, Offerings complete, Offerings verified, Sections (that count), then Sections uploaded and Uploaded (%), Sections verified and Verified (%), and Sections needing fix and Needs fix (%). One row for each department, then the faculty as `All departments`, with no department code. |
+| Offerings | Course code, Course (its title), Department code, Department (its name), Coordinator, Coordinator email, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | My completeness | Course code, Course, Coordinator, Status, Complete (%), Missing sections, Sections needing fix, Last upload |
 | Heatmap | Course code, Course, and one column for each of the 19 sections, such as `1 Academic Calendar`, with its status |
-| Lecturers | Lecturer, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
+| Lecturers | Lecturer, Email, Department code, Department, Timetable (`Missing` or `Uploaded`), Course code, Course, Role (`Coordinator` or `Lecturer`), Missing sections, Sections needing fix. The screen groups the offerings by lecturer, and the file has one row for each offering of each lecturer. |
 
 - Statuses are the text the screen shows, such as `Needs fix`. Sections are their numbers and titles, such as `4 Lecturer Timetable, 10 Lecture Notes`.
 - Counts and percentages are numbers, so a spreadsheet sorts and sums them. A percentage is the number the screen shows before its `%`, such as `82.5`, under a header that ends in `(%)`.

@@ -1,6 +1,6 @@
 import { CalendarRangeIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
 import { PageHeader, TableCard } from '@/components/page'
@@ -20,8 +20,9 @@ type Semester = { id: string; code: string; offerings: { count: number }[] }
 /** The table's columns: code and the number of offerings. */
 const COLUMNS = ['', '']
 
-/** The semesters, newest first, a page at a time, searched by code. Each opens its own page. */
+/** The semesters, newest first, a page at a time, searched by code. Each opens its own page, and so does a semester just added. */
 export function Semesters() {
+  const navigate = useNavigate()
   const [adding, setAdding] = useState(false)
   const list = usePagedList((range, search) => {
     let query = supabase.from('semesters').select('id, code, offerings(count)', { count: 'exact' })
@@ -39,11 +40,14 @@ export function Semesters() {
     const { data, error } = await supabase
       .from('semesters')
       .insert({ start_year: Number(form.get('start_year')), number: Number(form.get('number')) })
-      .select('code')
+      .select('id, code')
       .single()
-    list.retry()
-    if (error) return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'That semester already exists.' } })
+    if (error) {
+      list.retry()
+      return friendlyError(error, { codes: { [UNIQUE_VIOLATION]: 'That semester already exists.' } })
+    }
     toast.success(`Added ${data.code}`)
+    navigate(`/semesters/${data.id}`)
     return null
   }
 

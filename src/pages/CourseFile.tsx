@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, FileDownIcon, FolderOpenIcon } from 'lucide-react'
+import { ArrowLeftIcon, CircleAlertIcon, CircleCheckIcon, FileDownIcon, FolderOpenIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -7,6 +7,7 @@ import { AuditRequests } from '@/components/audit-requests'
 import { LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
+import { VerdictDialog } from '@/components/section-verdict'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -18,18 +19,21 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
 import { courseFileProgress } from '../progress.ts'
 import { saveFile } from '../save-file.ts'
-import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus } from '../sections.ts'
+import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
 
 type Offering = {
+  semester_id: string
   semester: { code: string }
+  coordinator_id: string
   course: { code: string; title: string; department: { code: string; name: string } }
   /** The switchable sections that are on. */
   sections_on: number[]
   /** The reason for each switchable section whose setting differs from the course type, by section number. */
   section_reasons: Record<string, string>
-  lecturers: { lecturer_id: string }[]
+  /** Every lecturer of the offering, the coordinator included, with their name and email. */
+  lecturers: { lecturer_id: string; lecturer_name: string; lecturer_email: string }[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
@@ -58,13 +62,17 @@ export function CourseFile() {
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [compiling, setCompiling] = useState<Compiling | null>(null)
+  /** The verdict an auditor is recording from the section table. */
+  const [recording, setRecording] = useState<{ section: number; title: string; verdict: Verdict } | null>(null)
+  /** Goes up with each verdict recorded here, so the audit requests load the auditor's draft again. */
+  const [revision, setRevision] = useState(0)
 
   const reload = useCallback(async () => {
     const [offering, statuses] = await Promise.all([
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id)',
+          'semester_id, semester:semesters(code), coordinator_id, course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
         )
         .eq('id', offeringId!)
         .maybeSingle()
@@ -81,9 +89,11 @@ export function CourseFile() {
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId!, reload)
 
+  /** The course files of the course file's semester, which the user most likely came from. */
+  const courseFiles = data?.offering ? `/course-files?semester=${data.offering.semester_id}` : '/course-files'
   const backLink = (
     <Button asChild variant="outline">
-      <Link to="/course-files">
+      <Link to={courseFiles}>
         <ArrowLeftIcon />
         All course files
       </Link>
@@ -109,8 +119,9 @@ export function CourseFile() {
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
   const userId = auth.kind === 'ready' ? auth.profile.id : null
   const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
-  /** The table's columns: number, section, the switch for staff, and status, last so it stays put. */
-  const columns = canSwitch ? ['', '', '', WIDE] : ['', '', WIDE]
+  const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
+  /** The table's columns: number, section, the switch for staff, status, and an auditor's verdict buttons. */
+  const columns = ['', '', ...(canSwitch ? [''] : []), WIDE, ...(isAuditor ? [''] : [])]
   const progress = data && courseFileProgress(data.statuses)
 
   /**
@@ -144,7 +155,15 @@ export function CourseFile() {
       {offering ? (
         <PageHeader
           title={`${offering.course.code} ${offering.course.title}`}
-          description={`${offering.semester.code} · ${offering.course.department.code} ${offering.course.department.name}`}
+          areaTo={courseFiles}
+          description={
+            <>
+              <span className="block">
+                {offering.semester.code} · {offering.course.department.code} {offering.course.department.name}
+              </span>
+              <StaffLine coordinatorId={offering.coordinator_id} lecturers={offering.lecturers} />
+            </>
+          }
           action={
             <PageActions>
               {backLink}
@@ -172,9 +191,23 @@ export function CourseFile() {
           {data && (
             <AuditRequests
               offeringId={offeringId!}
+              courseCode={offering!.course.code}
               userId={userId}
               isStaff={canSwitch}
+              staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
+              switchedOff={
+                new Map(
+                  SWITCHABLE_SECTIONS.filter((section) => !offering!.sections_on.includes(section.number)).map((section) => [
+                    section.number,
+                    offering!.section_reasons[section.number],
+                  ]),
+                )
+              }
+              onSwitchOn={(section) =>
+                void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+              }
+              revision={revision}
             />
           )}
 
@@ -200,6 +233,9 @@ export function CourseFile() {
                     <TableHead className="px-4">Section</TableHead>
                     {canSwitch && <TableHead className="w-16 px-4">On</TableHead>}
                     <TableHead className={cn('w-36 px-4', WIDE)}>Status</TableHead>
+                    {isAuditor && (
+                      <TableHead className="w-24 px-4 text-right">Review</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -248,6 +284,30 @@ export function CourseFile() {
                           <TableCell className={cn('px-4 py-3 align-top', WIDE)}>
                             <SectionStatusBadge status={status} />
                           </TableCell>
+                          {isAuditor && (
+                            <TableCell className="relative z-10 px-4 py-2 align-top">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Mark ${title} verified`}
+                                  title="Mark verified"
+                                  onClick={() => setRecording({ section, title, verdict: 'verified' })}
+                                >
+                                  <CircleCheckIcon className="text-success" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Mark ${title} needs fix`}
+                                  title="Mark needs fix"
+                                  onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
+                                >
+                                  <CircleAlertIcon className="text-warning" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       )
                     })
@@ -263,6 +323,50 @@ export function CourseFile() {
       </Tabs>
 
       {switchDialog}
+      {recording && (
+        <VerdictDialog
+          offeringId={offeringId!}
+          section={recording.section}
+          sectionTitle={recording.title}
+          verdict={recording.verdict}
+          onClose={() => setRecording(null)}
+          onRecorded={async () => {
+            await reload()
+            setRevision((count) => count + 1)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * The course file's coordinator, then its other lecturers by name, each with their title and a link
+ * that emails them, so whoever reads the course file can reach the people who keep it.
+ */
+function StaffLine({ coordinatorId, lecturers }: { coordinatorId: string; lecturers: Offering['lecturers'] }) {
+  const coordinator = lecturers.find((lecturer) => lecturer.lecturer_id === coordinatorId)
+  const others = lecturers.filter((lecturer) => lecturer !== coordinator).toSorted((a, b) => a.lecturer_name.localeCompare(b.lecturer_name))
+  const person = (lecturer: Offering['lecturers'][number]) => (
+    <a key={lecturer.lecturer_id} href={`mailto:${lecturer.lecturer_email}`} title={lecturer.lecturer_email} className="text-foreground underline-offset-4 hover:underline">
+      {lecturer.lecturer_name}
+    </a>
+  )
+  return (
+    <span className="mt-1 block">
+      {coordinator && <>Coordinator {person(coordinator)}</>}
+      {coordinator && others.length > 0 && ' · '}
+      {others.length > 0 && (
+        <>
+          {others.length === 1 ? 'Lecturer' : 'Lecturers'}{' '}
+          {others.map((lecturer, index) => (
+            <span key={lecturer.lecturer_id}>
+              {index > 0 && ', '}
+              {person(lecturer)}
+            </span>
+          ))}
+        </>
+      )}
+    </span>
   )
 }

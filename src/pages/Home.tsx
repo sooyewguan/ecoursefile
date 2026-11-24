@@ -1,6 +1,7 @@
 import {
   ArrowRightIcon,
   ChartColumnIcon,
+  CircleCheckBigIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   ClipboardCheckIcon,
@@ -9,18 +10,21 @@ import {
   WrenchIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Link, Navigate } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { openPages } from '@/components/app-shell'
 import { EmptyState, LoadError, useDocumentTitle } from '@/components/page'
-import { loadOfferings } from '@/components/reports'
+import { loadOfferings, pickSemester, SemesterSelect, useSemestersWithOfferings } from '@/components/reports'
 import { SectionBar, SectionBarLegend } from '@/components/section-bar'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { FacultyStatTiles, StatTiles } from '@/components/stat-tiles'
+import { Time } from '@/components/time'
 import { TimetableMissing } from '@/components/timetable-missing'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { plural } from '@/lib/utils'
+import { repliesToReview, requestsAwaitingReply, type InboxRequest } from '../audit-requests.ts'
 import { canOpen } from '../auth.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { fetchReport, formatPercent, type DepartmentRow, type FacultySummary, type OfferingRow } from '../reports.ts'
@@ -29,10 +33,10 @@ import { isTimetableMissing, loadTaught } from '../teaching.ts'
 
 type Semester = { id: string; code: string }
 
-/** The user's own course files in the newest semester in which they teach, and whether their timetable for it is missing. */
+/** The user's own course files in the semester, and whether their timetable for it is missing. */
 type StaffOverview = { semester: Semester; offerings: OfferingRow[]; timetableMissing: boolean }
 
-/** The faculty in the newest semester with offerings: its summary, its departments and its offerings. */
+/** The faculty in the semester: its summary, its departments and its offerings. */
 type FacultyOverview = { semester: Semester; summary: FacultySummary; departments: DepartmentRow[]; offerings: OfferingRow[] }
 
 /** What a loader gave: null while it loads, then its data, which is null when there is nothing to show, or failed. */
@@ -55,25 +59,14 @@ function useLoaded<Data>(load: () => Promise<Data | null>) {
   return { result: loaded.attempt === attempt ? loaded.result : null, retry: () => setAttempt((count) => count + 1) }
 }
 
-async function loadStaff(userId: string): Promise<StaffOverview | null> {
-  const taught = await loadTaught(userId)
-  const newest = taught.semesters[0]
-  if (!newest) return null
-  const [offerings, timetableMissing] = await Promise.all([loadOfferings(newest.id), isTimetableMissing(newest.id, userId)])
-  return { semester: { id: newest.id, code: newest.code }, offerings: offerings.filter((row) => taught.offeringIds.has(row.offering_id)), timetableMissing }
+/** The user's own course files in the semester, or null when they teach none in it. */
+async function loadStaff(userId: string, semester: Semester): Promise<StaffOverview | null> {
+  const [taught, offerings, timetableMissing] = await Promise.all([loadTaught(userId), loadOfferings(semester.id), isTimetableMissing(semester.id, userId)])
+  const own = offerings.filter((row) => taught.offeringIds.has(row.offering_id))
+  return own.length > 0 ? { semester, offerings: own, timetableMissing } : null
 }
 
-async function loadFaculty(): Promise<FacultyOverview | null> {
-  const { data, error } = await supabase
-    .from('semesters')
-    .select('id, code, offerings!inner(id)')
-    .order('start_year', { ascending: false })
-    .order('number', { ascending: false })
-    .limit(1)
-    .limit(1, { referencedTable: 'offerings' })
-  if (error) throw error
-  const semester: Semester | undefined = data[0] && { id: data[0].id, code: data[0].code }
-  if (!semester) return null
+async function loadFaculty(semester: Semester): Promise<FacultyOverview> {
   const [[summary], departments, offerings] = await Promise.all([
     fetchReport<FacultySummary>(supabase, 'report_faculty_summary', semester.id),
     fetchReport<DepartmentRow>(supabase, 'report_departments', semester.id),
@@ -82,37 +75,109 @@ async function loadFaculty(): Promise<FacultyOverview | null> {
   return { semester, summary, departments, offerings }
 }
 
+/** Where the browser keeps the semester the user last picked on Home. */
+const HOME_SEMESTER_KEY = 'ecoursefile.homeSemester'
+
+// localStorage can throw, such as in a private window with storage blocked. Home then opens on the newest semester.
+function rememberedSemester() {
+  try {
+    return localStorage.getItem(HOME_SEMESTER_KEY)
+  } catch {
+    return null
+  }
+}
+
+function rememberSemester(semesterId: string) {
+  try {
+    localStorage.setItem(HOME_SEMESTER_KEY, semesterId)
+  } catch {
+    // The pick still holds in the address.
+  }
+}
+
 /**
- * The dashboard. Management, auditors and the admin see the faculty in the newest semester with
- * offerings, and lecturers their own course files in the newest semester they teach. A user who
- * holds both kinds of role sees both. A user with one page goes straight to it.
+ * The dashboard. Lecturers first see the audit requests waiting for their reply, and auditors the
+ * replies waiting for their review, from every semester. Then management, auditors and the admin see
+ * the faculty in one semester, and lecturers their own course files in it. A user who holds both
+ * kinds of role sees both. The semester is the one in ?semester=, else the one the user last picked
+ * on this browser, else the newest in which they read an offering. A user with one page goes
+ * straight to it.
  */
 export function Home() {
   const state = useAuth()
   useDocumentTitle('Home')
+  const { semesters, reload } = useSemestersWithOfferings()
+  const [searchParams, setSearchParams] = useSearchParams()
   if (state.kind !== 'ready') return null
   const pages = openPages(state.roles)
   if (pages.length === 1) return <Navigate to={pages[0].path} replace />
 
+  const list = semesters === 'failed' ? null : semesters
+  const semesterId = pickSemester(list, searchParams.get('semester') ?? rememberedSemester())
+  /** Undefined while the semesters load, and null when the user reads no offering at all. */
+  const semester = list ? (list.find((s) => s.id === semesterId) ?? null) : undefined
+  const pick = (id: string) => {
+    rememberSemester(id)
+    setSearchParams({ semester: id }, { replace: true })
+  }
+
   return (
     <div className="grid gap-10">
-      <header className="grid gap-1">
-        <p className="text-muted-foreground text-sm">{new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}</p>
-        <h1 className="text-2xl/8 font-semibold tracking-tight">Welcome back, {state.profile.displayName}</h1>
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="grid gap-1">
+          <p className="text-muted-foreground text-sm">{new Intl.DateTimeFormat('en-GB', { dateStyle: 'full' }).format(new Date())}</p>
+          <h1 className="text-2xl/8 font-semibold tracking-tight">Welcome back, {state.profile.displayName}</h1>
+        </div>
+        {semester ? (
+          <SemesterSelect semesters={list!} value={semester.id} onChange={pick} />
+        ) : (
+          semester === undefined && semesters !== 'failed' && <Skeleton className="h-[58px] w-full sm:w-56" />
+        )}
       </header>
-      {canOpen(state.roles, '/reports') && <FacultySection />}
-      {state.roles.includes('lecturer') && <StaffSection userId={state.profile.id} />}
+      {state.roles.includes('lecturer') && <AwaitingReplySection userId={state.profile.id} />}
+      {state.roles.includes('auditor') && <RepliesToReviewSection userId={state.profile.id} />}
+      {semesters === 'failed' ? (
+        <SectionCard>
+          <LoadError title="Couldn't load the semesters" onRetry={reload} />
+        </SectionCard>
+      ) : (
+        <>
+          {/* A new semester remounts each section, so it never shows the last semester's figures while it loads. */}
+          {canOpen(state.roles, '/reports') && <FacultySection key={semester?.id} semester={semester} />}
+          {state.roles.includes('lecturer') && <StaffSection key={semester?.id} userId={state.profile.id} semester={semester} />}
+        </>
+      )}
     </div>
   )
 }
 
-/** A dashboard section's heading, with the semester it covers and a link to the page with the detail. */
-function SectionHeading({ id, title, semester, link }: { id: string; title: string; semester?: Semester; link?: { to: string; label: string } }) {
+/** What a loader gives for a semester that is still loading: nothing, ever, so the section keeps its placeholders. */
+const loading = () => new Promise<never>(() => {})
+
+/** A dashboard section's heading, with how many it lists or the semester it covers, and a link to the page with the detail. */
+function SectionHeading({
+  id,
+  title,
+  count,
+  semester,
+  link,
+}: {
+  id: string
+  title: string
+  count?: number
+  semester?: Semester
+  link?: { to: string; label: string }
+}) {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <h2 id={id} className="text-lg font-semibold tracking-tight">
         {title}
       </h2>
+      {count !== undefined && count > 0 && (
+        <Badge variant="warning" className="tabular-nums">
+          {count}
+        </Badge>
+      )}
       {semester && (
         <Badge variant="secondary" className="tabular-nums">
           {semester.code}
@@ -135,8 +200,139 @@ function SectionCard({ children }: { children: ReactNode }) {
   return <Card className="py-0">{children}</Card>
 }
 
-function FacultySection() {
-  const { result, retry } = useLoaded(loadFaculty)
+/** The sent requests on the user's course files, in every semester, until they or a colleague reply. */
+function AwaitingReplySection({ userId }: { userId: string }) {
+  const load = useCallback(() => requestsAwaitingReply(supabase, userId), [userId])
+  return (
+    <InboxSection
+      id="awaiting-reply-heading"
+      title="Audit requests waiting for you"
+      empty="No audit request is waiting for your reply."
+      loadError="Couldn't load the audit requests"
+      load={load}
+      detail={(request) => {
+        const answered = request.items.filter((item) => item.ticked || item.comment).length
+        return {
+          line: (
+            <>
+              Round {request.round_number} from {request.auditor_name} · Sent <Time value={request.sent_at} />
+            </>
+          ),
+          status: `${answered} of ${request.items.length} answered`,
+        }
+      }}
+    />
+  )
+}
+
+/** The user's replied requests, in every semester, until they close them. */
+function RepliesToReviewSection({ userId }: { userId: string }) {
+  const load = useCallback(() => repliesToReview(supabase, userId), [userId])
+  return (
+    <InboxSection
+      id="replies-heading"
+      title="Replies to review"
+      empty="No reply is waiting for your review."
+      loadError="Couldn't load the replies"
+      load={load}
+      detail={(request) => ({
+        line: (
+          <>
+            Round {request.round_number} · Replied by {request.replier_name}, <Time value={request.replied_at!} />
+          </>
+        ),
+        quote: request.reply_message,
+        status: plural(request.items.length, 'section'),
+      })}
+    />
+  )
+}
+
+/**
+ * A list of audit requests that wait on the user, each linked to the request on its course file
+ * page, with its course, semester and detail: a line about the request, an optional quote and a
+ * short status at its end.
+ */
+function InboxSection({
+  id,
+  title,
+  empty,
+  loadError,
+  load,
+  detail,
+}: {
+  id: string
+  title: string
+  empty: string
+  loadError: string
+  load: () => Promise<InboxRequest[]>
+  detail: (request: InboxRequest) => { line: ReactNode; quote?: string | null; status: string }
+}) {
+  const { result, retry } = useLoaded(load)
+  const rows = result && result !== 'failed' ? result.data : null
+  return (
+    <section aria-labelledby={id} className="grid gap-4">
+      <SectionHeading id={id} title={title} count={rows?.length} />
+      {result === 'failed' ? (
+        <SectionCard>
+          <LoadError title={loadError} onRetry={retry} />
+        </SectionCard>
+      ) : rows?.length === 0 ? (
+        <Card className="py-0">
+          <p className="text-muted-foreground flex items-center gap-2 px-4 py-4 text-sm sm:px-6">
+            <CircleCheckBigIcon aria-hidden="true" className="text-success size-4 shrink-0" />
+            {empty}
+          </p>
+        </Card>
+      ) : (
+        <Card className="gap-0 py-0">
+          <ul aria-labelledby={id} className="divide-y">
+            {(rows ?? [null]).map((request, index) => {
+              if (!request) {
+                return (
+                  <li key={index} aria-hidden="true" className="grid gap-2 px-4 py-4 sm:px-6">
+                    <Skeleton className="h-5 w-full max-w-64" />
+                    <Skeleton className="h-4 w-full max-w-96" />
+                  </li>
+                )
+              }
+              const { line, quote, status } = detail(request)
+              return (
+                <li key={request.id}>
+                  <Link
+                    to={`/course-files/${request.offering.id}#audit-request-${request.id}`}
+                    className="hover:bg-muted/40 grid gap-2 px-4 py-4 transition-colors first:rounded-t-xl last:rounded-b-xl sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6 sm:px-6"
+                  >
+                    <span className="grid min-w-0 gap-0.5">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{request.offering.course.code}</span>
+                        <span className="text-muted-foreground text-sm">{request.offering.course.title}</span>
+                        <Badge variant="secondary" className="tabular-nums">
+                          {request.offering.semester.code}
+                        </Badge>
+                      </span>
+                      <span className="text-muted-foreground text-sm">{line}</span>
+                      {quote && <span className="truncate text-sm">“{quote}”</span>}
+                    </span>
+                    <span className="text-muted-foreground flex items-center gap-2 text-sm tabular-nums sm:justify-end">
+                      {status}
+                      <ArrowRightIcon aria-hidden="true" className="size-4 max-sm:hidden" />
+                    </span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+      )}
+    </section>
+  )
+}
+
+/** The faculty in the semester. semester is undefined while it loads, and null when there are no offerings. */
+function FacultySection({ semester }: { semester: Semester | null | undefined }) {
+  const load = useCallback(() => (semester === undefined ? loading() : semester ? loadFaculty(semester) : Promise.resolve(null)), [semester])
+  const { result, retry } = useLoaded(load)
   const data = result && result !== 'failed' ? result.data : null
   const summary = data?.summary
   return (
@@ -219,7 +415,7 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
         {data && (
           <CardAction>
             <Button asChild variant="ghost" size="sm">
-              <Link to={`/reports?semester=${data.semester.id}&tab=offerings&status=incomplete`}>See all</Link>
+              <Link to={`/reports?semester=${data.semester.id}&tab=offerings&status=not_ready`}>See all</Link>
             </Button>
           </CardAction>
         )}
@@ -259,8 +455,9 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
   )
 }
 
-function StaffSection({ userId }: { userId: string }) {
-  const load = useCallback(() => loadStaff(userId), [userId])
+/** The user's own course files in the semester. semester is undefined while it loads, and null when the user teaches none at all. */
+function StaffSection({ userId, semester }: { userId: string; semester: Semester | null | undefined }) {
+  const load = useCallback(() => (semester === undefined ? loading() : semester ? loadStaff(userId, semester) : Promise.resolve(null)), [userId, semester])
   const { result, retry } = useLoaded(load)
   const data = result && result !== 'failed' ? result.data : null
   const rows = data?.offerings
@@ -281,7 +478,7 @@ function StaffSection({ userId }: { userId: string }) {
         </SectionCard>
       ) : result?.data === null ? (
         <SectionCard>
-          <EmptyState icon={ClipboardCheckIcon} title="No course files yet" />
+          <EmptyState icon={ClipboardCheckIcon} title={semester ? `You teach no course file in ${semester.code}` : 'No course files yet'} />
         </SectionCard>
       ) : (
         <>

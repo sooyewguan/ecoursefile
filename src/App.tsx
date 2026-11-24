@@ -71,9 +71,14 @@ export function App() {
 /** The form of every id, so an address with any other offering id names no course file. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** The pages of one course file, or Course file not found when the address's id cannot be one. */
+/**
+ * The pages of one course file, or Course file not found when the address's id cannot be one. Each
+ * address is a page of its own, so Next and Previous start the section page afresh rather than show
+ * or act on the section it came from.
+ */
 function CourseFileRoute() {
-  if (UUID.test(useParams().offeringId ?? '')) return <Outlet />
+  const { pathname } = useLocation()
+  if (UUID.test(useParams().offeringId ?? '')) return <Outlet key={pathname} />
   return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
 }
 

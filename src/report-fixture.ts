@@ -11,10 +11,12 @@ export const REPORT_FIXTURE: {
   lecturers: LecturerRow[]
   chloeOfferings: OfferingRow[]
 } = {
-  "semesterCode": "2828/2829-3",
+  "semesterCode": "2815/2816-2",
   "facultySummary": [
     {
       "offerings": 5,
+      "complete_offerings": 3,
+      "verified_offerings": 1,
       "counted_sections": 48,
       "uploaded_sections": 34,
       "verified_sections": 10,
@@ -26,10 +28,12 @@ export const REPORT_FIXTURE: {
   ],
   "departments": [
     {
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
       "offerings": 2,
+      "complete_offerings": 1,
+      "verified_offerings": 1,
       "counted_sections": 19,
       "uploaded_sections": 12,
       "verified_sections": 9,
@@ -39,10 +43,12 @@ export const REPORT_FIXTURE: {
       "percent_needs_fix": 5.3
     },
     {
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
       "offerings": 3,
+      "complete_offerings": 2,
+      "verified_offerings": 0,
       "counted_sections": 29,
       "uploaded_sections": 22,
       "verified_sections": 1,
@@ -54,14 +60,15 @@ export const REPORT_FIXTURE: {
   ],
   "offerings": [
     {
-      "offering_id": "bf665648-03f7-42df-ad5c-df14e5842120",
-      "course_code": "BITI2233-44d2d6eb",
+      "offering_id": "adb6f4fc-eee8-4d66-8d50-593465d41bae",
+      "course_code": "BITI2233-4189ea99",
       "course_title": "+Statistik Asas",
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
-      "coordinator_id": "4b5bd684-ee98-42a4-9487-35951f16cc6b",
+      "coordinator_id": "4f76809a-7a44-4ce2-854a-ea5a2b201834",
       "coordinator_name": "=HYPERLINK(\"https://example.com\",\"Open\")",
+      "coordinator_email": "report-fixture-006afe36-7999-4657-8693-99625b4b8ab4@seam1.test",
       "status": "incomplete",
       "counted_sections": 10,
       "uploaded_sections": 3,
@@ -98,17 +105,18 @@ export const REPORT_FIXTURE: {
         "missing",
         "missing"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.281381+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.803753+00:00"
     },
     {
-      "offering_id": "0a596cf6-5f53-4064-aee0-dc79fc6d5f68",
-      "course_code": "BITM3423-44d2d6eb",
+      "offering_id": "37b40a11-027c-4cb8-8857-af0cc14af8bc",
+      "course_code": "BITM3423-4189ea99",
       "course_title": "Sains Data\nGunaan",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
-      "coordinator_id": "d676401b-b502-4204-8c9f-0eb029ff72c8",
+      "coordinator_id": "efd0edb1-9971-41de-89bc-37cebf891fd7",
       "coordinator_name": "@SUM(1+1)",
+      "coordinator_email": "report-fixture-8cf1e62d-82ae-4995-b464-a61ae19f8477@seam1.test",
       "status": "pending_review",
       "counted_sections": 10,
       "uploaded_sections": 10,
@@ -137,17 +145,18 @@ export const REPORT_FIXTURE: {
         "pending_review",
         "pending_review"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.25177+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.80933+00:00"
     },
     {
-      "offering_id": "95aa6b2a-c2eb-468e-95c3-3b01f96e9467",
-      "course_code": "BITP1113-44d2d6eb",
+      "offering_id": "627ad45f-2966-4ff6-9ff4-16d7e50f96aa",
+      "course_code": "BITP1113-4189ea99",
       "course_title": "Pemrograman Komputer",
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
-      "coordinator_id": "b11f47e2-02a9-420a-b63e-96e0efa4e5e6",
+      "coordinator_id": "f4743c30-791a-40e6-8d7c-d19d975cc0d9",
       "coordinator_name": "Aisyah Rahman",
+      "coordinator_email": "report-fixture-e2c2f2cc-8d90-4b29-9eab-27b752fb0c07@seam1.test",
       "status": "verified",
       "counted_sections": 9,
       "uploaded_sections": 9,
@@ -176,17 +185,18 @@ export const REPORT_FIXTURE: {
         "verified",
         "verified"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.32003+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.746454+00:00"
     },
     {
-      "offering_id": "f4b66f29-a17e-4c1b-bba8-881a78cdaab5",
-      "course_code": "BITS3343-44d2d6eb",
+      "offering_id": "498eccf1-a080-49b2-8159-4b4d8c12df54",
+      "course_code": "BITS3343-4189ea99",
       "course_title": "Pengaturcaraan \"Java\", Lanjutan",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
-      "coordinator_id": "119cd09b-2031-4bfb-ac87-c9eaff103d9d",
+      "coordinator_id": "78aa1136-ee34-4973-bb7f-65c0eeddf32e",
       "coordinator_name": "Chloé Lefèvre",
+      "coordinator_email": "report-fixture-5cc68ec3-ffd0-4f95-9bec-214de25c3cec@seam1.test",
       "status": "needs_fix",
       "counted_sections": 10,
       "uploaded_sections": 10,
@@ -215,17 +225,18 @@ export const REPORT_FIXTURE: {
         "pending_review",
         "pending_review"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.275671+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.807342+00:00"
     },
     {
-      "offering_id": "a7c4f792-276d-46db-966a-9dd8c18ebe01",
-      "course_code": "BITU3973-44d2d6eb",
+      "offering_id": "700b546e-c8a4-47fe-80f6-fa42dd4b3426",
+      "course_code": "BITU3973-4189ea99",
       "course_title": "Projek Sarjana Muda",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
-      "coordinator_id": "4eaab7e2-8ab1-488e-a808-a283968c9cd0",
+      "coordinator_id": "64294b94-9f3e-4402-9c55-c72d6c4f597e",
       "coordinator_name": "-2+3 Dash",
+      "coordinator_email": "report-fixture-e7139a4d-b2c1-4126-9309-4845c7def5ee@seam1.test",
       "status": "incomplete",
       "counted_sections": 9,
       "uploaded_sections": 2,
@@ -267,8 +278,9 @@ export const REPORT_FIXTURE: {
   ],
   "lecturers": [
     {
-      "lecturer_id": "2ce062f2-b576-4fe7-bdfa-9e472923ee64",
+      "lecturer_id": "8ba9ff2f-da57-4b80-8f14-df828507fa2b",
       "lecturer_name": "\tTabbed Name",
+      "lecturer_email": "report-fixture-645f0676-e98d-42ab-9f45-e0f9973615aa@seam1.test",
       "department_id": null,
       "department_code": null,
       "department_name": null,
@@ -276,9 +288,12 @@ export const REPORT_FIXTURE: {
       "offerings": [
         {
           "coordinator": false,
-          "course_code": "BITU3973-44d2d6eb",
-          "offering_id": "a7c4f792-276d-46db-966a-9dd8c18ebe01",
+          "course_code": "BITU3973-4189ea99",
+          "offering_id": "700b546e-c8a4-47fe-80f6-fa42dd4b3426",
           "course_title": "Projek Sarjana Muda",
+          "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+          "department_code": "JKP-4189ea99",
+          "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
           "missing_sections": [
             2,
             4,
@@ -287,13 +302,15 @@ export const REPORT_FIXTURE: {
             17,
             18,
             19
-          ]
+          ],
+          "needs_fix_sections": []
         }
       ]
     },
     {
-      "lecturer_id": "ee9afb70-fa1c-45f6-9636-0c5d995e7edc",
+      "lecturer_id": "e36590e0-b1cd-46e4-a8f9-f38151aded3b",
       "lecturer_name": "\rReturned Name",
+      "lecturer_email": "report-fixture-a38b0e01-2eb7-4962-9c93-95cef4232db1@seam1.test",
       "department_id": null,
       "department_code": null,
       "department_name": null,
@@ -301,9 +318,12 @@ export const REPORT_FIXTURE: {
       "offerings": [
         {
           "coordinator": false,
-          "course_code": "BITU3973-44d2d6eb",
-          "offering_id": "a7c4f792-276d-46db-966a-9dd8c18ebe01",
+          "course_code": "BITU3973-4189ea99",
+          "offering_id": "700b546e-c8a4-47fe-80f6-fa42dd4b3426",
           "course_title": "Projek Sarjana Muda",
+          "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+          "department_code": "JKP-4189ea99",
+          "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
           "missing_sections": [
             2,
             4,
@@ -312,23 +332,28 @@ export const REPORT_FIXTURE: {
             17,
             18,
             19
-          ]
+          ],
+          "needs_fix_sections": []
         }
       ]
     },
     {
-      "lecturer_id": "4eaab7e2-8ab1-488e-a808-a283968c9cd0",
+      "lecturer_id": "64294b94-9f3e-4402-9c55-c72d6c4f597e",
       "lecturer_name": "-2+3 Dash",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "lecturer_email": "report-fixture-e7139a4d-b2c1-4126-9309-4845c7def5ee@seam1.test",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
       "timetable_missing": true,
       "offerings": [
         {
           "coordinator": true,
-          "course_code": "BITU3973-44d2d6eb",
-          "offering_id": "a7c4f792-276d-46db-966a-9dd8c18ebe01",
+          "course_code": "BITU3973-4189ea99",
+          "offering_id": "700b546e-c8a4-47fe-80f6-fa42dd4b3426",
           "course_title": "Projek Sarjana Muda",
+          "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+          "department_code": "JKP-4189ea99",
+          "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
           "missing_sections": [
             2,
             4,
@@ -337,40 +362,50 @@ export const REPORT_FIXTURE: {
             17,
             18,
             19
-          ]
+          ],
+          "needs_fix_sections": []
         }
       ]
     },
     {
-      "lecturer_id": "d676401b-b502-4204-8c9f-0eb029ff72c8",
+      "lecturer_id": "efd0edb1-9971-41de-89bc-37cebf891fd7",
       "lecturer_name": "@SUM(1+1)",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "lecturer_email": "report-fixture-8cf1e62d-82ae-4995-b464-a61ae19f8477@seam1.test",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
       "timetable_missing": false,
       "offerings": [
         {
           "coordinator": true,
-          "course_code": "BITM3423-44d2d6eb",
-          "offering_id": "0a596cf6-5f53-4064-aee0-dc79fc6d5f68",
+          "course_code": "BITM3423-4189ea99",
+          "offering_id": "37b40a11-027c-4cb8-8857-af0cc14af8bc",
           "course_title": "Sains Data\nGunaan",
-          "missing_sections": []
+          "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+          "department_code": "JKP-4189ea99",
+          "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
+          "missing_sections": [],
+          "needs_fix_sections": []
         }
       ]
     },
     {
-      "lecturer_id": "4b5bd684-ee98-42a4-9487-35951f16cc6b",
+      "lecturer_id": "4f76809a-7a44-4ce2-854a-ea5a2b201834",
       "lecturer_name": "=HYPERLINK(\"https://example.com\",\"Open\")",
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "lecturer_email": "report-fixture-006afe36-7999-4657-8693-99625b4b8ab4@seam1.test",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
       "timetable_missing": false,
       "offerings": [
         {
           "coordinator": true,
-          "course_code": "BITI2233-44d2d6eb",
-          "offering_id": "bf665648-03f7-42df-ad5c-df14e5842120",
+          "course_code": "BITI2233-4189ea99",
+          "offering_id": "adb6f4fc-eee8-4d66-8d50-593465d41bae",
           "course_title": "+Statistik Asas",
+          "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+          "department_code": "FTMK-4189ea99",
+          "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
           "missing_sections": [
             5,
             6,
@@ -378,54 +413,74 @@ export const REPORT_FIXTURE: {
             17,
             18,
             19
+          ],
+          "needs_fix_sections": [
+            2
           ]
         }
       ]
     },
     {
-      "lecturer_id": "b11f47e2-02a9-420a-b63e-96e0efa4e5e6",
+      "lecturer_id": "f4743c30-791a-40e6-8d7c-d19d975cc0d9",
       "lecturer_name": "Aisyah Rahman",
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "lecturer_email": "report-fixture-e2c2f2cc-8d90-4b29-9eab-27b752fb0c07@seam1.test",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
       "timetable_missing": false,
       "offerings": [
         {
           "coordinator": true,
-          "course_code": "BITP1113-44d2d6eb",
-          "offering_id": "95aa6b2a-c2eb-468e-95c3-3b01f96e9467",
+          "course_code": "BITP1113-4189ea99",
+          "offering_id": "627ad45f-2966-4ff6-9ff4-16d7e50f96aa",
           "course_title": "Pemrograman Komputer",
-          "missing_sections": []
+          "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+          "department_code": "FTMK-4189ea99",
+          "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
+          "missing_sections": [],
+          "needs_fix_sections": []
         }
       ]
     },
     {
-      "lecturer_id": "119cd09b-2031-4bfb-ac87-c9eaff103d9d",
+      "lecturer_id": "78aa1136-ee34-4973-bb7f-65c0eeddf32e",
       "lecturer_name": "Chloé Lefèvre",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "lecturer_email": "report-fixture-5cc68ec3-ffd0-4f95-9bec-214de25c3cec@seam1.test",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
       "timetable_missing": false,
       "offerings": [
         {
           "coordinator": false,
-          "course_code": "BITP1113-44d2d6eb",
-          "offering_id": "95aa6b2a-c2eb-468e-95c3-3b01f96e9467",
+          "course_code": "BITP1113-4189ea99",
+          "offering_id": "627ad45f-2966-4ff6-9ff4-16d7e50f96aa",
           "course_title": "Pemrograman Komputer",
-          "missing_sections": []
+          "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+          "department_code": "FTMK-4189ea99",
+          "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
+          "missing_sections": [],
+          "needs_fix_sections": []
         },
         {
           "coordinator": true,
-          "course_code": "BITS3343-44d2d6eb",
-          "offering_id": "f4b66f29-a17e-4c1b-bba8-881a78cdaab5",
+          "course_code": "BITS3343-4189ea99",
+          "offering_id": "498eccf1-a080-49b2-8159-4b4d8c12df54",
           "course_title": "Pengaturcaraan \"Java\", Lanjutan",
-          "missing_sections": []
+          "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+          "department_code": "JKP-4189ea99",
+          "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
+          "missing_sections": [],
+          "needs_fix_sections": [
+            6
+          ]
         }
       ]
     },
     {
-      "lecturer_id": "fb858b14-1398-4b08-9a37-d131e4b9a3bc",
+      "lecturer_id": "46ef755f-7fcd-4cd4-b4c8-d1f6f566fad9",
       "lecturer_name": "陈伟明",
+      "lecturer_email": "report-fixture-68061654-62b8-458f-ab66-399ce798a800@seam1.test",
       "department_id": null,
       "department_code": null,
       "department_name": null,
@@ -433,9 +488,12 @@ export const REPORT_FIXTURE: {
       "offerings": [
         {
           "coordinator": false,
-          "course_code": "BITI2233-44d2d6eb",
-          "offering_id": "bf665648-03f7-42df-ad5c-df14e5842120",
+          "course_code": "BITI2233-4189ea99",
+          "offering_id": "adb6f4fc-eee8-4d66-8d50-593465d41bae",
           "course_title": "+Statistik Asas",
+          "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+          "department_code": "FTMK-4189ea99",
+          "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
           "missing_sections": [
             4,
             5,
@@ -444,6 +502,9 @@ export const REPORT_FIXTURE: {
             17,
             18,
             19
+          ],
+          "needs_fix_sections": [
+            2
           ]
         }
       ]
@@ -451,14 +512,15 @@ export const REPORT_FIXTURE: {
   ],
   "chloeOfferings": [
     {
-      "offering_id": "95aa6b2a-c2eb-468e-95c3-3b01f96e9467",
-      "course_code": "BITP1113-44d2d6eb",
+      "offering_id": "627ad45f-2966-4ff6-9ff4-16d7e50f96aa",
+      "course_code": "BITP1113-4189ea99",
       "course_title": "Pemrograman Komputer",
-      "department_id": "833a05f9-6967-4ed8-bf98-39c5d5018166",
-      "department_code": "FTMK-44d2d6eb",
+      "department_id": "954dc9d1-74b7-4998-afd6-d69d4a690c6d",
+      "department_code": "FTMK-4189ea99",
       "department_name": "Fakulti Teknologi Maklumat dan Komunikasi",
-      "coordinator_id": "b11f47e2-02a9-420a-b63e-96e0efa4e5e6",
+      "coordinator_id": "f4743c30-791a-40e6-8d7c-d19d975cc0d9",
       "coordinator_name": "Aisyah Rahman",
+      "coordinator_email": null,
       "status": "verified",
       "counted_sections": 9,
       "uploaded_sections": 9,
@@ -487,17 +549,18 @@ export const REPORT_FIXTURE: {
         "verified",
         "verified"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.32003+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.746454+00:00"
     },
     {
-      "offering_id": "f4b66f29-a17e-4c1b-bba8-881a78cdaab5",
-      "course_code": "BITS3343-44d2d6eb",
+      "offering_id": "498eccf1-a080-49b2-8159-4b4d8c12df54",
+      "course_code": "BITS3343-4189ea99",
       "course_title": "Pengaturcaraan \"Java\", Lanjutan",
-      "department_id": "8dcdbe21-503c-417b-95d5-9ce7f4c36b7f",
-      "department_code": "JKP-44d2d6eb",
+      "department_id": "46bbfbaf-7425-4bff-b840-90661df59b09",
+      "department_code": "JKP-4189ea99",
       "department_name": "Jabatan Kejuruteraan Perisian, \"Pusat\" Ünïcode",
-      "coordinator_id": "119cd09b-2031-4bfb-ac87-c9eaff103d9d",
+      "coordinator_id": "78aa1136-ee34-4973-bb7f-65c0eeddf32e",
       "coordinator_name": "Chloé Lefèvre",
+      "coordinator_email": null,
       "status": "needs_fix",
       "counted_sections": 10,
       "uploaded_sections": 10,
@@ -526,7 +589,7 @@ export const REPORT_FIXTURE: {
         "pending_review",
         "pending_review"
       ],
-      "last_upload_at": "2026-11-20T07:31:45.275671+00:00"
+      "last_upload_at": "2026-11-24T01:34:34.807342+00:00"
     }
   ]
 }

@@ -71,15 +71,21 @@ export function SectionStatusChip({ section, status, to }: { section: number; st
   )
 }
 
-/** A section's status as one small square with its mark, named in full for screen readers and on hover. */
-export function SectionStatusSquare({ section, status }: { section: number; status: SectionStatus }) {
+/** A section's status as one small square with its mark, named in full for screen readers and on hover. With to, it links to the section's page. */
+export function SectionStatusSquare({ section, status, to }: { section: number; status: SectionStatus; to?: string }) {
   const { className, icon: Icon } = STATUS_LOOK[status]
   const label = `${sectionName(section)}: ${SECTION_STATUS_LABELS[status]}`
-  return (
+  const square = (
     <span title={label} className={cn('inline-flex size-6 items-center justify-center rounded-md border', className)}>
       {Icon && <Icon aria-hidden="true" className="size-3.5" />}
       <span className="sr-only">{label}</span>
     </span>
+  )
+  if (!to) return square
+  return (
+    <Link to={to} className="focus-visible:ring-ring/40 hover:ring-ring/40 inline-flex rounded-md outline-none hover:ring-2 focus-visible:ring-[3px]">
+      {square}
+    </Link>
   )
 }
 

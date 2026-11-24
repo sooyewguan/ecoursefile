@@ -143,6 +143,7 @@ export function LecturerTimetables() {
       <PageHeader
         title={SECTION.title}
         parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
+        areaTo={offering && `/course-files?semester=${offering.semester_id}`}
         description={
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }

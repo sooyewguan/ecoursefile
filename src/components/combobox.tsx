@@ -6,8 +6,11 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 
-/** One choice: the value a form submits, the label people read, and an optional second line, such as an email. */
-export type ComboboxOption = { value: string; label: string; detail?: string }
+/**
+ * One choice: the value a form submits, the label people read, and an optional second line, such as
+ * an email. A disabled option shows but cannot be picked, and its detail says why.
+ */
+export type ComboboxOption = { value: string; label: string; detail?: string; disabled?: boolean }
 
 /**
  * A choice among more options than a select can hold, such as a department or a lecturer. Opening
@@ -55,7 +58,7 @@ export function Combobox({
           (options) => {
             if (!current) return
             setFound({ query, options })
-            setHighlighted(options[0]?.value ?? '')
+            setHighlighted(options.find((option) => !option.disabled)?.value ?? '')
           },
           () => current && setFound({ query, failed: true }),
         ),
@@ -104,6 +107,9 @@ export function Combobox({
                     <CommandItem
                       key={option.value}
                       value={option.value}
+                      disabled={option.disabled}
+                      // A disabled option keeps its detail legible, since the detail says why it is disabled.
+                      className="data-[disabled=true]:opacity-100"
                       onSelect={() => {
                         onChange(option)
                         setOpen(false)
@@ -114,7 +120,7 @@ export function Combobox({
                     >
                       <CheckIcon className={cn(option.value === value?.value ? 'opacity-100' : 'opacity-0')} />
                       <span className="grid min-w-0">
-                        <span className="truncate">{option.label}</span>
+                        <span className={cn('truncate', option.disabled && 'text-muted-foreground')}>{option.label}</span>
                         {option.detail && <span className="text-muted-foreground truncate text-xs">{option.detail}</span>}
                       </span>
                     </CommandItem>

@@ -1,6 +1,6 @@
 // The push adapter behind the audit-requests function. PUSH_ADAPTER picks Firebase Cloud Messaging
-// (fcm) or the local fake (fake). With PUSH_ADAPTER unset, the site has no push yet, and every
-// notification counts as sent to no browser, so audit requests still work.
+// (fcm) or the local fake (fake). With PUSH_ADAPTER unset, the site has no push yet: there is no
+// adapter, every notification reaches no browser, and audit requests still work.
 import { fakePusher } from './fake-push.ts'
 import { fcmPusher } from './fcm-push.ts'
 import { serviceAccountFromEnv } from './google.ts'
@@ -17,7 +17,8 @@ export interface Pusher {
   send(tokens: string[], message: PushMessage): Promise<{ stale: string[] }>
 }
 
-export function pusherFromEnv(): Pusher {
+/** The adapter that PUSH_ADAPTER names, or null while the site has no push. */
+export function pusherFromEnv(): Pusher | null {
   switch (Deno.env.get('PUSH_ADAPTER')) {
     case 'fcm':
       return fcmPusher(serviceAccountFromEnv())
@@ -25,7 +26,7 @@ export function pusherFromEnv(): Pusher {
       return fakePusher()
     case undefined:
     case '':
-      return { send: async () => ({ stale: [] }) }
+      return null
     default:
       throw new Error('Set the PUSH_ADAPTER secret to fcm or fake, or leave it unset.')
   }

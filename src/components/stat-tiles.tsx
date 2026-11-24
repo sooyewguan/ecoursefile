@@ -2,12 +2,17 @@ import { CircleCheckIcon, FolderOpenIcon, UploadIcon, WrenchIcon, type LucideIco
 import type { ReactNode } from 'react'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn, plural } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { SUMMARY_TABLE } from '../report-tables.ts'
 import { formatPercent, type FacultySummary } from '../reports.ts'
 
 /** One headline number: what it counts, the number, a line under it, and its icon in the tone of its status. */
 export type Stat = { label: string; value: ReactNode; detail?: ReactNode; icon: LucideIcon; tone: string }
+
+/** How many of the offerings are complete and verified, such as 3 complete · 1 verified. */
+export function offeringsDetail(row: Pick<FacultySummary, 'complete_offerings' | 'verified_offerings'>) {
+  return `${row.complete_offerings} complete · ${row.verified_offerings} verified`
+}
 
 /** A row of four headline numbers, two to a row on a phone. Placeholder tiles while stats is null. */
 export function StatTiles({ stats }: { stats: Stat[] | null }) {
@@ -39,7 +44,10 @@ export function StatTiles({ stats }: { stats: Stat[] | null }) {
   )
 }
 
-/** The faculty's offerings, and the shares of its sections that are uploaded, verified and Needs fix, under the summary export's headers. */
+/**
+ * The faculty's offerings, with how many are complete and verified, and the shares of its sections
+ * that are uploaded, verified and Needs fix, under the summary export's headers.
+ */
 export function FacultyStatTiles({ summary }: { summary: FacultySummary | null }) {
   const column = SUMMARY_TABLE.columns
   const share = (count: typeof column.uploaded, percent: typeof column.uploadedPercent, row: FacultySummary) => ({
@@ -54,7 +62,7 @@ export function FacultyStatTiles({ summary }: { summary: FacultySummary | null }
           {
             label: column.offerings.header,
             value: column.offerings.value(summary),
-            detail: `${plural(summary.counted_sections, 'section')} that count`,
+            detail: offeringsDetail(summary),
             icon: FolderOpenIcon,
             tone: 'bg-primary/10 text-primary',
           },

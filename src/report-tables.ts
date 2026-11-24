@@ -30,6 +30,8 @@ function sectionList(sections: number[]) {
 /** The counts and percentages of the faculty or a department, as one value each. */
 const POOLED_COLUMNS = {
   offerings: { header: 'Offerings', kind: 'number', value: (row) => row.offerings },
+  completeOfferings: { header: 'Offerings complete', kind: 'number', value: (row) => row.complete_offerings },
+  verifiedOfferings: { header: 'Offerings verified', kind: 'number', value: (row) => row.verified_offerings },
   sections: { header: 'Sections', kind: 'number', value: (row) => row.counted_sections },
   uploaded: { header: 'Sections uploaded', kind: 'number', value: (row) => row.uploaded_sections },
   uploadedPercent: { header: 'Uploaded', kind: 'percent', value: (row) => row.percent_uploaded },
@@ -57,6 +59,11 @@ export function summaryRows(faculty: FacultySummary, departments: DepartmentRow[
   return [...departments, { ...faculty, department_code: null, department_name: null }]
 }
 
+/** The sections of the offering whose status is Needs fix, in section order. */
+export function needsFixSections(row: OfferingRow) {
+  return row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))
+}
+
 /** The columns of the offering list, which My completeness shows too. */
 export const OFFERING_COLUMNS = {
   courseCode: { header: 'Course code', kind: 'text', value: (row) => row.course_code },
@@ -64,18 +71,15 @@ export const OFFERING_COLUMNS = {
   departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.department_code },
   departmentName: { header: 'Department', kind: 'text', value: (row) => row.department_name },
   coordinator: { header: 'Coordinator', kind: 'text', value: (row) => row.coordinator_name },
+  coordinatorEmail: { header: 'Coordinator email', kind: 'text', value: (row) => row.coordinator_email },
   status: { header: 'Status', kind: 'text', value: (row) => OFFERING_STATUS_LABELS[row.status] },
   complete: { header: 'Complete', kind: 'percent', value: (row) => row.percent_complete },
   missingSections: { header: 'Missing sections', kind: 'text', value: (row) => sectionList(row.missing_sections) },
+  needsFixSections: { header: 'Sections needing fix', kind: 'text', value: (row) => sectionList(needsFixSections(row)) },
   lastUpload: { header: 'Last upload', kind: 'date', value: (row) => row.last_upload_at },
 } satisfies Columns<OfferingRow>
 
 export const OFFERINGS_TABLE = { view: 'Offerings', columns: OFFERING_COLUMNS } satisfies ReportTable<OfferingRow>
-
-/** The sections of the offering whose status is Needs fix, in section order. */
-export function needsFixSections(row: OfferingRow) {
-  return row.section_statuses.flatMap((status, index) => (status === 'needs_fix' ? [index + 1] : []))
-}
 
 /**
  * My completeness: the offering list without the department, since a lecturer's own offerings need
@@ -90,14 +94,57 @@ export const MY_COMPLETENESS_TABLE = {
     status: OFFERING_COLUMNS.status,
     complete: OFFERING_COLUMNS.complete,
     missingSections: OFFERING_COLUMNS.missingSections,
-    needsFixSections: { header: 'Sections needing fix', kind: 'text', value: (row) => sectionList(needsFixSections(row)) },
+    needsFixSections: OFFERING_COLUMNS.needsFixSections,
     lastUpload: OFFERING_COLUMNS.lastUpload,
   },
 } satisfies ReportTable<OfferingRow>
 
-/** The offerings that the offering list shows: those of the department and with the status, where one is chosen. */
-export function filterOfferings(rows: OfferingRow[], filters: { departmentId: string | null; status: OfferingStatus | null }) {
-  return rows.filter((row) => (!filters.departmentId || row.department_id === filters.departmentId) && (!filters.status || row.status === filters.status))
+/** What the offering list and the heatmap filter by: an offering's status, or Not ready, which is Incomplete or Needs fix. */
+export type StatusFilter = OfferingStatus | 'not_ready'
+
+/** The status filters in the order the filter offers them, Not ready first. */
+export const STATUS_FILTER_LABELS: Record<StatusFilter, string> = { not_ready: 'Not ready', ...OFFERING_STATUS_LABELS }
+
+const NOT_READY: readonly OfferingStatus[] = ['incomplete', 'needs_fix']
+
+/** The offerings that the offering list and the heatmap show: those of the department and with the status, where one is chosen. */
+export function filterOfferings(rows: OfferingRow[], filters: { departmentId: string | null; status: StatusFilter | null }) {
+  const { departmentId, status } = filters
+  return rows.filter(
+    (row) => (!departmentId || row.department_id === departmentId) && (!status || (status === 'not_ready' ? NOT_READY.includes(row.status) : row.status === status)),
+  )
+}
+
+/**
+ * How the offering list can be sorted, besides by course code: by completeness, or by the last
+ * upload, where an offering with no upload is the oldest. Ties keep the course code order.
+ */
+export const OFFERING_SORTS = {
+  complete: { label: 'Least complete first', compare: (a, b) => a.percent_complete - b.percent_complete },
+  '-complete': { label: 'Most complete first', compare: (a, b) => b.percent_complete - a.percent_complete },
+  last_upload: { label: 'Oldest upload first', compare: (a, b) => uploadTime(a) - uploadTime(b) },
+  '-last_upload': { label: 'Newest upload first', compare: (a, b) => uploadTime(b) - uploadTime(a) },
+} satisfies Record<string, { label: string; compare: (a: OfferingRow, b: OfferingRow) => number }>
+
+export type OfferingSort = keyof typeof OFFERING_SORTS
+
+function uploadTime(row: OfferingRow) {
+  return row.last_upload_at === null ? -Infinity : Date.parse(row.last_upload_at)
+}
+
+/** The rows in the sort's order, or as given, by course code, for none. */
+export function sortOfferings(rows: OfferingRow[], sort: OfferingSort | null) {
+  return sort ? rows.toSorted(OFFERING_SORTS[sort].compare) : rows
+}
+
+/** A department as the report rows name it. */
+export type Department = { department_id: string; department_code: string; department_name: string }
+
+/** The departments of the rows, each once, by code: those that a department filter offers. */
+export function departmentsOf(rows: readonly Department[]): Department[] {
+  return [...new Map(rows.map((row) => [row.department_id, row])).values()]
+    .map(({ department_id, department_code, department_name }) => ({ department_id, department_code, department_name }))
+    .toSorted((a, b) => a.department_code.localeCompare(b.department_code))
 }
 
 /** The heatmap's columns: the course, then each section's status, such as Missing, in section order. */
@@ -120,10 +167,18 @@ function searchable(text: string) {
   return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
 }
 
-/** The lecturers whose name holds the query, in the report's order. An empty query keeps every lecturer. */
-export function filterLecturers(rows: LecturerRow[], query: string) {
-  const wanted = searchable(query.trim())
-  return rows.filter((row) => searchable(row.lecturer_name).includes(wanted))
+/**
+ * The lecturers whose name holds the search, in the report's order, and with a department, only
+ * their offerings in it, and only the lecturers who have one. An empty search keeps every lecturer.
+ */
+export function filterLecturers(rows: LecturerRow[], filters: { search: string; departmentId: string | null }) {
+  const wanted = searchable(filters.search.trim())
+  return rows.flatMap((row) => {
+    if (!searchable(row.lecturer_name).includes(wanted)) return []
+    if (!filters.departmentId) return [row]
+    const offerings = row.offerings.filter((offering) => offering.department_id === filters.departmentId)
+    return offerings.length > 0 ? [{ ...row, offerings }] : []
+  })
 }
 
 /** One offering of one lecturer: a row of the lecturer view, which the screen groups by lecturer. */
@@ -138,6 +193,7 @@ export const LECTURERS_TABLE = {
   view: 'Lecturers',
   columns: {
     lecturer: { header: 'Lecturer', kind: 'text', value: (row) => row.lecturer.lecturer_name },
+    email: { header: 'Email', kind: 'text', value: (row) => row.lecturer.lecturer_email },
     departmentCode: { header: 'Department code', kind: 'text', value: (row) => row.lecturer.department_code },
     departmentName: { header: 'Department', kind: 'text', value: (row) => row.lecturer.department_name },
     timetable: { header: 'Timetable', kind: 'text', value: (row) => (row.lecturer.timetable_missing ? 'Missing' : 'Uploaded') },
@@ -145,5 +201,6 @@ export const LECTURERS_TABLE = {
     courseTitle: { header: 'Course', kind: 'text', value: (row) => row.offering.course_title },
     role: { header: 'Role', kind: 'text', value: (row) => (row.offering.coordinator ? 'Coordinator' : 'Lecturer') },
     missingSections: { header: 'Missing sections', kind: 'text', value: (row) => sectionList(row.offering.missing_sections) },
+    needsFixSections: { header: 'Sections needing fix', kind: 'text', value: (row) => sectionList(row.offering.needs_fix_sections) },
   },
 } satisfies ReportTable<LecturerOffering>

@@ -192,7 +192,7 @@ function Breadcrumb({ groups, pathname, page }: { groups: NavGroup[]; pathname: 
     .find((link) => link.path !== '/' && (pathname === link.path || pathname.startsWith(`${link.path}/`)))
   const below = page && pathname !== area?.path
   const crumbs = [
-    ...(area ? [{ label: area.label, to: area.path, icon: area.icon }] : []),
+    ...(area ? [{ label: area.label, to: (below && page.areaTo) || area.path, icon: area.icon }] : []),
     ...(below && page.parent ? [{ label: page.parent.title, to: page.parent.to, icon: null }] : []),
     ...(below ? [{ label: page.title, to: null, icon: null }] : []),
   ]
