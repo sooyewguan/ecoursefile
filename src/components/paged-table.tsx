@@ -67,7 +67,7 @@ export function isEmptyList(list: PagedList<unknown>) {
 }
 
 /** The search box above a paged table, such as "Search departments". */
-export function ListSearch({ list, label, className = 'sm:max-w-xs' }: { list: PagedList<unknown>; label: string; className?: string }) {
+export function ListSearch({ list, label, className }: { list: PagedList<unknown>; label: string; className: string }) {
   return (
     <Input
       type="search"
