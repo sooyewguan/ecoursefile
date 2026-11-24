@@ -572,7 +572,7 @@ function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
                         </span>
                       )}
                       {lecturer.timetable_missing && (
-                        <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                        <Badge variant="destructive">
                           {column.timetable.header} {column.timetable.value(first)?.toLowerCase()}
                         </Badge>
                       )}

@@ -28,7 +28,7 @@
  * redefines each one, so a rebrand changes only these two blocks.
  *
  * - The brand is a deep institutional blue (primary) with a warm gold (highlight), used sparingly:
- *   the mark, the current page in the navigation, and nothing that carries meaning.
+ *   the mark, the current page in the navigation, and the tint of a warning notice.
  * - Neutrals lean slightly blue, so grays sit with the brand instead of against it.
  * - Each status color reads as text on the card, the page and its own 10% tint, at WCAG AA
  *   (4.5:1). Its -foreground is the text on a solid fill of it. Section statuses map onto them in
@@ -133,10 +133,10 @@
     --chart-4: oklch(0.72 0.14 305);
     --chart-5: oklch(0.72 0.15 15);
 
-    --sidebar: oklch(0.185 0.03 263);
+    --sidebar: oklch(0.2 0.04 263);
     --sidebar-foreground: oklch(0.95 0.008 258);
     --sidebar-muted: oklch(0.7 0.025 260);
-    --sidebar-accent: oklch(0.26 0.045 263);
+    --sidebar-accent: oklch(0.275 0.055 263);
     --sidebar-accent-foreground: oklch(0.99 0.003 255);
     --sidebar-border: oklch(1 0 0 / 7%);
     --sidebar-ring: oklch(0.8 0.14 80);

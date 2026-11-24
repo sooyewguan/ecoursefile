@@ -284,7 +284,7 @@ export function Users() {
                           {user.id === me && <Badge variant="outline">You</Badge>}
                           {!user.active && <Badge variant="outline">Deactivated</Badge>}
                         </span>
-                        <span className="text-muted-foreground">{user.email}</span>
+                        <span className="text-muted-foreground lg:whitespace-nowrap">{user.email}</span>
                         <div className="mt-2 grid gap-2 md:hidden">
                           {department && <span className="text-muted-foreground text-xs">{department}</span>}
                           <RoleBadges roles={roles} />

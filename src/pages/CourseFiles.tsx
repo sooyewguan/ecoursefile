@@ -191,7 +191,7 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
                           {offering.uploaded_sections}/{offering.counted_sections}
                         </span>
                         {offering.needs_fix_sections > 0 && (
-                          <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                          <Badge variant="warning">
                             {offering.needs_fix_sections} need{offering.needs_fix_sections === 1 ? 's' : ''} fix
                           </Badge>
                         )}
