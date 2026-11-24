@@ -4,6 +4,14 @@ import { UserFacingError } from './errors.ts'
 /** An audit request's state, in the order it goes through them. */
 export type AuditRequestState = 'draft' | 'sent' | 'replied'
 
+/**
+ * What a send or reply gives back: the request as it is now, and how many browsers the step's
+ * notification reached. notified is 0 while push is off and when no recipient has notifications on,
+ * so nobody knows of the step until someone tells them. It is null while another call sends the
+ * notification.
+ */
+export type StepResult = { request: { id: string; state: AuditRequestState }; notified: number | null }
+
 /** A refused send or reply: the audit-requests function's error code, message and HTTP status. */
 export class AuditRequestError extends UserFacingError {}
 
@@ -24,9 +32,9 @@ export function replyToAuditRequest(client: SupabaseClient, requestId: string, m
   return callAuditRequests(client, { action: 'reply', requestId, message: message ?? null })
 }
 
-async function callAuditRequests(client: SupabaseClient, body: Record<string, unknown>) {
+async function callAuditRequests(client: SupabaseClient, body: Record<string, unknown>): Promise<StepResult> {
   const { data, error } = await client.functions.invoke('audit-requests', { body })
-  if (!error) return data as { request: { id: string; state: AuditRequestState } }
+  if (!error) return data as StepResult
   if (error instanceof FunctionsHttpError) {
     const response: Response = error.context
     const payload = (await response.json().catch(() => null)) as { code?: string; message?: string } | null

@@ -6,10 +6,12 @@
 // notification.
 //
 // Each step commits first, and its notification goes after. audit_request_notifications records the
-// notification's delivery, and a call claims it before it sends, so two calls never send it at
-// once. A step made again, by a retry or a second click, changes nothing, and sends the
-// notification only while it is still owed. So a push failure leaves the step made and its
-// notification owed, the caller is told, and a retry sends the notification once.
+// notification's delivery and how many browsers it reached, and a call claims it before it sends,
+// so two calls never send it at once. A step made again, by a retry or a second click, changes
+// nothing, and sends the notification only while it is still owed. So a push failure leaves the
+// step made and its notification owed, the caller is told, and a retry sends the notification once.
+// Each step answers with the number of browsers its notification reached, so the app tells the
+// caller when it reached nobody.
 import { callerUser, inList, invalid, isRecord, isUuid, Refusal, rest, SERVICE, serveJson } from '../_shared/http.ts'
 import { pusherFromEnv, type PushMessage } from '../_shared/push.ts'
 
@@ -17,6 +19,12 @@ import { pusherFromEnv, type PushMessage } from '../_shared/push.ts'
 type Step = 'sent' | 'replied'
 
 type AuditRequest = { id: string; state: 'draft' | Step }
+
+/**
+ * What a step answers: the request as it is now, and how many browsers the notification of the step
+ * reached. notified is null while another call sends it, and when the request is past the step.
+ */
+type StepResult = { request: AuditRequest; notified: number | null }
 
 type AuditRequestsRequest = { action: 'send'; requestId: string } | { action: 'reply'; requestId: string; message: string | null }
 
@@ -75,7 +83,7 @@ function parseRequest(body: unknown): AuditRequestsRequest {
   throw invalid('action must be send, with requestId, or reply, with requestId and an optional message.')
 }
 
-async function send(requestId: string, caller: string) {
+async function send(requestId: string, caller: string): Promise<StepResult> {
   await findRequest(requestId, caller)
   const request = await rest<AuditRequest>(
     'POST',
@@ -83,12 +91,11 @@ async function send(requestId: string, caller: string) {
     { request_id: requestId, actor_id: (await callerUser(caller)).id },
     SERVICE,
   )
-  if (request.state === 'sent') await deliver(request.id, 'sent')
-  return { request: { id: request.id, state: request.state } }
+  return { request: { id: request.id, state: request.state }, notified: request.state === 'sent' ? await deliver(request.id, 'sent') : null }
 }
 
 /** The RPC decides who may reply before it looks at the checklist, and returns a sent request unchanged while an item is neither ticked nor commented. */
-async function reply(requestId: string, message: string | null, caller: string) {
+async function reply(requestId: string, message: string | null, caller: string): Promise<StepResult> {
   await findRequest(requestId, caller)
   const request = await rest<AuditRequest>(
     'POST',
@@ -97,8 +104,7 @@ async function reply(requestId: string, message: string | null, caller: string) 
     SERVICE,
   )
   if (request.state !== 'replied') throw new Refusal(409, 'checklist_incomplete', 'Tick or comment on every item of the checklist before you reply.')
-  await deliver(request.id, 'replied')
-  return { request: { id: request.id, state: request.state } }
+  return { request: { id: request.id, state: request.state }, notified: await deliver(request.id, 'replied') }
 }
 
 /** Refuses a request that the caller cannot read. A draft is its auditor's alone, so nobody else finds one. */
@@ -109,34 +115,43 @@ async function findRequest(requestId: string, caller: string) {
 
 /**
  * Sends the notification that the request owes for reaching the step, unless it is delivered or
- * another call is sending it. If it cannot be sent, the claim goes, so a retry sends it.
+ * another call is sending it, and returns how many browsers it reached: now, or when it was
+ * delivered before, or null while another call sends it. If it cannot be sent, the claim goes, so a
+ * retry sends it.
  */
-async function deliver(requestId: string, step: Step) {
-  const claimed = await rest<boolean | null>('POST', '/rpc/claim_audit_notification', { request_id: requestId, state: step }, SERVICE)
-  if (!claimed) return
+async function deliver(requestId: string, step: Step): Promise<number | null> {
   const delivery = `/audit_request_notifications?request_id=eq.${requestId}&state=eq.${step}`
+  const claimed = await rest<boolean | null>('POST', '/rpc/claim_audit_notification', { request_id: requestId, state: step }, SERVICE)
+  if (!claimed) {
+    const [delivered] = await rest<{ reached: number | null }[]>('GET', `${delivery}&delivered_at=not.is.null&select=reached`, undefined, SERVICE)
+    return delivered?.reached ?? null
+  }
+  let reached: number
   try {
     const [source] = await rest<NotificationSource[]>('GET', `/audit_requests?id=eq.${requestId}&select=${NOTIFICATION_SELECT}`, undefined, SERVICE)
     const { to, message } = step === 'sent' ? requestNotification(source) : replyNotification(source)
-    await push(to, { ...message, link: `/course-files/${source.offering.id}#audit-request-${requestId}` })
+    reached = await push(to, { ...message, link: `/course-files/${source.offering.id}#audit-request-${requestId}` })
   } catch (error) {
     console.error(error)
     await rest('PATCH', delivery, { claimed_at: null }, SERVICE)
     throw new Refusal(502, 'push_failed', PUSH_FAILED[step])
   }
-  await rest('PATCH', delivery, { delivered_at: new Date().toISOString() }, SERVICE)
+  await rest('PATCH', delivery, { delivered_at: new Date().toISOString(), reached }, SERVICE)
+  return reached
 }
 
 /**
- * Sends the notification to every browser where a recipient turned notifications on, and removes
- * the tokens that the push service no longer knows. A recipient with no browser gets nothing, and
- * reads the request in the app.
+ * Sends the notification to every browser where a recipient turned notifications on, removes the
+ * tokens that the push service no longer knows, and returns how many browsers it reached. A
+ * recipient with no browser gets nothing, and so does everyone while the site has no push. They
+ * read the request in the app.
  */
 async function push(userIds: string[], message: PushMessage) {
-  if (userIds.length === 0) return
+  if (!pusher || userIds.length === 0) return 0
   const tokens = await rest<{ token: string }[]>('GET', `/push_tokens?select=token&user_id=${inList(userIds)}`, undefined, SERVICE)
   const { stale } = await pusher.send(tokens.map(({ token }) => token), message)
   if (stale.length > 0) await rest('DELETE', `/push_tokens?token=${inList(stale)}`, undefined, SERVICE)
+  return tokens.length - stale.length
 }
 
 /**

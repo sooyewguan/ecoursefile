@@ -240,7 +240,7 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 | Lecturer | The offerings they teach or coordinate, in every semester |
 | Root | None |
 
-Readers of an offering also read `lecturer_name` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with.
+Readers of an offering also read `lecturer_name` and `lecturer_email` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name, lecturer_email)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with, and how to reach them. The migration that adds `lecturer_email` is `supabase/migrations/20261125000210_lecturer_email.sql`.
 
 The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
@@ -457,6 +457,13 @@ The **Sections** tab of the course file page lists the requests that the user re
 
 The request's notification goes to every coordinator and lecturer of the offering whose profile is active, on every browser where they turned notifications on. Deactivated staff cannot sign in to fix anything, so they get none. The reply's notification goes to the request's auditor, while their profile is active. A recipient with no browser gets nothing, and reads the request in the app. A notification quotes at most 200 characters of the reply's message. See [Push notifications](#push-notifications).
 
+A notification can reach nobody: push is off while `PUSH_ADAPTER` is unset, and a recipient may have no browser with notifications on. The function counts the browsers each notification reached, and records the count with its delivery. The migration is `supabase/migrations/20261125000200_notification_reach.sql`.
+
+- A notification that reached no browser counts as delivered, since sending it again would reach nobody either. The request's `notified_browsers` is then 0.
+- The send and reply dialogs say what happens to the step. While the build has no push, `VITE_PUSH_ADAPTER` unset, they say that nobody is notified and to tell the people it is for. With push, they say it goes to each browser where they turned notifications on.
+- A step that reached nobody says so in its toast. Its card then tells whoever made the step, the auditor of a sent request or the staff of a replied one, that nobody was notified, with **Email them** or **Email** and the auditor's name, a `mailto:` link to the coordinator and lecturers or to the auditor.
+- A delivery recorded before the count was kept has no count, so its request says nothing.
+
 Each step commits first, and its notification goes after it. `audit_request_notifications` records each notification's delivery: the function claims it with `claim_audit_notification` before it sends it, and marks it delivered after.
 
 - A retry or a second click makes no second step, since a step already made changes nothing. It sends no second notification, since the notification is delivered or another call holds the claim.
@@ -471,7 +478,7 @@ Until migration `20261123000200_push_notifications.sql`, the steps sent email, a
 | `audit_requests` | One request: the offering, the auditor, the `state`, the times of its send and reply, who replied, and the reply's message. A trigger allows only the two steps, each made by one update. Only the RPCs below write it. |
 | `audit_request_items` | One flagged section of a request: the `verdict_id` of the Needs fix that flagged it, the section's file ids at the send and at the reply, and the staff comment with its author and time. The app reads the verdict's comment with `select=verdict:section_verdicts(comment)`. |
 | `ticked`, `commenter_name` | Columns of `audit_request_items`: whether the item is ticked, and the name of the staff member who commented. |
-| `checklist_complete`, `notification_pending`, `auditor_name`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, and the names of the auditor and of the staff member who replied. |
+| `checklist_complete`, `notification_pending`, `notified_browsers`, `auditor_name`, `auditor_email`, `replier_name` | Columns of `audit_requests`: whether every item is ticked or commented, whether the notification of the latest step is not delivered yet, how many browsers it reached once delivered, the auditor's name and email, and the name of the staff member who replied. |
 | `send_audit_request(request_id, actor_id)` | Sends the draft for the actor and logs it. A request already sent stays as it is. An actor who is not the draft's auditor, or lacks the `auditor` role or an active profile, fails with Postgres error `42501`. Only the service role may call it. |
 | `comment_on_audit_item(request_id, section, comment)` | Sets the caller's comment on an item of a sent request and logs it. The comment is kept without its outer blanks, and the same comment again changes and logs nothing. A caller who does not teach the offering, a section that is not an item, or a draft or replied request fails with `42501`, and a blank comment with `23514`. |
 | `reply_to_audit_request(request_id, actor_id, message)` | Replies to a sent request for the actor and logs the reply with its message. A request already replied stays as it is, and so does a request with an item neither ticked nor commented. An actor who does not teach the offering, or whose profile is not active, fails with `42501`. Only the service role may call it. |
@@ -484,8 +491,10 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 
 | `action` | Other fields | Who may call it | What it returns |
 | --- | --- | --- | --- |
-| `send` | `requestId` | The request's auditor | `{ "request": { "id", "state" } }` |
-| `reply` | `requestId`, and `message`, text or `null` | The coordinator and lecturers of the request's offering | `{ "request": { "id", "state" } }` |
+| `send` | `requestId` | The request's auditor | `{ "request": { "id", "state" }, "notified" }` |
+| `reply` | `requestId`, and `message`, text or `null` | The coordinator and lecturers of the request's offering | `{ "request": { "id", "state" }, "notified" }` |
+
+`notified` is the number of browsers that the step's notification reached, also on a retry of a step whose notification went before. It is `null` while another call sends the notification.
 
 | HTTP status | `code` | Meaning |
 | --- | --- | --- |

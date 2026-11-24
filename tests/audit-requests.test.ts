@@ -38,10 +38,12 @@ type AuditRequest = {
   state: string
   auditor_id: string
   auditor_name: string
+  auditor_email: string
   replier_name: string | null
   reply_message: string | null
   checklist_complete: boolean
   notification_pending: boolean
+  notified_browsers: number | null
   items: Item[]
 }
 
@@ -82,7 +84,7 @@ async function requestsOf(client: SupabaseClient, offeringId: string): Promise<A
   const { data, error } = await client
     .from('audit_requests')
     .select(
-      'id, state, auditor_id, auditor_name, replier_name, reply_message, checklist_complete, notification_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
+      'id, state, auditor_id, auditor_name, auditor_email, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))',
     )
     .eq('offering_id', offeringId)
     .order('created_at')
@@ -544,6 +546,46 @@ test('a push failure leaves the step made and its notification owed, and a retry
   expect(sent[0].body).toMatch(/ "Uploaded\."$/)
   expect((await requestActivity(adminClient(), offeringId)).map((row) => row.action)).toEqual(['send', 'reply'])
 })
+
+test('Send and Reply say how many browsers their notification reached, and the request keeps the count, also when it reached none', async () => {
+  const course = await createCourse()
+  const { offeringId, coordinator, lecturer } = course
+  const auditor = await createPerson('auditor')
+  // The coordinator has notifications on in a second browser, and the push service no longer knows the lecturer's.
+  await registerPushToken(coordinator.client)
+  await setUnregistered(lecturer.token)
+  await mark(auditor, offeringId, ATTENDANCE, 'needs_fix', 'Upload the attendance.')
+  const { id } = await requestIn(auditor, offeringId, 'draft')
+
+  expect(await sendAuditRequest(auditor.client, id)).toEqual({ request: { id, state: 'sent' }, notified: 2 })
+  expect(await sendAuditRequest(auditor.client, id)).toEqual({ request: { id, state: 'sent' }, notified: 2 })
+  expect(await outboxOf(coordinator)).toHaveLength(1)
+  for (const user of [auditor, coordinator, lecturer]) {
+    expect(await requestsOf(user.client, offeringId)).toMatchObject([{ id, notification_pending: false, notified_browsers: 2 }])
+  }
+
+  // The auditor turns notifications off on their only browser, so the reply reaches nobody.
+  expect((await auditor.client.rpc('unregister_push_token', { token: auditor.token })).error).toBeNull()
+  await upload(lecturer.client, { offeringId, section: ATTENDANCE }, 'attendance.pdf')
+  expect(await replyToAuditRequest(coordinator.client, id)).toEqual({ request: { id, state: 'replied' }, notified: 0 })
+  // Staff read the auditor's email, to tell them directly.
+  for (const user of [auditor, coordinator]) {
+    expect(await requestsOf(user.client, offeringId)).toMatchObject([
+      { id, state: 'replied', notification_pending: false, notified_browsers: 0, auditor_email: auditor.email },
+    ])
+  }
+  expect(await outboxOf(auditor)).toEqual([])
+
+  // A draft has sent nothing yet.
+  await mark(auditor, offeringId, TEACHING_PLAN, 'needs_fix', 'Upload the plan.')
+  expect(await requestIn(auditor, offeringId, 'draft')).toMatchObject({ notification_pending: false, notified_browsers: null })
+})
+
+/** Makes the fake push service answer for this token as FCM does for a token it no longer knows. */
+async function setUnregistered(token: string) {
+  const { error } = await adminClient().schema('fake_push').from('unregistered').insert({ token })
+  if (error) throw error
+}
 
 /** Two different semesters from pickSemester, earliest first. */
 async function semestersInOrder(): Promise<[Semester, Semester]> {

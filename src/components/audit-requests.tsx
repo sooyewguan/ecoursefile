@@ -1,4 +1,4 @@
-import { BellOffIcon, CircleCheckIcon, CircleIcon, MessageSquareIcon, ReplyIcon, SendIcon, UploadIcon } from 'lucide-react'
+import { BellOffIcon, CircleCheckIcon, CircleIcon, MailIcon, MessageSquareIcon, ReplyIcon, SendIcon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { toast } from 'sonner'
@@ -14,8 +14,9 @@ import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { cn, plural } from '@/lib/utils'
-import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState } from '../audit-requests.ts'
+import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState, type StepResult } from '../audit-requests.ts'
 import { friendlyError } from '../errors.ts'
+import { PUSH_ADAPTER } from '../firebase.ts'
 import { sectionName, SECTIONS_WITH_PAGES, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -33,17 +34,25 @@ type AuditRequest = {
   state: AuditRequestState
   auditor_id: string
   auditor_name: string
+  auditor_email: string
   sent_at: string | null
   replied_at: string | null
   replier_name: string | null
   reply_message: string | null
   checklist_complete: boolean
   notification_pending: boolean
+  /** How many browsers the latest step's notification reached, once it has gone. */
+  notified_browsers: number | null
   items: RequestItem[]
 }
 
 const SELECT =
-  'id, state, auditor_id, auditor_name, sent_at, replied_at, replier_name, reply_message, checklist_complete, notification_pending, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
+  'id, state, auditor_id, auditor_name, auditor_email, sent_at, replied_at, replier_name, reply_message, checklist_complete, notification_pending, notified_browsers, items:audit_request_items(section, ticked, comment, commenter_name, verdict:section_verdicts(comment))'
+
+/** A mailto link to these addresses, with a subject. */
+function mailto(emails: string[], subject: string) {
+  return `mailto:${emails.map(encodeURIComponent).join(',')}?subject=${encodeURIComponent(subject)}`
+}
 
 /** An item that staff are commenting on. */
 type Commenting = { request: AuditRequest; item: RequestItem }
@@ -53,10 +62,26 @@ type Commenting = { request: AuditRequest; item: RequestItem }
  * send, and every sent request, whose flagged sections are a checklist for the offering's staff.
  * isStaff is whether the user is the coordinator or a lecturer of the offering, who comment on
  * items and reply. statuses is each section's status, which a draft shows beside its sections.
- * A request's notification links to #audit-request-<id>, so the page scrolls to that request and
- * marks it once the requests load.
+ * staffEmails are the coordinator's and lecturers' emails, for an auditor to tell them of a request
+ * that notified nobody, and courseCode names the course file in that email. A request's
+ * notification links to #audit-request-<id>, so the page scrolls to that request and marks it once
+ * the requests load.
  */
-export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offeringId: string; userId: string | null; isStaff: boolean; statuses: Map<number, SectionStatus> }) {
+export function AuditRequests({
+  offeringId,
+  courseCode,
+  userId,
+  isStaff,
+  staffEmails,
+  statuses,
+}: {
+  offeringId: string
+  courseCode: string
+  userId: string | null
+  isStaff: boolean
+  staffEmails: string[]
+  statuses: Map<number, SectionStatus>
+}) {
   const { hash } = useLocation()
   /** Null while they load. */
   const [requests, setRequests] = useState<AuditRequest[] | null>(null)
@@ -106,17 +131,20 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
   /**
    * Runs a step, reloads, and returns the error message for its dialog, or null to close it. A step
    * whose notification failed is made all the same, so its dialog closes, and the error shows above the
-   * requests, where the request offers to send the notification again.
+   * requests, where the request offers to send the notification again. A step whose notification
+   * reached nobody says so, as its request does, since nobody knows of it until someone tells them.
    */
-  async function step(run: () => Promise<unknown>, success: string) {
-    const failure = await run().then(
-      () => null,
-      (failure: unknown) => failure,
+  async function step(run: () => Promise<StepResult>, success: string, unnoticed: string) {
+    const outcome = await run().then(
+      (result) => ({ result }),
+      (failure: unknown) => ({ failure }),
     )
     await load()
-    if (failure instanceof AuditRequestError && failure.code === 'push_failed') setError(failure.message)
-    else if (failure) return friendlyError(failure)
-    else toast.success(success)
+    if (!('failure' in outcome)) {
+      if (outcome.result.notified === 0) toast.warning(`${success}. ${unnoticed}`)
+      else toast.success(success)
+    } else if (outcome.failure instanceof AuditRequestError && outcome.failure.code === 'push_failed') setError(outcome.failure.message)
+    else return friendlyError(outcome.failure)
     return null
   }
 
@@ -136,19 +164,42 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {requests?.map((request) => {
         const own = request.auditor_id === userId
         const canReply = isStaff && request.state === 'sent'
-        const retry =
-          request.notification_pending && ((request.state === 'sent' && own) || (request.state === 'replied' && isStaff)) ? (
-            <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-              <span className="flex items-center gap-2">
-                <BellOffIcon className="size-4 shrink-0" />
-                {request.state === 'sent' ? 'The notification to the coordinator and lecturers has not gone yet.' : 'The notification to the auditor has not gone yet.'}
-              </span>
-              <Button variant="outline" size="sm" disabled={retrying === request.id} onClick={() => void retryNotification(request)}>
-                {retrying === request.id ? <Spinner /> : <SendIcon />}
-                Send the notification again
-              </Button>
-            </div>
-          ) : null
+        /** Whether the user made the latest step, so it is theirs to pass on when its notification did not reach anyone. */
+        const madeStep = (request.state === 'sent' && own) || (request.state === 'replied' && isStaff)
+        const notice = !madeStep ? null : request.notification_pending ? (
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="flex items-center gap-2">
+              <BellOffIcon className="size-4 shrink-0" />
+              {request.state === 'sent' ? 'The notification to the coordinator and lecturers has not gone yet.' : 'The notification to the auditor has not gone yet.'}
+            </span>
+            <Button variant="outline" size="sm" disabled={retrying === request.id} onClick={() => void retryNotification(request)}>
+              {retrying === request.id ? <Spinner /> : <SendIcon />}
+              Send the notification again
+            </Button>
+          </div>
+        ) : request.notified_browsers === 0 ? (
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="flex items-center gap-2">
+              <BellOffIcon className="size-4 shrink-0" />
+              {request.state === 'sent'
+                ? 'Nobody was notified of this request. Tell the coordinator and lecturers it is waiting for them.'
+                : `Nobody was notified of this reply. Tell ${request.auditor_name} it is ready.`}
+            </span>
+            <Button asChild variant="outline" size="sm">
+              {request.state === 'sent' ? (
+                <a href={mailto(staffEmails, `Audit request on the course file of ${courseCode}`)}>
+                  <MailIcon />
+                  Email them
+                </a>
+              ) : (
+                <a href={mailto([request.auditor_email], `Reply to your audit request on the course file of ${courseCode}`)}>
+                  <MailIcon />
+                  Email {request.auditor_name}
+                </a>
+              )}
+            </Button>
+          </div>
+        ) : null
         return (
           <Card
             key={request.id}
@@ -176,7 +227,7 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
                 )}
               </div>
             </div>
-            {retry}
+            {notice}
 
             <ul className="grid gap-3">
               {request.items.map((item) => (
@@ -222,20 +273,36 @@ export function AuditRequests({ offeringId, userId, isStaff, statuses }: { offer
       {sending && (
         <ConfirmDialog
           title="Send this audit request?"
-          description="The coordinator and lecturers get a notification, and see your comments in the course file."
+          description={
+            PUSH_ADAPTER
+              ? 'It waits for the coordinator and lecturers on their Home page, with your comments, and goes to each browser where they turned notifications on.'
+              : 'It waits for the coordinator and lecturers on their Home page, with your comments. Notifications are off, so nobody is notified. Tell them it is waiting.'
+          }
           confirmLabel="Send to staff"
           onClose={() => setSending(null)}
-          onConfirm={() => step(() => sendAuditRequest(supabase, sending.id), 'Sent to staff')}
+          onConfirm={() =>
+            step(() => sendAuditRequest(supabase, sending.id), 'Sent to staff', 'Nobody was notified, so tell the coordinator and lecturers it is waiting.')
+          }
         />
       )}
 
       {replying && (
         <FormDialog
           title="Reply to the auditor"
-          description={`${replying.auditor_name} gets a notification with your reply.`}
+          description={
+            PUSH_ADAPTER
+              ? `Your reply waits for ${replying.auditor_name} on their Home page, and goes to each browser where they turned notifications on.`
+              : `Your reply waits for ${replying.auditor_name} on their Home page. Notifications are off, so nobody is notified. Tell them it is ready.`
+          }
           submitLabel="Send reply"
           onClose={() => setReplying(null)}
-          onSubmit={(form) => step(() => replyToAuditRequest(supabase, replying.id, String(form.get('message'))), 'Reply sent')}
+          onSubmit={(form) =>
+            step(
+              () => replyToAuditRequest(supabase, replying.id, String(form.get('message'))),
+              'Reply sent',
+              `Nobody was notified, so tell ${replying.auditor_name} it is ready.`,
+            )
+          }
         >
           <div className="grid gap-2">
             <Label htmlFor="reply-message">Message (optional)</Label>

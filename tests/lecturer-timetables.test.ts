@@ -179,7 +179,7 @@ test('section 4 of an offering with several lecturers is Missing until every lec
   expect(await linkedTimetables(first.client, offeringId)).toEqual(sortedIds(coordinator, first))
 })
 
-test('the lecturers of an offering read each other\'s names', async () => {
+test('the lecturers of an offering read each other\'s names and emails', async () => {
   const [coordinator, lecturer] = [await createStaff(), await createStaff()]
   const offeringId = await offer(await pickSemester(), coordinator, [lecturer])
   for (const [member, name] of [
@@ -189,11 +189,11 @@ test('the lecturers of an offering read each other\'s names', async () => {
     expect((await adminClient().from('profiles').update({ full_name: name }).eq('id', member.id)).error).toBeNull()
   }
 
-  const { data, error } = await lecturer.client.from('offering_lecturers').select('lecturer_id, lecturer_name').eq('offering_id', offeringId)
+  const { data, error } = await lecturer.client.from('offering_lecturers').select('lecturer_id, lecturer_name, lecturer_email').eq('offering_id', offeringId)
   expect(error).toBeNull()
   expect(data!.toSorted((a, b) => a.lecturer_name.localeCompare(b.lecturer_name))).toEqual([
-    { lecturer_id: coordinator.id, lecturer_name: 'Coordinator Seam1' },
-    { lecturer_id: lecturer.id, lecturer_name: 'Lecturer Seam1' },
+    { lecturer_id: coordinator.id, lecturer_name: 'Coordinator Seam1', lecturer_email: coordinator.email },
+    { lecturer_id: lecturer.id, lecturer_name: 'Lecturer Seam1', lecturer_email: lecturer.email },
   ])
 })
 

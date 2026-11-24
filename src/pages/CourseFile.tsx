@@ -29,7 +29,8 @@ type Offering = {
   sections_on: number[]
   /** The reason for each switchable section whose setting differs from the course type, by section number. */
   section_reasons: Record<string, string>
-  lecturers: { lecturer_id: string }[]
+  /** Every lecturer of the offering, the coordinator included, with their name and email. */
+  lecturers: { lecturer_id: string; lecturer_name: string; lecturer_email: string }[]
 }
 
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
@@ -64,7 +65,7 @@ export function CourseFile() {
       supabase
         .from('offerings')
         .select(
-          'semester:semesters(code), course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id)',
+          'semester:semesters(code), course:courses(code, title, department:departments(code, name)), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id, lecturer_name, lecturer_email)',
         )
         .eq('id', offeringId!)
         .maybeSingle()
@@ -172,8 +173,10 @@ export function CourseFile() {
           {data && (
             <AuditRequests
               offeringId={offeringId!}
+              courseCode={offering!.course.code}
               userId={userId}
               isStaff={canSwitch}
+              staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
             />
           )}
