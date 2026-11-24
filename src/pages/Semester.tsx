@@ -628,7 +628,7 @@ function ListHeading({ id, title, total, missing, action }: { id: string; title:
               {missing.toLocaleString('en-US')} missing
             </Badge>
           ) : (
-            <Badge variant="success">None missing</Badge>
+            <Badge variant="secondary">None missing</Badge>
           ))}
       </div>
       {action}

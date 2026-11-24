@@ -1,10 +1,10 @@
 import { FolderCheckIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/** The app's mark: a checked folder on gold, which reads on the sidebar, the navy sign-in panel and the page alike. */
+/** The app's mark: a checked folder in the primary color, as in shadcn's sidebar blocks. */
 export function BrandMark({ className }: { className?: string }) {
   return (
-    <span aria-hidden="true" className={cn('bg-highlight text-highlight-foreground flex size-8 shrink-0 items-center justify-center rounded-lg shadow-xs', className)}>
+    <span aria-hidden="true" className={cn('bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg shadow-xs', className)}>
       <FolderCheckIcon className="size-[18px]" strokeWidth={2.25} />
     </span>
   )

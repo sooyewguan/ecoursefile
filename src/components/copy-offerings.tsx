@@ -5,7 +5,7 @@ import { BulkResults, type BulkResult } from '@/components/bulk-results'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
 import { FieldError } from '@/components/form-errors'
 import { Label } from '@/components/ui/label'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { friendlyError } from '../errors.ts'
 import { containsFilter } from '../paging.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
@@ -148,14 +148,14 @@ function result(offering: CopiedOffering): BulkResult {
       return {
         key: offering.course_id,
         name,
-        outcome: { label: 'Skipped', variant: 'warning' },
+        outcome: { label: 'Skipped', variant: 'outline' },
         note: `Its coordinator, ${offering.coordinator_name}, is deactivated or no longer a lecturer. Add it with another coordinator.`,
       }
     default:
       return {
         key: offering.course_id,
         name,
-        outcome: { label: 'Added', variant: 'success' },
+        outcome: { label: 'Added', variant: 'secondary' },
         note: leftOff && `Left off, as deactivated or no longer a lecturer: ${leftOff}.`,
       }
   }

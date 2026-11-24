@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { repliesToReview, requestsAwaitingReply, type InboxRequest } from '../audit-requests.ts'
 import { canOpen } from '../auth.ts'
 import { useAuth } from '../auth-provider.tsx'
@@ -174,7 +174,7 @@ function SectionHeading({
         {title}
       </h2>
       {count !== undefined && count > 0 && (
-        <Badge variant="warning" className="tabular-nums">
+        <Badge variant="destructive" className="tabular-nums">
           {count}
         </Badge>
       )}
@@ -280,7 +280,7 @@ function InboxSection({
       ) : rows?.length === 0 ? (
         <Card className="py-0">
           <p className="text-muted-foreground flex items-center gap-2 px-4 py-4 text-sm sm:px-6">
-            <CircleCheckBigIcon aria-hidden="true" className="text-success size-4 shrink-0" />
+            <CircleCheckBigIcon aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 size-4 shrink-0" />
             {empty}
           </p>
         </Card>
@@ -423,7 +423,7 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
       <CardContent className="px-3 sm:px-3">
         {rows?.length === 0 ? (
           <p className="text-muted-foreground flex items-center gap-2 px-3 py-2 text-sm">
-            <CircleCheckIcon aria-hidden="true" className="text-success size-4" />
+            <CircleCheckIcon aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 size-4" />
             Every offering has its sections uploaded.
           </p>
         ) : (
@@ -488,9 +488,9 @@ function StaffSection({ userId, semester }: { userId: string; semester: Semester
               rows
                 ? [
                     { label: 'Course files', value: rows.length, detail: `${rows.filter((row) => row.coordinator_id === userId).length} you coordinate`, icon: FolderOpenIcon, tone: 'bg-primary/10 text-primary' },
-                    { label: 'Uploaded', value: formatPercent(counted ? Math.round((uploaded / counted) * 1000) / 10 : null), detail: `${uploaded} of ${counted} sections`, icon: UploadIcon, tone: 'bg-info/10 text-info' },
+                    { label: 'Uploaded', value: formatPercent(counted ? Math.round((uploaded / counted) * 1000) / 10 : null), detail: `${uploaded} of ${counted} sections`, icon: UploadIcon, tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
                     { label: 'Missing', value: sum((row) => row.missing_sections.length), detail: 'sections to upload', icon: CircleDashedIcon, tone: 'bg-destructive/10 text-destructive' },
-                    { label: 'Needs fix', value: sum((row) => row.needs_fix_sections), detail: 'sections sent back', icon: WrenchIcon, tone: 'bg-warning/10 text-warning' },
+                    { label: 'Needs fix', value: sum((row) => row.needs_fix_sections), detail: 'sections sent back', icon: WrenchIcon, tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
                   ]
                 : null
             }

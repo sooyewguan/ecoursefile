@@ -4,16 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eCourseFile</title>
-    <!-- Sets the theme before the first paint, so a dark page never flashes light. ThemeProvider owns it after that. -->
-    <script>
-      try {
-        var theme = localStorage.getItem('vite-ui-theme')
-        if (theme === 'dark' || (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
-          document.documentElement.classList.add('dark')
-      } catch (error) {}
-    </script>
   </head>
-  <body>
+  <body class="wrap-anywhere lg:wrap-break-word">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

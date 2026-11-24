@@ -1,8 +1,8 @@
 import { FolderOpenIcon } from 'lucide-react'
+import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router'
 import { AppShell } from '@/components/app-shell'
 import { NotFound } from '@/components/page'
-import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
@@ -31,7 +31,7 @@ import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 
 export function App() {
   return (
-    <ThemeProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <AuthProvider>
         <Toaster />
         <BrowserRouter>
