@@ -224,8 +224,9 @@ function storedNameOf(fileName: string) {
 
 // Finalize looks the stored item up by the path its session wrote to, not by an item id from the
 // browser, so a caller can only record or delete stored items in a slot they may upload to. If
-// add_file refuses the file, such as for a section switched off, an item deleted, or a one-file
-// slot or a shared file filled, since the session opened, the stored item goes too.
+// add_file refuses the file, such as for a section switched off, a lecturer unassigned from the
+// semester, an item deleted, or a one-file slot or a shared file filled, since the session opened,
+// the stored item goes too.
 async function finalizeUpload(target: Target, storedName: string, caller: string) {
   const folder = await uploadFolder(target, caller)
   const stored = await storage.getItem(`${folder}/${storedName}`)
@@ -243,7 +244,7 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
     uploaded_by: (await callerUser(caller)).id,
   }, SERVICE).catch(async (error) => {
     await storage.deleteItem(stored.id)
-    if (target.kind === 'course-file') await checkUpload(target, caller)
+    await (target.kind === 'course-file' ? checkUpload(target, caller) : checkSharedUpload(target, caller))
     await checkRoom(target, caller)
     throw error
   })
@@ -458,15 +459,8 @@ async function reusableFile(target: CourseFileTarget, select: string, caller: st
  */
 async function uploadFolder(target: Target, caller: string) {
   if (target.kind === 'shared') {
+    await checkSharedUpload(target, caller)
     const { semesterId, section, key } = target
-    const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
-    if (!allowed) {
-      throw new Refusal(
-        403,
-        'forbidden',
-        key?.by === 'lecturer' ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
-      )
-    }
     const [semester] = await rest<{ code: string }[]>('GET', `/semesters?id=eq.${semesterId}&select=code`, undefined, caller)
     return ['eCourseFile', semesterFolder(semester.code), '_shared', sectionFolder(section), ...(key ? [safeName(`${key.id} ${key.name}`)] : [])].join('/')
   }
@@ -485,6 +479,17 @@ async function uploadFolder(target: Target, caller: string) {
     ...(target.item === null ? [] : [itemName(target.section, target.item)]),
     ...(target.slot ? [safeName(target.slot.title)] : []),
   ].join('/')
+}
+
+/** Refuses a caller who may not upload the shared target. */
+async function checkSharedUpload({ semesterId, section, key }: Extract<Target, { kind: 'shared' }>, caller: string) {
+  const allowed = await rest<boolean>('POST', '/rpc/can_upload_shared_file', { semester_id: semesterId, section }, caller)
+  if (allowed) return
+  throw new Refusal(
+    403,
+    'forbidden',
+    key?.by === 'lecturer' ? 'Only lecturers who teach in this semester may upload their timetable for it.' : 'Only the admin may upload shared files.',
+  )
 }
 
 /** Refuses a caller who may not upload to the course file target. */
