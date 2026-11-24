@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils'
 
 /**
  * The frame of the signed-out and must-change-password pages. From lg up, the brand panel on the
- * left and the form on the right. Below lg, the brand above the form's card.
+ * left and the form on the right, at a larger size, with the copyright at the foot. Below lg, the
+ * brand above the form's card.
  */
 export function AuthLayout({
   title,
@@ -22,18 +23,21 @@ export function AuthLayout({
   return (
     <div className="bg-background lg:bg-card grid min-h-svh lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <BrandPanel />
-      <main className="flex flex-col items-center justify-center px-4 py-10 sm:px-10">
-        <div className="grid w-full max-w-sm gap-6">
-          <Brand className="justify-self-center lg:hidden" />
-          <div className="max-lg:bg-card grid gap-6 max-lg:rounded-xl max-lg:border max-lg:p-6 max-lg:shadow-xs">
-            <div className="grid gap-1.5 max-lg:text-center">
-              <h1 className="text-2xl/8 font-semibold tracking-tight">{title}</h1>
-              {description && <p className="text-muted-foreground text-sm/relaxed">{description}</p>}
+      <main className="flex flex-col px-4 py-10 sm:px-10 lg:py-8">
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="grid w-full max-w-sm gap-6 lg:max-w-[25rem] lg:gap-8">
+            <Brand className="justify-self-center lg:hidden" />
+            <div className="max-lg:bg-card grid gap-6 max-lg:rounded-xl max-lg:border max-lg:p-6 max-lg:shadow-xs lg:gap-8">
+              <div className="grid gap-1.5 max-lg:text-center lg:gap-2">
+                <h1 className="text-2xl/8 font-semibold tracking-tight lg:text-3xl/9">{title}</h1>
+                {description && <p className="text-muted-foreground text-sm/relaxed lg:text-base/relaxed">{description}</p>}
+              </div>
+              <div className="contents lg:[&_[data-slot=button]]:h-10 lg:[&_[data-slot=input]]:h-10">{children}</div>
             </div>
-            {children}
+            {footer && <div className="text-muted-foreground text-sm max-lg:text-center lg:border-t lg:pt-6">{footer}</div>}
           </div>
-          {footer && <div className="text-muted-foreground text-sm max-lg:text-center">{footer}</div>}
         </div>
+        <p className="text-muted-foreground mx-auto mt-10 w-full max-w-[25rem] text-xs max-lg:hidden">© {new Date().getFullYear()} eCourseFile</p>
       </main>
     </div>
   )

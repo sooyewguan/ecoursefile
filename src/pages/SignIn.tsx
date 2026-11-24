@@ -26,7 +26,11 @@ export function SignIn() {
   }
 
   return (
-    <AuthLayout title="Sign in">
+    <AuthLayout
+      title="Sign in"
+      description="Welcome back to eCourseFile."
+      footer="No account yet? Your faculty's eCourseFile administrator creates it."
+    >
       <form onSubmit={onSubmit} className="grid gap-5">
         <div className="grid gap-2">
           <Label htmlFor="email">Email</Label>
