@@ -240,7 +240,7 @@ The coordinator and lecturers of an offering switch sections 10 to 16 on or off 
 | `section_reasons` | A column of `offerings`: a JSON object with one reason for each section set differently from `default_sections_on`, keyed by section number, such as `{ "11": "Labs run this semester" }`. |
 | `sections_on` | A column of `offerings`, generated from the two above: `default_sections_on` with each section that has a reason switched the other way. Nobody writes it. |
 
-The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
+The course file page shows each reason under its section's title, such as "Switched off: Notes are in the textbook". Files in a switched-off section stay, and can still be deleted. An upload that finalizes after its section is switched off is refused with the same 403 as a new upload session. `add_file` checks the section while it records the file, and a switch waits for it, so a switch made while the file is recorded never lets it in. Each switch adds a `switch_on` or `switch_off` entry, with its reason, to the activity log. A switch back to the default logs no reason.
 
 ## Files
 

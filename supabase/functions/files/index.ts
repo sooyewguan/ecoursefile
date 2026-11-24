@@ -224,8 +224,8 @@ function storedNameOf(fileName: string) {
 
 // Finalize looks the stored item up by the path its session wrote to, not by an item id from the
 // browser, so a caller can only record or delete stored items in a slot they may upload to. If
-// add_file refuses the file, such as for an item deleted, or a one-file slot or a shared file
-// filled, since the session opened, the stored item goes too.
+// add_file refuses the file, such as for a section switched off, an item deleted, or a one-file
+// slot or a shared file filled, since the session opened, the stored item goes too.
 async function finalizeUpload(target: Target, storedName: string, caller: string) {
   const folder = await uploadFolder(target, caller)
   const stored = await storage.getItem(`${folder}/${storedName}`)
@@ -243,6 +243,7 @@ async function finalizeUpload(target: Target, storedName: string, caller: string
     uploaded_by: (await callerUser(caller)).id,
   }, SERVICE).catch(async (error) => {
     await storage.deleteItem(stored.id)
+    if (target.kind === 'course-file') await checkUpload(target, caller)
     await checkRoom(target, caller)
     throw error
   })
