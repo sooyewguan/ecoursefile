@@ -598,7 +598,7 @@ function FileTable({
                       <FileLink file={file} />
                       <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
                       <span className="text-muted-foreground text-xs md:hidden">
-                        {file.uploader_name}, {uploadedAt}
+                        {file.uploader_name} · {uploadedAt}
                       </span>
                     </div>
                   </TableCell>

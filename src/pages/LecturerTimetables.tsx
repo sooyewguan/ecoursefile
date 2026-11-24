@@ -41,11 +41,12 @@ type Offering = {
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; status: SectionStatus | null }
 
-/** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
+/** Below md the upload time moves into the timetable cell, and below sm the timetable into the lecturer cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
+const SMALL = 'hidden sm:table-cell'
 
 /** The table's columns: lecturer, timetable, uploaded, and the row menu of each timetable. */
-const COLUMNS = ['', '', WIDE, '']
+const COLUMNS = ['', SMALL, WIDE, '']
 
 /**
  * Section 4 of a course file: one row per lecturer of the offering, the coordinator first, with
@@ -164,7 +165,7 @@ export function LecturerTimetables() {
           <TableHeader>
             <TableRow>
               <TableHead className="px-4">Lecturer</TableHead>
-              <TableHead className="px-4">Timetable</TableHead>
+              <TableHead className={cn('px-4', SMALL)}>Timetable</TableHead>
               <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
               <TableHead className="w-14 px-4">
                 <span className="sr-only">Actions</span>
@@ -179,26 +180,30 @@ export function LecturerTimetables() {
                 const timetable = offering.linked_files.find((file) => file.lecturer_id === lecturer.lecturer_id)
                 const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const isOwn = lecturer.lecturer_id === userId
+                const file = timetable ? (
+                  <div className="grid gap-0.5">
+                    <FileLink file={timetable} />
+                    <span className="text-muted-foreground text-xs">
+                      {formatSize(timetable.size)}
+                      <span className="md:hidden"> · {uploadedAt}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <SectionStatusBadge status="missing" />
+                )
                 return (
                   <TableRow key={lecturer.lecturer_id}>
                     <TableCell className="px-4 py-3 whitespace-normal">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{lecturer.lecturer_name}</span>
-                        {isCoordinator(lecturer.lecturer_id) && <Badge variant="secondary">Coordinator</Badge>}
-                        {isOwn && <Badge variant="outline">You</Badge>}
+                      <div className="grid justify-items-start gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{lecturer.lecturer_name}</span>
+                          {isCoordinator(lecturer.lecturer_id) && <Badge variant="secondary">Coordinator</Badge>}
+                          {isOwn && <Badge variant="outline">You</Badge>}
+                        </div>
+                        <div className="sm:hidden">{file}</div>
                       </div>
                     </TableCell>
-                    <TableCell className="px-4 py-3 whitespace-normal">
-                      {timetable ? (
-                        <div className="grid gap-0.5">
-                          <FileLink file={timetable} />
-                          <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
-                          <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
-                        </div>
-                      ) : (
-                        <SectionStatusBadge status="missing" />
-                      )}
-                    </TableCell>
+                    <TableCell className={cn('px-4 py-3 whitespace-normal', SMALL)}>{file}</TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
                     <TableCell className="px-4 py-2 text-right">
                       {timetable && (

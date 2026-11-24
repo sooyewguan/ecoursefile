@@ -42,11 +42,12 @@ type Offering = {
 /** The page's data. An offering of null means it does not exist or the user may not read it. */
 type PageData = { offering: Offering | null; status: SectionStatus | null }
 
-/** Below md the upload time moves into the timetable cell, so a phone needs no sideways scroll. */
+/** Below md the upload time moves into the timetable cell, and below sm the timetable into the program code cell, so a phone needs no sideways scroll. */
 const WIDE = 'hidden md:table-cell'
+const SMALL = 'hidden sm:table-cell'
 
 /** The table's columns: tick, program code, timetable, uploaded and the timetable's row menu. */
-const COLUMNS = ['', '', '', WIDE, '']
+const COLUMNS = ['', '', SMALL, WIDE, '']
 
 /**
  * Section 5 of a course file: the program codes whose students take the course. The list holds
@@ -149,7 +150,7 @@ export function StudentTimetables() {
                 <span className="sr-only">Ticked</span>
               </TableHead>
               <TableHead className="px-4">Program code</TableHead>
-              <TableHead className="px-4">Timetable</TableHead>
+              <TableHead className={cn('px-4', SMALL)}>Timetable</TableHead>
               <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
               <TableHead className="w-14 px-4">
                 <span className="sr-only">Actions</span>
@@ -167,9 +168,25 @@ export function StudentTimetables() {
                 const timetable = offering.linked_files.find((file) => file.program_code_id === programCode.id)
                 const uploadedAt = timetable && <Time value={timetable.uploaded_at} />
                 const checkboxId = `program-code-${programCode.id}`
+                const file = timetable ? (
+                  <div className="grid gap-0.5">
+                    <FileLink file={timetable} />
+                    <span className="text-muted-foreground text-xs">
+                      {formatSize(timetable.size)}
+                      <span className="md:hidden"> · {uploadedAt}</span>
+                    </span>
+                  </div>
+                ) : isTicked ? (
+                  <div className="grid justify-items-start gap-1">
+                    <SectionStatusBadge status="missing" />
+                    <span className="text-muted-foreground text-xs">Timetable removed</span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )
                 return (
                   <TableRow key={programCode.id}>
-                    <TableCell className="px-4 py-3">
+                    <TableCell className="px-4 py-3 align-top sm:align-middle">
                       {saving === programCode.id ? (
                         <Spinner />
                       ) : (
@@ -182,26 +199,14 @@ export function StudentTimetables() {
                       )}
                     </TableCell>
                     <TableCell className="px-4 py-3 whitespace-normal">
-                      <label htmlFor={checkboxId} className="font-medium">
-                        {programCode.code}
-                      </label>
+                      <div className="grid justify-items-start gap-2">
+                        <label htmlFor={checkboxId} className="font-medium">
+                          {programCode.code}
+                        </label>
+                        {(timetable || isTicked) && <div className="sm:hidden">{file}</div>}
+                      </div>
                     </TableCell>
-                    <TableCell className="px-4 py-3 whitespace-normal">
-                      {timetable ? (
-                        <div className="grid gap-0.5">
-                          <FileLink file={timetable} />
-                          <span className="text-muted-foreground text-xs">{formatSize(timetable.size)}</span>
-                          <span className="text-muted-foreground text-xs md:hidden">{uploadedAt}</span>
-                        </div>
-                      ) : isTicked ? (
-                        <div className="grid justify-items-start gap-1">
-                          <SectionStatusBadge status="missing" />
-                          <span className="text-muted-foreground text-xs">Timetable removed</span>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
+                    <TableCell className={cn('px-4 py-3 whitespace-normal', SMALL)}>{file}</TableCell>
                     <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
                     <TableCell className="px-4 py-2 text-right">
                       {timetable && (
