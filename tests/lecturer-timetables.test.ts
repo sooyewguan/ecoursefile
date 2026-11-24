@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { setTimeout } from 'node:timers/promises'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
 import { sizedPdf } from '../src/pdf/fixtures.ts'
@@ -428,4 +429,36 @@ test('the admin reads every timetable of the semester with its lecturer and cour
     { action: 'upload', actor_id: former.id, file_name: 'left.pdf' },
     { action: 'delete', actor_id: await userIdOf(admin), file_name: 'left.pdf' },
   ])
+})
+
+test('a timetable that a course file links while the admin deletes it stays, and the admin is refused with the rule', async () => {
+  // Each round links the timetable a few milliseconds after the admin's delete starts, while the delete checks and removes it.
+  for (const delay of [0, 0, 0, 3, 3, 3, 6, 6, 6, 9, 9, 9]) {
+    const semester = await pickSemester()
+    const [coordinator, former] = [await createStaff(), await createStaff()]
+    const offeringId = await offer(semester, coordinator, [former])
+    const timetable = await uploadTimetable(former, semester)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [] })).error).toBeNull()
+
+    const deleted = deleteSharedFile(admin, timetable.id).then(
+      () => null,
+      (refusal: unknown) => refusal,
+    )
+    await setTimeout(delay)
+    expect((await admin.rpc('set_offering_lecturers', { offering_id: offeringId, coordinator_id: coordinator.id, lecturer_ids: [former.id] })).error).toBeNull()
+    const linkedBeforeRemoved = (await timetablesOf(auditor, semester, [former])).length === 1
+    const refusal = await deleted
+
+    // A delete that removes the timetable finishes before the link, so a timetable still there once it is linked stays.
+    const outcome = { refusal, timetables: (await timetablesOf(auditor, semester, [former])).length, stored: (await fakeStoreItems(timetableFolder(semester, former))).length }
+    expect(outcome, `linked ${delay} ms after the delete started`).toEqual(
+      linkedBeforeRemoved
+        ? {
+            refusal: expect.objectContaining({ status: 403, code: 'forbidden', message: 'Only its lecturer may delete a timetable, or the admin while no course file links it.' }),
+            timetables: 1,
+            stored: 1,
+          }
+        : { refusal: null, timetables: 0, stored: 0 },
+    )
+  }
 })
