@@ -2,7 +2,7 @@
 // shows the result.
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { expect, test } from 'vitest'
-import { compile, CompileError, type CompileManifest } from './compile.ts'
+import { compile, CompileError, type CourseFileManifest } from './compile.ts'
 import { numberedPdf, readPdf, undrawablePdf, type ShownPage } from './fixtures.ts'
 
 const COVER = {
@@ -14,8 +14,11 @@ const COVER = {
   lecturers: ['Zainab Ahmad', 'Aisyah Rahman', 'Bala Subramaniam'],
 }
 
-/** A file of a fixture manifest: its name, which each of its pages shows with the page's number, and the numberedPdf options. */
-type FixtureFile = { name: string; pages: number; rotate?: number; bleed?: number; width?: number; height?: number }
+/**
+ * A file of a fixture manifest: its name, which each of its pages shows with the page's number, the
+ * numberedPdf options, and its item and slot in a section that has them.
+ */
+type FixtureFile = { name: string; pages: number; rotate?: number; bleed?: number; width?: number; height?: number; item?: number; slot?: string }
 
 /**
  * A manifest with these sections and files, and a fetch that serves each file's PDF. Page n of a
@@ -23,13 +26,13 @@ type FixtureFile = { name: string; pages: number; rotate?: number; bleed?: numbe
  */
 async function fixture(sections: { number: number; title: string; files: FixtureFile[] }[], cover = COVER) {
   const served = new Map<string, Uint8Array>()
-  const manifest: CompileManifest = { cover, sections: [] }
+  const manifest: CourseFileManifest = { cover, sections: [] }
   for (const { number, title, files } of sections) {
     const listed = []
-    for (const { name, pages, ...options } of files) {
+    for (const { name, pages, item, slot, ...options } of files) {
       const url = `https://storage.test/${number}/${name}`
       served.set(url, await numberedPdf(pages, { label: name, ...options }))
-      listed.push({ id: url, name, url })
+      listed.push({ id: url, name, url, item, slot })
     }
     manifest.sections.push({ number, title, files: listed })
   }
@@ -119,6 +122,96 @@ test('every page carries its number, upright and centred at the bottom, on rotat
   })
   // The turned pages and the cropped page show as 960 by 540 landscape slides.
   expect(pages.filter((page) => Math.round(page.width) === 960 && Math.round(page.height) === 540)).toHaveLength(7)
+})
+
+/** A course file with labs, LO/PO slots and a plain section. Lab 2's sheet is a page turned 90 degrees. */
+const LABS = [
+  { number: 2, title: 'Teaching Plan', files: [{ name: 'plan', pages: 1 }] },
+  {
+    number: 11,
+    title: 'Lab Exercises',
+    files: [
+      { name: 'lab1-sheet', pages: 2, item: 1, slot: 'lab_sheet' },
+      { name: 'lab1-sheet-b', pages: 1, item: 1, slot: 'lab_sheet' },
+      { name: 'lab1-scheme', pages: 1, item: 1, slot: 'answer_scheme' },
+      { name: 'lab2-sheet', pages: 1, item: 2, slot: 'lab_sheet', rotate: 90 },
+    ],
+  },
+  {
+    number: 19,
+    title: 'LO/PO Analysis',
+    files: [
+      { name: 'po', pages: 1, slot: 'po_achievement' },
+      { name: 'cqi', pages: 1, slot: 'cqi' },
+    ],
+  },
+]
+
+/** The page's "<file name> n" text, which a fixture file's page shows at its centre, or undefined on a page of the compile's own. */
+const markerOf = (page: ShownPage) => textsOf(page).find((text) => /^[a-z0-9-]+ \d+$/.test(text))
+
+/** Every contents line of the pages, each as its texts from left to right, without the heading and page numbers. */
+function allContentsLines(pages: ShownPage[]) {
+  return pages.flatMap((page) => {
+    const lines = new Map<number, ShownPage['texts']>()
+    for (const piece of page.texts) {
+      if (piece.text === 'Contents' || piece.text.startsWith('Page ')) continue
+      lines.set(Math.round(piece.y), [...(lines.get(Math.round(piece.y)) ?? []), piece])
+    }
+    return [...lines.entries()].toSorted(([a], [b]) => b - a).map(([, pieces]) => pieces.toSorted((a, b) => a.x - b.x).map((piece) => piece.text))
+  })
+}
+
+test('the first page of each item and slot is labelled with them at its top left, upright, and no other page is', async () => {
+  const pages = await compiled(LABS)
+  const labels = ['Lab 1, Lab Sheet', 'Lab 1, Answer Scheme', 'Lab 2, Lab Sheet', 'PO Achievement', 'CQI']
+
+  const filePages = pages.filter((page) => markerOf(page))
+  expect(filePages.map((page) => [markerOf(page), textsOf(page).filter((text) => labels.includes(text))])).toEqual([
+    ['plan 1', []],
+    ['lab1-sheet 1', ['Lab 1, Lab Sheet']],
+    ['lab1-sheet 2', []],
+    ['lab1-sheet-b 1', []],
+    ['lab1-scheme 1', ['Lab 1, Answer Scheme']],
+    ['lab2-sheet 1', ['Lab 2, Lab Sheet']],
+    ['po 1', ['PO Achievement']],
+    ['cqi 1', ['CQI']],
+  ])
+  for (const page of filePages) {
+    for (const label of page.texts.filter((piece) => labels.includes(piece.text))) {
+      expect(label.upright, `${label.text} upright`).toBe(true)
+      expect(label.x, `${label.text} at the left`).toBeLessThan(60)
+      expect(label.y, `${label.text} at the top`).toBeGreaterThan(page.height - 60)
+    }
+  }
+})
+
+test('the contents list the items of a section under it, each with the page it starts on', async () => {
+  const pages = await compiled(LABS)
+
+  const lines = allContentsLines([pages[1]])
+  expect(lines.map((line) => line.slice(0, -1))).toEqual([['2', 'Teaching Plan'], ['11', 'Lab Exercises'], ['Lab 1'], ['Lab 2'], ['19', 'LO/PO Analysis']])
+  const pageOf = (name: string) => Number(lines.find((line) => line[0] === name)!.at(-1))
+  expect(markerOf(pages[pageOf('Lab 1') - 1])).toBe('lab1-sheet 1')
+  expect(markerOf(pages[pageOf('Lab 2') - 1])).toBe('lab2-sheet 1')
+  expect(textsOf(pages[pageOf('11') - 1])).toEqual(expect.arrayContaining(['Section 11', 'Lab Exercises']))
+})
+
+test('items that fill more than one contents page carry the contents onto the next, and every page number still points at its line', async () => {
+  const labs = Array.from({ length: 30 }, (_, index) => ({ name: `lab${index + 1}`, pages: 1, item: index + 1, slot: 'lab_sheet' }))
+  const pages = await compiled([
+    { number: 2, title: 'Teaching Plan', files: [{ name: 'plan', pages: 1 }] },
+    { number: 11, title: 'Lab Exercises', files: labs },
+  ])
+
+  expect(markerOf(pages[3])).toBeUndefined()
+  expect(textsOf(pages[3])).toContain('Section 2')
+  const lines = allContentsLines(pages.slice(1, 3))
+  expect(lines).toHaveLength(32)
+  for (const [index, lab] of labs.entries()) {
+    const line = lines.find((text) => text[0] === `Lab ${index + 1}`)!
+    expect(markerOf(pages[Number(line.at(-1)) - 1]), line.join(' ')).toBe(`${lab.name} 1`)
+  }
 })
 
 test('the cover shows the course code and title, semester, department, coordinator and every lecturer', async () => {

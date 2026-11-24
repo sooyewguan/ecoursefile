@@ -140,6 +140,26 @@ test('the manifest lists the sections that are on in order, each with its files 
   expect(sectionFiles(await compileManifest(await signInAs('auditor'), offeringId))).toEqual(expected)
 })
 
+test('each file in an item or a slot comes with its item and slot, which the PDF labels it by, and every other file with neither', async () => {
+  const { offeringId, semester, coordinator, bala } = await createCourse()
+  const place = (section: number, item?: number, slot?: string): Slot => ({ offeringId, section, item, slot })
+  const lab = await addItem(coordinator.client, offeringId, LAB_EXERCISES)
+  await upload(bala.client, place(LAB_EXERCISES, lab, 'answer_scheme'), 'lab-scheme.pdf')
+  await upload(bala.client, place(LO_PO_ANALYSIS, undefined, 'cqi'), 'cqi.pdf')
+  await upload(bala.client, place(TEACHING_PLAN), 'plan.pdf')
+  await upload(bala.client, { semesterId: semester.id, section: LECTURER_TIMETABLE }, 'bala.pdf')
+
+  const { sections } = await compileManifest(bala.client, offeringId)
+
+  const files = sections.flatMap((section) => section.files.map(({ name, item, slot }) => ({ section: section.number, name, item, slot })))
+  expect(files).toEqual([
+    { section: TEACHING_PLAN, name: 'plan.pdf', item: null, slot: null },
+    { section: LECTURER_TIMETABLE, name: 'bala.pdf', item: null, slot: null },
+    { section: LAB_EXERCISES, name: 'lab-scheme.pdf', item: lab, slot: 'answer_scheme' },
+    { section: LO_PO_ANALYSIS, name: 'cqi.pdf', item: null, slot: 'cqi' },
+  ])
+})
+
 test('the cover names the course, semester, department, coordinator and lecturers, deactivated ones too, for lecturers who cannot read profiles', async () => {
   const { offeringId, course, semester, aisyah, bala } = await createCourse()
   expect((await adminClient().from('profiles').update({ active: false }).eq('id', bala.id)).error).toBeNull()
