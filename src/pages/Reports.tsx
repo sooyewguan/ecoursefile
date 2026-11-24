@@ -34,19 +34,12 @@ import {
   LECTURERS_TABLE,
   lecturerOfferings,
   OFFERINGS_TABLE,
+  STATUS_FILTER_LABELS,
   SUMMARY_TABLE,
   summaryRows,
+  type StatusFilter,
 } from '../report-tables.ts'
-import {
-  fetchReport,
-  formatPercent,
-  OFFERING_STATUS_LABELS,
-  readAll,
-  type DepartmentRow,
-  type FacultySummary,
-  type LecturerRow,
-  type OfferingStatus,
-} from '../reports.ts'
+import { fetchReport, formatPercent, readAll, type DepartmentRow, type FacultySummary, type LecturerRow } from '../reports.ts'
 import { SECTIONS, type SectionStatus } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
@@ -73,7 +66,7 @@ function patched(current: URLSearchParams, patch: Patch) {
 /** The filters that the URL holds for the views, so that they last across tabs, and how a view changes them. */
 type ReportUrl = {
   department: string | null
-  status: OfferingStatus | null
+  status: StatusFilter | null
   search: string
   set: (patch: Patch) => void
   /** The link to this page with patch applied, such as the offering list of a department. */
@@ -90,8 +83,8 @@ const TABS = [
   { value: 'lecturers', label: 'Lecturers', View: LecturersView },
 ] as const
 
-function isStatus(value: string | null): value is OfferingStatus {
-  return value !== null && Object.hasOwn(OFFERING_STATUS_LABELS, value)
+function isStatus(value: string | null): value is StatusFilter {
+  return value !== null && Object.hasOwn(STATUS_FILTER_LABELS, value)
 }
 
 /** The semesters in which the user reads an offering, newest first. RLS decides which offerings they read. */
@@ -360,7 +353,7 @@ function OfferingsView({ semester, url }: ViewProps) {
               <Label htmlFor="offerings-status">Status</Label>
               <NativeSelect id="offerings-status" value={url.status ?? ''} onChange={(event) => url.set({ status: event.target.value })}>
                 <NativeSelectOption value="">All statuses</NativeSelectOption>
-                {(Object.entries(OFFERING_STATUS_LABELS) as [OfferingStatus, string][]).map(([value, label]) => (
+                {(Object.entries(STATUS_FILTER_LABELS) as [StatusFilter, string][]).map(([value, label]) => (
                   <NativeSelectOption key={value} value={value}>
                     {label}
                   </NativeSelectOption>

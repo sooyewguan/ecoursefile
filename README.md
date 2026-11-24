@@ -546,7 +546,7 @@ The reports cover the offerings of the semester that `can_read_offering` lets th
 The **Reports** page shows the reports to the admin, auditors, HoDs, deans and deputy deans. You pick a semester, and the page opens on the newest semester with offerings. Its tabs are:
 
 - **Summary**: the faculty summary as four figures, and the department breakdown below it. Each department links to its offerings on the **Offerings** tab.
-- **Offerings**: the offering list, which you can filter by department and by `status`.
+- **Offerings**: the offering list, which you can filter by department and by `status`, or by **Not ready** (`not_ready`), which keeps the offerings that are `incomplete` or `needs_fix`. The **See all** link of the home page's least complete offerings opens it with Not ready. Each offering shows its missing and Needs fix sections, each linked to its section page, and its coordinator's email as a link that starts a message.
 - **Heatmap**: one row for each offering and one column for each section. Each cell shows the section's status as a color and an icon. Below 1,024 px, Tailwind's `lg`, each offering shows its 19 sections as numbered squares under its course instead, ten to a row on a phone.
 - **Lecturers**: each lecturer with their offerings and the missing sections linked to them, which you can search by name.
 

@@ -214,6 +214,9 @@ test.each(FORMATS)('the offering list exports only the offerings that its depart
   expect(await exported({ departmentId: null, status: 'incomplete' })).toEqual(['BITI2233', 'BITU3973'].map(courseCode))
   expect(await exported({ departmentId: ftmk, status: 'incomplete' })).toEqual(['BITI2233'].map(courseCode))
   expect(await exported({ departmentId: ftmk, status: 'needs_fix' })).toEqual([])
+  // Not ready is Incomplete or Needs fix: BITS3343 has a section that needs a fix.
+  expect(await exported({ departmentId: null, status: 'not_ready' })).toEqual(['BITI2233', 'BITS3343', 'BITU3973'].map(courseCode))
+  expect(await exported({ departmentId: ftmk, status: 'not_ready' })).toEqual(['BITI2233'].map(courseCode))
 })
 
 test('My completeness exports the offerings that the lecturer teaches or coordinates', async () => {

@@ -219,7 +219,7 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
         {data && (
           <CardAction>
             <Button asChild variant="ghost" size="sm">
-              <Link to={`/reports?semester=${data.semester.id}&tab=offerings&status=incomplete`}>See all</Link>
+              <Link to={`/reports?semester=${data.semester.id}&tab=offerings&status=not_ready`}>See all</Link>
             </Button>
           </CardAction>
         )}
