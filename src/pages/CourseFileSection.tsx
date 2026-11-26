@@ -372,13 +372,13 @@ export function CourseFileSection() {
     </Button>
   )
 
-  /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet · drop PDFs here", for staff who upload to it. */
+  /** What a place takes, such as "PDF · max 20 MB · merged to 8 pages per sheet on upload · drop PDFs here", for staff who upload to it. */
   const uploadRule = (oneFile: boolean) =>
     [
       section.kind === 'may-be-empty' && 'Optional',
       oneFile ? 'One PDF' : 'PDF',
       'max 20 MB',
-      perSheet && `${perSheet} pages per sheet`,
+      perSheet && `merged to ${perSheet} pages per sheet on upload`,
       oneFile ? 'drop it here' : 'drop PDFs here',
     ]
       .filter(Boolean)
@@ -424,7 +424,7 @@ export function CourseFileSection() {
               <div className="flex flex-wrap items-center gap-2">
                 <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
                 {slot.oneFile && <Badge variant="secondary">One file</Badge>}
-                {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages per sheet</Badge>}
+                {slot.perSheet && <Badge variant="secondary">Merged to {slot.perSheet} pages per sheet on upload</Badge>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {reuseButton(place, title)}
