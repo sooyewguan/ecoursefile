@@ -48,11 +48,7 @@ const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section
 
 /** The right column of a course file before any section is open. A phone shows only the list then. */
 export function NoSectionChosen() {
-  return (
-    <Card className="py-0">
-      <EmptyState icon={MousePointerClickIcon} title="No section open" description="Pick a section from the list to see its files and review." />
-    </Card>
-  )
+  return <EmptyState icon={MousePointerClickIcon} title="No section open" description="Pick a section from the list to see its files and review." />
 }
 
 /**
@@ -231,112 +227,114 @@ export function CourseFile() {
             />
           )}
 
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-            <section aria-labelledby="sections-heading" className={cn('grid gap-3', openSection !== null && 'max-lg:hidden')}>
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h2 id="sections-heading" className="text-lg font-semibold tracking-tight">
-                  Sections
-                </h2>
-                {progress ? (
-                  <p className="text-muted-foreground text-sm tabular-nums">
-                    {progress.uploaded} of {progress.counted} uploaded
-                    {progress.needsFix > 0 && ` · ${progress.needsFix} need${progress.needsFix === 1 ? 's' : ''} fix`}
-                  </p>
-                ) : (
-                  <Skeleton className="h-5 w-40" />
-                )}
-              </div>
-              <TableCard>
-                <Table aria-labelledby="sections-heading">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10 pr-0 pl-3 text-right">#</TableHead>
-                      <TableHead className="px-3">Section</TableHead>
-                      {canSwitch && <TableHead className="w-14 px-3">On</TableHead>}
-                      {isAuditor && <TableHead className="w-20 px-3 text-right">Review</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {!data ? (
-                      <TableSkeleton columns={columns} rows={19} />
-                    ) : (
-                      data.statuses.map(({ section, status }) => {
-                        const title = sectionTitle.get(section)!
-                        const reason = offering?.section_reasons[section]
-                        const isOn = offering?.sections_on.includes(section) ?? false
-                        const isOpen = section === openSection
-                        return (
-                          <TableRow key={section} data-state={isOpen ? 'selected' : undefined} className="relative">
-                            <TableCell className="text-muted-foreground py-3 pr-0 pl-3 align-top text-right tabular-nums">{section}</TableCell>
-                            <TableCell className="px-3 py-3 whitespace-normal">
-                              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                                {SECTIONS_WITH_PAGES.has(section) ? (
-                                  <Link
-                                    to={`/course-files/${offeringId}/sections/${section}`}
-                                    aria-current={isOpen ? 'page' : undefined}
-                                    className="font-medium after:absolute after:inset-0 hover:underline"
-                                  >
-                                    {title}
-                                  </Link>
-                                ) : (
-                                  <span className="font-medium">{title}</span>
-                                )}
-                                <SectionStatusBadge status={status} />
-                              </div>
-                              {reason && (
-                                <p className="text-muted-foreground mt-0.5 text-sm">
-                                  Switched {isOn ? 'on' : 'off'}: {reason}
-                                </p>
-                              )}
-                            </TableCell>
-                            {canSwitch && (
-                              <TableCell className="relative z-10 px-3 py-3 align-top">
-                                {SWITCHABLE.has(section) && (
-                                  <Switch
-                                    aria-label={`${title} on`}
-                                    checked={isOn}
-                                    disabled={switching !== null}
-                                    onCheckedChange={(next) => void requestSwitch({ section, title, isOn: next, reason })}
-                                  />
-                                )}
-                              </TableCell>
-                            )}
-                            {isAuditor && (
-                              <TableCell className="relative z-10 px-3 py-2 align-top">
-                                <div className="flex justify-end gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    aria-label={`Mark ${title} verified`}
-                                    title="Mark verified"
-                                    onClick={() => setRecording({ section, title, verdict: 'verified' })}
-                                  >
-                                    <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    aria-label={`Mark ${title} needs fix`}
-                                    title="Mark needs fix"
-                                    onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
-                                  >
-                                    <CircleAlertIcon className="text-amber-600 dark:text-amber-400" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            )}
-                          </TableRow>
-                        )
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </TableCard>
-            </section>
-            <div className={cn('min-w-0', openSection === null && 'max-lg:hidden')}>
-              <Outlet key={pathname} context={outlet} />
+          <section aria-labelledby="sections-heading" className="grid gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2 id="sections-heading" className="text-lg font-semibold tracking-tight">
+                Sections
+              </h2>
+              {progress ? (
+                <p className="text-muted-foreground text-sm tabular-nums">
+                  {progress.uploaded} of {progress.counted} uploaded
+                  {progress.needsFix > 0 && ` · ${progress.needsFix} need${progress.needsFix === 1 ? 's' : ''} fix`}
+                </p>
+              ) : (
+                <Skeleton className="h-5 w-40" />
+              )}
             </div>
-          </div>
+            <TableCard>
+              <div className="grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+                <div className={cn('lg:border-r', openSection !== null && 'max-lg:hidden')}>
+                  <Table aria-labelledby="sections-heading">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10 pr-0 pl-3 text-right">#</TableHead>
+                        <TableHead className="px-3">Section</TableHead>
+                        {canSwitch && <TableHead className="w-14 px-3">On</TableHead>}
+                        {isAuditor && <TableHead className="w-20 px-3 text-right">Review</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {!data ? (
+                        <TableSkeleton columns={columns} rows={19} />
+                      ) : (
+                        data.statuses.map(({ section, status }) => {
+                          const title = sectionTitle.get(section)!
+                          const reason = offering?.section_reasons[section]
+                          const isOn = offering?.sections_on.includes(section) ?? false
+                          const isOpen = section === openSection
+                          return (
+                            <TableRow key={section} data-state={isOpen ? 'selected' : undefined} className="relative">
+                              <TableCell className="text-muted-foreground py-3 pr-0 pl-3 align-top text-right tabular-nums">{section}</TableCell>
+                              <TableCell className="px-3 py-3 whitespace-normal">
+                                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                                  {SECTIONS_WITH_PAGES.has(section) ? (
+                                    <Link
+                                      to={`/course-files/${offeringId}/sections/${section}`}
+                                      aria-current={isOpen ? 'page' : undefined}
+                                      className="font-medium after:absolute after:inset-0 hover:underline"
+                                    >
+                                      {title}
+                                    </Link>
+                                  ) : (
+                                    <span className="font-medium">{title}</span>
+                                  )}
+                                  <SectionStatusBadge status={status} />
+                                </div>
+                                {reason && (
+                                  <p className="text-muted-foreground mt-0.5 text-sm">
+                                    Switched {isOn ? 'on' : 'off'}: {reason}
+                                  </p>
+                                )}
+                              </TableCell>
+                              {canSwitch && (
+                                <TableCell className="relative z-10 px-3 py-3 align-top">
+                                  {SWITCHABLE.has(section) && (
+                                    <Switch
+                                      aria-label={`${title} on`}
+                                      checked={isOn}
+                                      disabled={switching !== null}
+                                      onCheckedChange={(next) => void requestSwitch({ section, title, isOn: next, reason })}
+                                    />
+                                  )}
+                                </TableCell>
+                              )}
+                              {isAuditor && (
+                                <TableCell className="relative z-10 px-3 py-2 align-top">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      aria-label={`Mark ${title} verified`}
+                                      title="Mark verified"
+                                      onClick={() => setRecording({ section, title, verdict: 'verified' })}
+                                    >
+                                      <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      aria-label={`Mark ${title} needs fix`}
+                                      title="Mark needs fix"
+                                      onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
+                                    >
+                                      <CircleAlertIcon className="text-amber-600 dark:text-amber-400" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className={cn('min-w-0 p-4 md:p-6', openSection === null && 'max-lg:hidden')}>
+                  <Outlet key={pathname} context={outlet} />
+                </div>
+              </div>
+            </TableCard>
+          </section>
         </TabsContent>
         <TabsContent value="activity">
           <ActivityLog offeringId={offeringId!} />
