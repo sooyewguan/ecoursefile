@@ -24,7 +24,7 @@ export function uploadProblem(file: { size: number; type: string }): UploadProbl
   return null
 }
 
-/** Whether the name ends in .pdf, in any case. SharePoint takes an item's media type from it. */
+/** Whether the name ends in .pdf, in any case, so the stored file opens as a PDF. */
 export function hasPdfName(name: string) {
   return /\.pdf$/i.test(name)
 }
