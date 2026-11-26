@@ -808,20 +808,17 @@ function FileTable({
 
 /**
  * One file's row, which staff drag by its handle to a new place in the table. While a row is
- * dragged, it lifts off the table with a shadow, and the other rows move aside to open a slot,
- * outlined in dashes, where it will land. Space on a focused handle picks the row up, the arrow keys
- * move it and Space drops it.
+ * dragged, it lifts off the table with a shadow, and the other rows move aside to open a gap where
+ * it will land. Space on a focused handle picks the row up, the arrow keys move it and Space
+ * drops it.
  */
 function SortableRow({ id, index, name, reorderable, children }: { id: string; index: number; name: string; reorderable: boolean; children: ReactNode }) {
   const { ref, handleRef } = useSortable({ id, index, disabled: !reorderable })
   return (
     <TableRow
       ref={ref}
-      className={cn(
-        // dnd-kit marks the lifted row data-dnd-dragging, and the copy it leaves in the slot data-dnd-placeholder, which it hides.
-        'data-[dnd-dragging]:bg-background data-[dnd-dragging]:ring-border data-[dnd-dragging]:shadow-lg data-[dnd-dragging]:ring-1',
-        'data-[dnd-placeholder]:bg-primary/5 data-[dnd-placeholder]:outline-primary data-[dnd-placeholder]:visible! data-[dnd-placeholder]:outline-2 data-[dnd-placeholder]:-outline-offset-2 data-[dnd-placeholder]:outline-dashed data-[dnd-placeholder]:*:invisible',
-      )}
+      // dnd-kit marks the lifted row data-dnd-dragging.
+      className="data-[dnd-dragging]:bg-background data-[dnd-dragging]:ring-border data-[dnd-dragging]:shadow-lg data-[dnd-dragging]:ring-1"
     >
       {reorderable && (
         <TableCell className={cn('px-2 py-3', WIDE)}>
