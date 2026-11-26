@@ -67,7 +67,7 @@ async function uploadWithoutFinalize(client: SupabaseClient, slot: SharedSlot, f
 
 /**
  * The lecturer's folder of timetables for the semester in the storage library: their id, then their
- * email with the / that SharePoint forbids in a name made a -.
+ * email with the / that a folder name cannot hold made a -.
  */
 function timetableFolder(semester: Semester, lecturer: Staff) {
   return `eCourseFile/${semester.code.replace('/', '-')}/_shared/04 Lecturer Timetable/${lecturer.id} ${lecturer.email.replaceAll('/', '-')}`

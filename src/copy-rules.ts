@@ -6,6 +6,7 @@
 
 export const BANNED_PHRASES: readonly { phrase: RegExp; why: string; pageOnly?: true }[] = [
   { phrase: /\bSharePoint\b/i, why: 'Where files are stored is not for users to know.' },
+  { phrase: /\bGoogle Drive\b/i, why: 'Where files are stored is not for users to know.' },
   { phrase: /\b(?:the|an) admin\b(?! role)/i, why: 'State what is so, not who does it.' },
   { phrase: /\b(?:is|are) set by\b/i, why: 'State what is so, not who does it.' },
   { phrase: /\bStaff see\b/i, why: 'State what is so, not who sees it.' },
