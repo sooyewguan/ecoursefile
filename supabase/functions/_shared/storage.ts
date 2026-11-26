@@ -1,8 +1,6 @@
-// The storage library behind the files Edge Function. The STORAGE_ADAPTER secret picks SharePoint
-// through Microsoft Graph (graph) or the local fake (fake). Paths are relative to the library's
-// root, with / between folders.
+// The storage library behind the files Edge Function. The STORAGE_ADAPTER secret picks the local
+// fake (fake). Paths are relative to the library's root, with / between folders.
 import { fakeStorage } from './fake-storage.ts'
-import { graphStorage } from './graph-storage.ts'
 import { requiredEnv } from './http.ts'
 
 export type StoredItem = { id: string; size: number; mimeType: string }
@@ -32,16 +30,9 @@ export interface Storage {
 
 export function storageFromEnv(): Storage {
   switch (Deno.env.get('STORAGE_ADAPTER')) {
-    case 'graph':
-      return graphStorage({
-        tenantId: requiredEnv('GRAPH_TENANT_ID'),
-        clientId: requiredEnv('GRAPH_CLIENT_ID'),
-        clientSecret: requiredEnv('GRAPH_CLIENT_SECRET'),
-        siteId: requiredEnv('GRAPH_SITE_ID'),
-      })
     case 'fake':
       return fakeStorage(requiredEnv('FAKE_STORAGE_URL'))
     default:
-      throw new Error('Set the STORAGE_ADAPTER secret to graph or fake.')
+      throw new Error('Set the STORAGE_ADAPTER secret to fake.')
   }
 }
