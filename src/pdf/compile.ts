@@ -14,8 +14,8 @@ export type CompileSection = Omit<ManifestSection, 'files'> & { files: CompileFi
 /** The manifest, with the item and slot of each file in a section that has them. */
 export type CourseFileManifest = Omit<CompileManifest, 'sections'> & { sections: CompileSection[] }
 
-/** Gets the bytes at a file's download URL. The browser passes a wrapper of fetch. */
-export type FetchBytes = (url: string) => Promise<Uint8Array>
+/** Gets a file's bytes. The browser passes a wrapper of fetch over the file's download URL. */
+export type FetchBytes = (file: CompileFile) => Promise<Uint8Array>
 
 /** A file of the manifest that could not be fetched or read as a PDF. */
 export class CompileError extends Error {
@@ -103,7 +103,7 @@ export async function compile(manifest: CourseFileManifest, fetchBytes: FetchByt
 
 /** The file's pages, copied into the output. Any failure to fetch the file or to read or copy its pages is a CompileError naming it. */
 async function copyPages(output: PDFDocument, file: CompileFile, section: CompileSection, fetchBytes: FetchBytes) {
-  const bytes = await fetchBytes(file.url).catch((error: unknown) => {
+  const bytes = await fetchBytes(file).catch((error: unknown) => {
     throw new CompileError(file, section, new FetchFailed(String(error), { cause: error }))
   })
   try {

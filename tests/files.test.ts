@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { beforeAll, expect, test } from 'vitest'
@@ -615,4 +615,20 @@ test('Lecture Notes is Missing until it has files, and Off and closed to uploads
   const offNotes = { ...off.slot, section: LECTURE_NOTES }
   expect(await sectionStatus(off.coordinator.client, offNotes)).toBe('off')
   await expect(createUploadSession(off.coordinator.client, offNotes, 'notes.pdf')).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+})
+
+test('a stored file keeps its id and its storage item, even for the service role, while other columns still change', async () => {
+  const course = await createCourse()
+  const file = await uploadFile(course.coordinator.client, course.slot, pdf('plan.pdf'))
+  const admin = adminClient()
+
+  for (const change of [{ storage_item_id: `${file.storage_item_id}-other` }, { id: randomUUID() }]) {
+    const { error } = await admin.from('files').update(change).eq('id', file.id)
+    expect(error).toMatchObject({ code: PERMISSION_DENIED })
+  }
+  const moved = await admin.from('files').update({ position: file.position + 1 }).eq('id', file.id)
+  expect(moved.error).toBeNull()
+
+  const { data } = await admin.from('files').select('id, storage_item_id, position').eq('id', file.id).single()
+  expect(data).toEqual({ id: file.id, storage_item_id: file.storage_item_id, position: file.position + 1 })
 })

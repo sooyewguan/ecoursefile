@@ -2,6 +2,7 @@ import { FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 import type { CompileManifest } from '../supabase/functions/_shared/manifest.ts'
 import { hasPdfName, PDF_TYPE, UPLOAD_PROBLEM_MESSAGES, uploadProblem } from '../supabase/functions/_shared/uploads.ts'
 import { friendlyError, UserFacingError } from './errors.ts'
+import { cachedFile } from './file-cache.ts'
 import type { CourseFileManifest } from './pdf/compile.ts'
 import type { PagesPerSheet } from './pdf/n-up.ts'
 import { readAll } from './reports.ts'
@@ -254,12 +255,19 @@ export function fileUrl(client: SupabaseClient, fileId: string, reuseInto?: Slot
   return callFiles<{ name: string; url: string }>(client, { action: 'file-url', fileId, ...reuseInto })
 }
 
-/** The file's name and its bytes as a PDF, which the URL from fileUrl gets. */
+/**
+ * The file's name and its bytes as a PDF. fileUrl gives the name, and refuses a user who may not
+ * read the file, every time. The bytes are those the browser kept from an earlier open, or else
+ * those the URL from fileUrl gets.
+ */
 export async function fetchFile(client: SupabaseClient, fileId: string, reuseInto?: Slot) {
   const { name, url } = await fileUrl(client, fileId, reuseInto)
-  const response = await fetch(url)
-  if (!response.ok) throw new FileActionError('download_failed', `Couldn't get ${name}. Try again.`, response.status)
-  return { name, blob: new Blob([await response.arrayBuffer()], { type: PDF_TYPE }) }
+  const blob = await cachedFile(fileId, async () => {
+    const response = await fetch(url)
+    if (!response.ok) throw new FileActionError('download_failed', `Couldn't get ${name}. Try again.`, response.status)
+    return new Blob([await response.arrayBuffer()], { type: PDF_TYPE })
+  })
+  return { name, blob }
 }
 
 async function callFiles<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {

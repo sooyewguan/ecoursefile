@@ -2,7 +2,7 @@
 // shows the result.
 import { PDFDocument, PDFName } from 'pdf-lib'
 import { expect, test } from 'vitest'
-import { compile, CompileError, type CourseFileManifest } from './compile.ts'
+import { compile, CompileError, type CompileFile, type CourseFileManifest } from './compile.ts'
 import { numberedPdf, readPdf, undrawablePdf, type ShownPage } from './fixtures.ts'
 
 const COVER = {
@@ -36,7 +36,7 @@ async function fixture(sections: { number: number; title: string; files: Fixture
     }
     manifest.sections.push({ number, title, files: listed })
   }
-  return { manifest, fetchBytes: async (url: string) => served.get(url)! }
+  return { manifest, fetchBytes: async (file: CompileFile) => served.get(file.url)! }
 }
 
 const SECTIONS = [
@@ -255,7 +255,7 @@ test.each([
 ])('a file that $problem stops the compile with a CompileError naming it and its section', async ({ get }) => {
   const { manifest, fetchBytes } = await fixture(SECTIONS)
 
-  const error = await compile(manifest, (url) => (url.endsWith('/11/lab-sheet') ? get() : fetchBytes(url))).catch((error: unknown) => error)
+  const error = await compile(manifest, (file) => (file.url.endsWith('/11/lab-sheet') ? get() : fetchBytes(file))).catch((error: unknown) => error)
 
   expect(error).toBeInstanceOf(CompileError)
   expect(error).toMatchObject({ file: { name: 'lab-sheet' }, section: { number: 11 }, message: expect.stringContaining('lab-sheet') })
