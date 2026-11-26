@@ -13,7 +13,21 @@ import { isUuid, rest, SERVICE, serviceGet } from '../_shared/http.ts'
 
 const CHUNK_MULTIPLE = 256 * 1024
 
+// The browser calls these URLs from the app's origin, as it calls Drive's. A PUT with Content-Range
+// needs a preflight, and the browser reads every answer only if it allows the origin.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Headers': 'content-range, content-type',
+}
+
 Deno.serve(async (req) => {
+  const response = req.method === 'OPTIONS' ? new Response(null, { status: 204 }) : await handle(req)
+  for (const [name, value] of Object.entries(CORS_HEADERS)) response.headers.set(name, value)
+  return response
+})
+
+async function handle(req: Request) {
   if (Deno.env.get('STORAGE_ADAPTER') !== 'fake') return failure(404, 'itemNotFound')
   if (req.method === 'GET') return download(new URL(req.url))
   if (req.method !== 'PUT') return failure(405, 'invalidRequest')
@@ -38,7 +52,7 @@ Deno.serve(async (req) => {
   })
   // put_chunk answers 202 for a chunk before the last, where Drive answers 308 Resume Incomplete.
   return Response.json(body, { status: status === 202 ? 308 : status })
-})
+}
 
 // The bytes stream from PostgREST to the browser as they come, so the worker neither holds nor
 // encodes them.
