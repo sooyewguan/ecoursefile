@@ -1,10 +1,16 @@
-// Calls Google APIs with an OAuth access token. The FCM push adapter signs in as the Firebase
-// project's service account: FIREBASE_SERVICE_ACCOUNT holds its JSON key, as the Firebase console
-// downloads it, and the token request carries a JWT signed with the key. The client keeps each
-// access token until five minutes before it expires.
+// Calls Google APIs with an OAuth access token. Two credentials sign in, each with its own token
+// request. The FCM push adapter signs in as the Firebase project's service account:
+// FIREBASE_SERVICE_ACCOUNT holds its JSON key, as the Firebase console downloads it, and the
+// request carries a JWT signed with the key. The drive storage adapter signs in as the Google
+// account that holds the files: the GOOGLE_* secrets hold an OAuth client and the account's refresh
+// token, which npm run google:token prints. The client keeps each access token until five minutes
+// before it expires.
 import { firstBytes, requiredEnv } from './http.ts'
 
 export type ServiceAccount = { projectId: string; clientEmail: string; privateKey: string }
+
+/** The Google account that holds the files: an OAuth client of the Desktop app type, and the account's refresh token for it. */
+export type DriveAccount = { clientId: string; clientSecret: string; refreshToken: string }
 
 /** The form of a token request, made again for each new access token. */
 type Grant = () => Promise<URLSearchParams>
@@ -28,6 +34,14 @@ export function serviceAccountFromEnv(): ServiceAccount {
   return { projectId: project_id, clientEmail: client_email, privateKey: private_key }
 }
 
+export function driveAccountFromEnv(): DriveAccount {
+  return {
+    clientId: requiredEnv('GOOGLE_CLIENT_ID'),
+    clientSecret: requiredEnv('GOOGLE_CLIENT_SECRET'),
+    refreshToken: requiredEnv('GOOGLE_REFRESH_TOKEN'),
+  }
+}
+
 /** The service account's token request: a JWT for the FCM scope, signed with its key. */
 export function serviceAccountGrant(account: ServiceAccount): Grant {
   const signingKey = crypto.subtle.importKey('pkcs8', pemBytes(account.privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
@@ -39,6 +53,17 @@ export function serviceAccountGrant(account: ServiceAccount): Grant {
     const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', await signingKey, new TextEncoder().encode(unsigned))
     return new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${base64Url(new Uint8Array(signature))}` })
   }
+}
+
+/** The Drive account's token request: its refresh token, which holds only the drive.file scope. */
+export function refreshTokenGrant(account: DriveAccount): Grant {
+  return async () =>
+    new URLSearchParams({
+      client_id: account.clientId,
+      client_secret: account.clientSecret,
+      refresh_token: account.refreshToken,
+      grant_type: 'refresh_token',
+    })
 }
 
 /** A fetch with the access token that grant gets. It sends a body, if any, as JSON, and any other headers. */

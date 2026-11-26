@@ -1,7 +1,7 @@
-// A stand-in for SharePoint on the local stack. It keeps items in the fake_storage schema, so seam 1
+// A stand-in for Google Drive on the local stack. It keeps items in the fake_storage schema, so seam 1
 // tests can read what was stored, copied and deleted.
-// Its upload and download URLs point at the fake-storage Edge Function, which takes chunks and
-// serves items the way Graph does.
+// Its upload and download URLs point at the fake-storage Edge Function, which takes chunks the way
+// a Drive upload session does and serves items the way the drive-download function does.
 import { signedDownloadUrl } from './download-url.ts'
 import { rest, SERVICE } from './http.ts'
 import type { Storage } from './storage.ts'
