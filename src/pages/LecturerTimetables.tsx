@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableSkeleton } from '@/components/page'
+import { useRefreshCourseFile } from '@/components/course-file-outlet'
 import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -65,6 +66,9 @@ export function LecturerTimetables() {
   const [deleting, setDeleting] = useState<Timetable | null>(null)
   const picker = useRef<HTMLInputElement>(null)
 
+  const refreshCourseFile = useRefreshCourseFile()
+  const loaded = useRef(false)
+
   const reload = useCallback(async () => {
     const [offering, statuses] = await Promise.all([
       supabase
@@ -83,17 +87,21 @@ export function LecturerTimetables() {
     if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
-  }, [offeringId])
+    // The first load is the section opening. Later ones follow a change, which the list's statuses show too.
+    if (loaded.current) refreshCourseFile()
+    loaded.current = true
+  }, [offeringId, refreshCourseFile])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
+  /** A phone shows the section without the list beside it, so it links back to the list. */
   const backLink = (
-    <Button asChild variant="outline">
+    <Button asChild variant="outline" className="lg:hidden">
       <Link to={`/course-files/${offeringId}`}>
         <ArrowLeftIcon />
-        Course file
+        Sections
       </Link>
     </Button>
   )
@@ -105,7 +113,7 @@ export function LecturerTimetables() {
   if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={SECTION.title} action={backLink} />
+        <PageHeader level="h2" title={SECTION.title} action={backLink} />
         <Card className="py-0">
           <LoadError title="Couldn't load the timetables" onRetry={reload} />
         </Card>
@@ -142,12 +150,11 @@ export function LecturerTimetables() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        level="h2"
         title={SECTION.title}
         parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
         areaTo={offering && `/course-files?semester=${offering.semester_id}`}
-        description={
-          offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
-        }
+        description={`Section ${SECTION.number}`}
         action={
           <PageActions>
             {backLink}

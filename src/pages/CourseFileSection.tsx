@@ -11,6 +11,7 @@ import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseAllDialog } from '@/components/reuse-all-dialog'
 import { ReuseDialog } from '@/components/reuse-dialog'
+import { useRefreshCourseFile } from '@/components/course-file-outlet'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -132,6 +133,9 @@ export function CourseFileSection() {
   /** Where the files picked next go. */
   const picking = useRef<Place>({ item: null, slot: null })
 
+  const refreshCourseFile = useRefreshCourseFile()
+  const loaded = useRef(false)
+
   const reload = useCallback(async () => {
     if (!section) return
     const [offering, items, files, canUpload, statuses] = await Promise.all([
@@ -175,7 +179,10 @@ export function CourseFileSection() {
       files: [...linkedFiles, ...(files.data ?? [])],
       canUpload: canUpload.data === true,
     })
-  }, [offeringId, section])
+    // The first load is the section opening. Later ones follow a change, which the list's statuses show too.
+    if (loaded.current) refreshCourseFile()
+    loaded.current = true
+  }, [offeringId, section, refreshCourseFile])
 
   useEffect(() => {
     void reload()
@@ -206,11 +213,12 @@ export function CourseFileSection() {
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId, reload)
 
+  /** A phone shows the section without the list beside it, so it links back to the list. */
   const backLink = (
-    <Button asChild variant="outline">
+    <Button asChild variant="outline" className="lg:hidden">
       <Link to={`/course-files/${offeringId}`}>
         <ArrowLeftIcon />
-        Course file
+        Sections
       </Link>
     </Button>
   )
@@ -222,7 +230,7 @@ export function CourseFileSection() {
   if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={section.title} action={backLink} />
+        <PageHeader level="h2" title={section.title} action={backLink} />
         <Card className="py-0">
           <LoadError title="Couldn't load this section" onRetry={reload} />
         </Card>
@@ -469,14 +477,11 @@ export function CourseFileSection() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        level="h2"
         title={section.title}
         parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
         areaTo={data?.offering && `/course-files?semester=${data.offering.semester_id}`}
-        description={
-          data
-            ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`
-            : `Section ${section.number}`
-        }
+        description={`Section ${section.number}`}
         action={
           <PageActions>
             {backLink}

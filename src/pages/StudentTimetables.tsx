@@ -1,9 +1,10 @@
 import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
+import { useRefreshCourseFile } from '@/components/course-file-outlet'
 import { SectionPager } from '@/components/section-pager'
 import { SectionStatusBadge } from '@/components/section-status'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -67,6 +68,9 @@ export function StudentTimetables() {
   /** The program code whose tick is being saved. */
   const [saving, setSaving] = useState<string | null>(null)
 
+  const refreshCourseFile = useRefreshCourseFile()
+  const loaded = useRef(false)
+
   const reload = useCallback(async () => {
     const [offering, statuses] = await Promise.all([
       supabase
@@ -85,17 +89,21 @@ export function StudentTimetables() {
     if (failed) return
     const status = (statuses.data as { section: number; status: SectionStatus }[]).find((row) => row.section === SECTION.number)
     setData({ offering: offering.data, status: status?.status ?? null })
-  }, [offeringId])
+    // The first load is the section opening. Later ones follow a change, which the list's statuses show too.
+    if (loaded.current) refreshCourseFile()
+    loaded.current = true
+  }, [offeringId, refreshCourseFile])
 
   useEffect(() => {
     void reload()
   }, [reload])
 
+  /** A phone shows the section without the list beside it, so it links back to the list. */
   const backLink = (
-    <Button asChild variant="outline">
+    <Button asChild variant="outline" className="lg:hidden">
       <Link to={`/course-files/${offeringId}`}>
         <ArrowLeftIcon />
-        Course file
+        Sections
       </Link>
     </Button>
   )
@@ -107,7 +115,7 @@ export function StudentTimetables() {
   if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={SECTION.title} action={backLink} />
+        <PageHeader level="h2" title={SECTION.title} action={backLink} />
         <Card className="py-0">
           <LoadError title="Couldn't load the student timetables" onRetry={reload} />
         </Card>
@@ -136,12 +144,11 @@ export function StudentTimetables() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        level="h2"
         title={SECTION.title}
         parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
         areaTo={offering && `/course-files?semester=${offering.semester_id}`}
-        description={
-          offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
-        }
+        description={`Section ${SECTION.number}`}
         action={backLink}
       />
 
