@@ -3,7 +3,7 @@ import { BulkResults } from '@/components/bulk-results'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { COURSE_IMPORT_TEMPLATE, isExampleRow, MAX_COURSE_IMPORT_ROWS, readCourseImport, type ImportedCourse } from '../course-import.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase, UNIQUE_VIOLATION } from '../supabase.ts'
@@ -74,7 +74,7 @@ export function CourseImportResults({ rows, onDismiss }: { rows: ImportedCourse[
             <span className="font-medium break-all">{row.code || '—'}</span>
           </span>
         ),
-        outcome: row.status === 'added' ? { label: 'Added', variant: 'success' } : { label: 'Rejected', variant: 'destructive' },
+        outcome: row.status === 'added' ? { label: 'Added', variant: 'secondary' } : { label: 'Rejected', variant: 'destructive' },
         note: row.status === 'rejected' ? row.reason : undefined,
       }))}
       onDismiss={onDismiss}

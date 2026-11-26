@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 export type BulkResult = {
   key: string
   name: ReactNode
-  outcome: { label: string; variant: 'success' | 'warning' | 'destructive' | 'outline' }
+  outcome: { label: string; variant: 'secondary' | 'outline' | 'destructive' }
   note?: ReactNode
 }
 

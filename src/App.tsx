@@ -1,4 +1,5 @@
 import { FolderOpenIcon } from 'lucide-react'
+import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router'
 import { AppShell } from '@/components/app-shell'
 import { NotFound } from '@/components/page'
@@ -30,41 +31,43 @@ import { LECTURER_FILE_SECTION, PROGRAM_CODE_FILE_SECTION } from './sections.ts'
 
 export function App() {
   return (
-    <AuthProvider>
-      <Toaster />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Guard />}>
-            <Route path="/sign-in" element={<SignIn />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/change-password" element={<ChangePassword />} />
-            <Route path="/files/:fileId" element={<FileViewer />} />
-            <Route element={<AppShell />}>
-              <Route path="/" element={<Home />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/users" element={<Users />} />
-              <Route path="/departments" element={<Departments />} />
-              <Route path="/course-types" element={<CourseTypes />} />
-              <Route path="/courses" element={<Courses />} />
-              <Route path="/program-codes" element={<ProgramCodes />} />
-              <Route path="/semesters" element={<Semesters />} />
-              <Route path="/semesters/:semesterId" element={<Semester />} />
-              <Route path="/course-files" element={<CourseFiles />} />
-              <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
-                <Route index element={<CourseFile />} />
-                <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
-                <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
-                <Route path="sections/:section" element={<CourseFileSection />} />
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <AuthProvider>
+        <Toaster />
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Guard />}>
+              <Route path="/sign-in" element={<SignIn />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/change-password" element={<ChangePassword />} />
+              <Route path="/files/:fileId" element={<FileViewer />} />
+              <Route element={<AppShell />}>
+                <Route path="/" element={<Home />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/users" element={<Users />} />
+                <Route path="/departments" element={<Departments />} />
+                <Route path="/course-types" element={<CourseTypes />} />
+                <Route path="/courses" element={<Courses />} />
+                <Route path="/program-codes" element={<ProgramCodes />} />
+                <Route path="/semesters" element={<Semesters />} />
+                <Route path="/semesters/:semesterId" element={<Semester />} />
+                <Route path="/course-files" element={<CourseFiles />} />
+                <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
+                  <Route index element={<CourseFile />} />
+                  <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+                  <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
+                  <Route path="sections/:section" element={<CourseFileSection />} />
+                </Route>
+                <Route path="/completeness" element={<Completeness />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/profile" element={<Profile />} />
               </Route>
-              <Route path="/completeness" element={<Completeness />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/profile" element={<Profile />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }
 

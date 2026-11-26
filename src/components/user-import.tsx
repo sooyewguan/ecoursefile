@@ -8,7 +8,7 @@ import { CardAction, CardDescription, CardHeader, CardTitle } from '@/components
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { importReason, MAX_IMPORT_ROWS, ROLE_SEPARATOR, USER_IMPORT_TEMPLATE, type ImportedRow } from '../../supabase/functions/_shared/user-import.ts'
 import { importResultsCsv, inResultOrder } from '../import-results.ts'
 import { ROLE_LABELS, type GlobalRole } from '../roles.ts'
@@ -113,7 +113,7 @@ export function ImportResults({ rows, onDismiss }: { rows: ImportedRow[]; onDism
               </TableCell>
               <TableCell className="px-4 py-3 whitespace-normal">
                 {row.status === 'created' ? (
-                  <Badge variant="success">Added</Badge>
+                  <Badge variant="secondary">Added</Badge>
                 ) : (
                   <div className="grid gap-1">
                     <Badge variant="destructive">Rejected</Badge>

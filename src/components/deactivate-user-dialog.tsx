@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { ConfirmDialog } from '@/components/action-dialogs'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { supabase } from '../supabase.ts'
 
 /** An offering the user coordinates or teaches, as the dialog lists it. */

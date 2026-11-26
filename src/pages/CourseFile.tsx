@@ -294,7 +294,7 @@ export function CourseFile() {
                                   title="Mark verified"
                                   onClick={() => setRecording({ section, title, verdict: 'verified' })}
                                 >
-                                  <CircleCheckIcon className="text-success" />
+                                  <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -303,7 +303,7 @@ export function CourseFile() {
                                   title="Mark needs fix"
                                   onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
                                 >
-                                  <CircleAlertIcon className="text-warning" />
+                                  <CircleAlertIcon className="text-amber-600 dark:text-amber-400" />
                                 </Button>
                               </div>
                             </TableCell>

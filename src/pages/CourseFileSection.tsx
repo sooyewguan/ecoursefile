@@ -27,7 +27,8 @@ import { Card } from '@/components/ui/card'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { cn, formatSize, plural } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { formatSize, plural } from '../format.ts'
 import { useAuth } from '../auth-provider.tsx'
 import {
   isReusable,

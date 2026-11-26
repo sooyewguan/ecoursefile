@@ -123,12 +123,12 @@ export function SectionNumbers({ offeringId, missing, needsFix }: { offeringId: 
   return (
     <div className="grid gap-1">
       <SectionBadges offeringId={offeringId} label="Missing" variant="outline" sections={missing} />
-      <SectionBadges offeringId={offeringId} label="Needs fix" variant="warning" sections={needsFix} />
+      <SectionBadges offeringId={offeringId} label="Needs fix" variant="secondary" sections={needsFix} />
     </div>
   )
 }
 
-function SectionBadges({ offeringId, label, variant, sections }: { offeringId: string; label: string; variant: 'outline' | 'warning'; sections: number[] }) {
+function SectionBadges({ offeringId, label, variant, sections }: { offeringId: string; label: string; variant: 'outline' | 'secondary'; sections: number[] }) {
   if (sections.length === 0) return null
   return (
     <div className="flex items-baseline gap-2">
