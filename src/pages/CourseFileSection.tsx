@@ -1,3 +1,6 @@
+import { arrayMove, move } from '@dnd-kit/helpers'
+import { DragDropProvider, type DragEndEvent } from '@dnd-kit/react'
+import { useSortable } from '@dnd-kit/react/sortable'
 import { ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, CopyPlusIcon, FileTextIcon, GripVerticalIcon, HistoryIcon, LayersIcon, PlusIcon, PowerIcon, Trash2Icon, UploadIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
@@ -680,7 +683,7 @@ function HeldFilesDialog({
 /**
  * One section's or slot's files in their order, or placeholder rows while they load. Each file's
  * name opens it in a new tab. Staff who may upload reorder two or more files with the row menu, or
- * by dragging rows on a wider screen. Rows drag only within this table. A compact table, one of
+ * by dragging a row's handle on a wider screen. Rows drag only within this table. A compact table, one of
  * several slots on the page, says it is empty in one line.
  */
 function FileTable({
@@ -701,119 +704,133 @@ function FileTable({
   onReorder: (files: SectionFile[]) => void
   onDelete: (file: SectionFile) => void
 }) {
-  const [dragged, setDragged] = useState<string | null>(null)
   const reorderable = canUpload && (files?.length ?? 0) > 1
   /** The table's columns: the drag handle while rows reorder, file, uploaded by, uploaded at and the row menu. */
   const columns = [...(reorderable ? [WIDE] : []), '', WIDE, WIDE, '']
 
-  function move(fileId: string, to: number) {
-    if (!files) return
-    const from = files.findIndex((file) => file.id === fileId)
-    if (from === -1 || from === to || to < 0 || to >= files.length) return
-    onReorder(files.toSpliced(from, 1).toSpliced(to, 0, files[from]))
+  /** Moves the file at from to to, for Move up and Move down in the row menu. */
+  function shift(from: number, to: number) {
+    if (!files || to < 0 || to >= files.length) return
+    onReorder(arrayMove(files, from, to))
+  }
+
+  /** Saves the order that a drag left the rows in. dnd-kit moves the rows while the drag is on, so the order shows before the drop. */
+  function dropped(event: DragEndEvent) {
+    if (!files || event.canceled) return
+    const reordered = move(files, event)
+    if (reordered.some((file, index) => file.id !== files[index].id)) onReorder(reordered)
   }
 
   return (
     <TableCard>
-      <Table aria-label={label}>
-        <TableHeader>
-          <TableRow>
-            {reorderable && (
-              <TableHead className={cn('w-10 px-2', WIDE)}>
-                <span className="sr-only">Order</span>
+      <DragDropProvider onDragEnd={dropped}>
+        <Table aria-label={label}>
+          <TableHeader>
+            <TableRow>
+              {reorderable && (
+                <TableHead className={cn('w-10 px-2', WIDE)}>
+                  <span className="sr-only">Order</span>
+                </TableHead>
+              )}
+              <TableHead className="px-4">File</TableHead>
+              <TableHead className={cn('w-56 px-4', WIDE)}>Uploaded by</TableHead>
+              <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
+              <TableHead className="w-14 px-4">
+                <span className="sr-only">Actions</span>
               </TableHead>
-            )}
-            <TableHead className="px-4">File</TableHead>
-            <TableHead className={cn('w-56 px-4', WIDE)}>Uploaded by</TableHead>
-            <TableHead className={cn('w-48 px-4', WIDE)}>Uploaded</TableHead>
-            <TableHead className="w-14 px-4">
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {!files ? (
-            <TableSkeleton columns={columns} />
-          ) : files.length === 0 && compact ? (
-            <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={columns.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
-                {empty.title}
-                {empty.description && <span className="text-xs"> · {empty.description}</span>}
-              </TableCell>
             </TableRow>
-          ) : files.length === 0 ? (
-            <TableEmpty columns={columns.length} icon={FileTextIcon} title={empty.title} description={empty.description} />
-          ) : (
-            files.map((file, index) => {
-              const uploadedAt = <Time value={file.uploaded_at} />
-              return (
-                <TableRow
-                  key={file.id}
-                  draggable={reorderable}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData('text/plain', file.id)
-                    event.dataTransfer.effectAllowed = 'move'
-                    setDragged(file.id)
-                  }}
-                  onDragOver={(event) => {
-                    if (dragged) event.preventDefault()
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    if (dragged) move(dragged, index)
-                  }}
-                  onDragEnd={() => setDragged(null)}
-                  className={cn(dragged === file.id && 'opacity-50')}
-                >
-                  {reorderable && (
-                    <TableCell className={cn('text-muted-foreground px-2 py-3', WIDE)}>
-                      <GripVerticalIcon aria-hidden="true" className="mx-auto size-4 cursor-grab" />
+          </TableHeader>
+          <TableBody>
+            {!files ? (
+              <TableSkeleton columns={columns} />
+            ) : files.length === 0 && compact ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="text-muted-foreground px-4 py-3 whitespace-normal">
+                  {empty.title}
+                  {empty.description && <span className="text-xs"> · {empty.description}</span>}
+                </TableCell>
+              </TableRow>
+            ) : files.length === 0 ? (
+              <TableEmpty columns={columns.length} icon={FileTextIcon} title={empty.title} description={empty.description} />
+            ) : (
+              files.map((file, index) => {
+                const uploadedAt = <Time value={file.uploaded_at} />
+                return (
+                  <SortableRow key={file.id} id={file.id} index={index} name={file.name} reorderable={reorderable}>
+                    <TableCell className="px-4 py-3 whitespace-normal">
+                      <div className="grid gap-0.5">
+                        <FileLink file={file} />
+                        <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
+                        <span className="text-muted-foreground text-xs md:hidden">
+                          {file.uploader_name} · {uploadedAt}
+                        </span>
+                      </div>
                     </TableCell>
-                  )}
-                  <TableCell className="px-4 py-3 whitespace-normal">
-                    <div className="grid gap-0.5">
-                      <FileLink file={file} />
-                      <span className="text-muted-foreground text-xs">{formatSize(file.size)}</span>
-                      <span className="text-muted-foreground text-xs md:hidden">
-                        {file.uploader_name} · {uploadedAt}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{file.uploader_name}</TableCell>
-                  <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
-                  <TableCell className="px-4 py-2 text-right">
-                    <RowActions label={`Actions for ${file.name}`}>
-                      <FileMenuItems file={file} />
-                      {reorderable && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem disabled={index === 0} onSelect={() => move(file.id, index - 1)}>
-                            <ArrowUpIcon />
-                            Move up
-                          </DropdownMenuItem>
-                          <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => move(file.id, index + 1)}>
-                            <ArrowDownIcon />
-                            Move down
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      {file.deletable && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
-                            <Trash2Icon />
-                            Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </RowActions>
-                  </TableCell>
-                </TableRow>
-              )
-            })
-          )}
-        </TableBody>
-      </Table>
+                    <TableCell className={cn('px-4 py-3 whitespace-normal', WIDE)}>{file.uploader_name}</TableCell>
+                    <TableCell className={cn('px-4 py-3', WIDE)}>{uploadedAt}</TableCell>
+                    <TableCell className="px-4 py-2 text-right">
+                      <RowActions label={`Actions for ${file.name}`}>
+                        <FileMenuItems file={file} />
+                        {reorderable && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled={index === 0} onSelect={() => shift(index, index - 1)}>
+                              <ArrowUpIcon />
+                              Move up
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={index === files.length - 1} onSelect={() => shift(index, index + 1)}>
+                              <ArrowDownIcon />
+                              Move down
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {file.deletable && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" onSelect={() => onDelete(file)}>
+                              <Trash2Icon />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </RowActions>
+                    </TableCell>
+                  </SortableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </DragDropProvider>
     </TableCard>
+  )
+}
+
+/**
+ * One file's row, which staff drag by its handle to a new place in the table. While a row is
+ * dragged, it lifts off the table with a shadow, and the other rows move aside to open a slot,
+ * outlined in dashes, where it will land. Space on a focused handle picks the row up, the arrow keys
+ * move it and Space drops it.
+ */
+function SortableRow({ id, index, name, reorderable, children }: { id: string; index: number; name: string; reorderable: boolean; children: ReactNode }) {
+  const { ref, handleRef } = useSortable({ id, index, disabled: !reorderable })
+  return (
+    <TableRow
+      ref={ref}
+      className={cn(
+        // dnd-kit marks the lifted row data-dnd-dragging, and the copy it leaves in the slot data-dnd-placeholder, which it hides.
+        'data-[dnd-dragging]:bg-background data-[dnd-dragging]:ring-border data-[dnd-dragging]:shadow-lg data-[dnd-dragging]:ring-1',
+        'data-[dnd-placeholder]:bg-primary/5 data-[dnd-placeholder]:outline-primary data-[dnd-placeholder]:visible! data-[dnd-placeholder]:outline-2 data-[dnd-placeholder]:-outline-offset-2 data-[dnd-placeholder]:outline-dashed data-[dnd-placeholder]:*:invisible',
+      )}
+    >
+      {reorderable && (
+        <TableCell className={cn('px-2 py-3', WIDE)}>
+          <Button ref={handleRef} variant="ghost" size="icon-sm" aria-label={`Drag to reorder ${name}`} className="text-muted-foreground cursor-grab touch-none active:cursor-grabbing">
+            <GripVerticalIcon />
+          </Button>
+        </TableCell>
+      )}
+      {children}
+    </TableRow>
   )
 }
