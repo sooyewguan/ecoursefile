@@ -6,9 +6,9 @@
 // chunk, then 201 with the new item. Chunks other than the last must be multiples of 320 KiB, as
 // Graph requires.
 //
-// A download URL works like a Graph download URL. It answers GET without an Authorization header
-// with the item's bytes, until the expiry it carries, if its signature matches.
-import { downloadSignature } from '../_shared/fake-storage.ts'
+// A download URL answers GET without an Authorization header with the item's bytes, until the
+// expiry it carries, if its signature matches.
+import { signedItemId } from '../_shared/download-url.ts'
 import { isUuid, rest, SERVICE, serviceGet } from '../_shared/http.ts'
 
 const CHUNK_MULTIPLE = 320 * 1024
@@ -42,11 +42,8 @@ Deno.serve(async (req) => {
 // The bytes stream from PostgREST to the browser as they come, so the worker neither holds nor
 // encodes them.
 async function download(url: URL) {
-  const itemId = url.pathname.split('/').pop()
-  const expires = url.searchParams.get('expires') ?? ''
-  if (!isUuid(itemId) || !(Number(expires) > Date.now()) || url.searchParams.get('signature') !== (await downloadSignature(itemId, expires))) {
-    return graphError(401, 'unauthenticated')
-  }
+  const itemId = await signedItemId(url)
+  if (!isUuid(itemId)) return graphError(401, 'unauthenticated')
   const item = await serviceGet(`/rpc/read_item?item_id=${itemId}`, { 'Accept-Profile': 'fake_storage', Accept: 'application/octet-stream' })
   if (!item.ok) {
     await item.body?.cancel()
