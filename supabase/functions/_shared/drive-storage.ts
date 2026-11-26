@@ -9,6 +9,7 @@ import { signedDownloadUrl } from './download-url.ts'
 import { type DriveAccount, googleClient, googleFailure, refreshTokenGrant } from './google.ts'
 import { firstBytes } from './http.ts'
 import type { Storage, StoredItem } from './storage.ts'
+import { PDF_TYPE } from './uploads.ts'
 
 export const DRIVE_URL = 'https://www.googleapis.com/drive/v3'
 
@@ -68,12 +69,14 @@ export function driveStorage(account: DriveAccount, downloadFunctionUrl: string)
   }
 
   return {
+    // The session names the type, so Drive does not have to guess it. The files function takes only
+    // .pdf names, and finalize checks the first bytes.
     // Drive takes the chunks without an Authorization header. It answers a browser's chunks with
     // CORS headers only when the request that opened the session named the browser's origin.
     async createUploadSession(path, origin) {
       const [folder, name] = split(path)
       const parentId = (await folderAt(folder, true))!
-      const response = await drive('POST', `${UPLOAD_URL}?uploadType=resumable`, { name, parents: [parentId] }, origin ? { Origin: origin } : {})
+      const response = await drive('POST', `${UPLOAD_URL}?uploadType=resumable`, { name, parents: [parentId], mimeType: PDF_TYPE }, origin ? { Origin: origin } : {})
       const uploadUrl = response.headers.get('Location')
       if (!response.ok || !uploadUrl) throw await googleFailure(response, 'create upload session')
       await response.body?.cancel()
