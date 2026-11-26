@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { beforeAll, expect, test } from 'vitest'
-import { sizedPdf } from '../src/pdf/fixtures.ts'
-import { deleteSharedFile, replaceSharedFile, uploadFile, type SharedSlot } from '../src/uploads.ts'
+import { numberedPdf, sizedPdf } from '../src/pdf/fixtures.ts'
+import { deleteSharedFile, fileUrl, replaceSharedFile, uploadFile, type SharedSlot } from '../src/uploads.ts'
 import { adminClient, createOffering, createUser, fakeStoreItems, pickSemester, protectedPdf, signIn, signInAs } from './harness.ts'
 
 // Replacing works the same for every shared file the admin keeps. These tests replace student
@@ -20,6 +20,8 @@ beforeAll(async () => {
   admin = await signInAs('admin')
   auditor = await signInAs('auditor')
 })
+
+const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
 function pdf(name: string) {
   return new File([sizedPdf(1024)], name, { type: 'application/pdf' })
@@ -68,6 +70,22 @@ test('replacing a shared file leaves the new file in its place, and sets its sec
   // The verdict stays in the course file's record.
   const { data: verdicts } = await auditor.from('section_verdicts').select('verdict').eq('offering_id', offering.id).eq('section', STUDENT_TIMETABLE)
   expect(verdicts).toEqual([{ verdict: 'verified' }])
+})
+
+test('replacing a shared file gives it a new id, whose URL gets the new PDF, so a browser that kept the old file by its id fetches the new one', async () => {
+  const semester = await pickSemester()
+  const { offering, coordinator, slot, programCode } = await tickedProgramCode(semester)
+  const old = await uploadFile(admin, slot, new File([await numberedPdf(1, { label: 'old' })], 'old.pdf', { type: 'application/pdf' }))
+  const ticked = await coordinator.rpc('tick_program_code', { offering_id: offering.id, program_code_id: programCode.id, ticked: true })
+  expect(ticked.error).toBeNull()
+  const newBytes = await numberedPdf(2, { label: 'new' })
+
+  const replaced = await replaceSharedFile(admin, slot, old.id, new File([newBytes], 'new.pdf', { type: 'application/pdf' }))
+
+  expect(replaced.id).not.toBe(old.id)
+  const { url } = await fileUrl(auditor, replaced.id)
+  expect(sha256(new Uint8Array(await (await fetch(url)).arrayBuffer()))).toBe(sha256(newBytes))
+  await expect(fileUrl(auditor, old.id)).rejects.toMatchObject({ code: 'not_found' })
 })
 
 test('a new file that cannot be stored is refused before the old file is deleted', async () => {
