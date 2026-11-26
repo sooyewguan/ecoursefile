@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '../auth-provider.tsx'
 import { friendlyError } from '../errors.ts'
-import { SECTION_STATUS_LABELS, type SectionStatus, type Verdict } from '../sections.ts'
+import { ADMIN_FILE_SECTIONS, SECTION_STATUS_LABELS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 
 type LatestVerdict = { verdict: Verdict; comment: string | null; auditor_name: string; created_at: string }
@@ -74,7 +74,7 @@ export function SectionVerdict({
           ) : (
             <>
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <SectionStatusBadge status={status} />
+                <SectionStatusBadge status={status} adminUploads={ADMIN_FILE_SECTIONS.has(section)} />
                 {latest ? (
                   <span>
                     {status !== latest.verdict && `${SECTION_STATUS_LABELS[latest.verdict]} by `}

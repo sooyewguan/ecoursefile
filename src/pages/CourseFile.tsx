@@ -21,7 +21,7 @@ import { useAuth } from '../auth-provider.tsx'
 import { cachedFile } from '../file-cache.ts'
 import { courseFileProgress } from '../progress.ts'
 import { saveFile } from '../save-file.ts'
-import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
+import { ADMIN_FILE_SECTIONS, SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
 
@@ -266,19 +266,19 @@ export function CourseFile() {
                             <TableRow key={section} data-state={isOpen ? 'selected' : undefined} className="relative">
                               <TableCell className="text-muted-foreground py-3 pr-0 pl-3 align-top text-right tabular-nums">{section}</TableCell>
                               <TableCell className="px-3 py-3 whitespace-normal">
-                                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                                  {SECTIONS_WITH_PAGES.has(section) ? (
-                                    <Link
-                                      to={`/course-files/${offeringId}/sections/${section}`}
-                                      aria-current={isOpen ? 'page' : undefined}
-                                      className="font-medium after:absolute after:inset-0 hover:underline"
-                                    >
-                                      {title}
-                                    </Link>
-                                  ) : (
-                                    <span className="font-medium">{title}</span>
-                                  )}
-                                  <SectionStatusBadge status={status} />
+                                {SECTIONS_WITH_PAGES.has(section) ? (
+                                  <Link
+                                    to={`/course-files/${offeringId}/sections/${section}`}
+                                    aria-current={isOpen ? 'page' : undefined}
+                                    className="font-medium after:absolute after:inset-0 hover:underline"
+                                  >
+                                    {title}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium">{title}</span>
+                                )}
+                                <div className="mt-1">
+                                  <SectionStatusBadge status={status} adminUploads={ADMIN_FILE_SECTIONS.has(section)} />
                                 </div>
                                 {reason && (
                                   <p className="text-muted-foreground mt-0.5 text-sm">

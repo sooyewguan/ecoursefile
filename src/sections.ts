@@ -24,6 +24,14 @@ export const LECTURER_FILE_SECTION = SECTIONS.find((section) => section.sharedFi
  */
 export const PROGRAM_CODE_FILE_SECTION = SECTIONS.find((section) => section.sharedFile === 'program_code')!
 
+/**
+ * The sections whose files the admin uploads on the semester page: the semester's shared files and
+ * the student timetables. When one is Missing, the admin has the file to upload, not the lecturers.
+ */
+export const ADMIN_FILE_SECTIONS: ReadonlySet<number> = new Set(
+  SECTIONS.filter((section) => section.sharedFile === 'semester' || section.sharedFile === 'program_code').map((section) => section.number),
+)
+
 /** The sections that open a section page: those that staff upload to, and those that link shared files. */
 export const SECTIONS_WITH_PAGES: ReadonlySet<number> = new Set([
   ...FILE_SECTIONS,

@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, MinusIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
+import { CheckIcon, ClockIcon, MinusIcon, ShieldIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -30,12 +30,17 @@ const OFFERING_STATUS_LOOK: Record<OfferingStatus, { className: string; icon: Lu
   verified: STATUS_LOOK.verified,
 }
 
-export function SectionStatusBadge({ status }: { status: SectionStatus }) {
-  const { className, icon: Icon } = STATUS_LOOK[status]
+/** Missing in a section the admin uploads, in violet with a shield, so lecturers see it is not theirs to upload. */
+const ADMIN_MISSING_LOOK = { className: 'border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400', icon: ShieldIcon }
+
+/** A section's status. With adminUploads, Missing reads Missing · Admin, for a file the admin uploads. */
+export function SectionStatusBadge({ status, adminUploads = false }: { status: SectionStatus; adminUploads?: boolean }) {
+  const isAdminMissing = adminUploads && status === 'missing'
+  const { className, icon: Icon } = isAdminMissing ? ADMIN_MISSING_LOOK : STATUS_LOOK[status]
   return (
     <Badge variant="outline" className={className}>
       {Icon && <Icon aria-hidden="true" />}
-      {SECTION_STATUS_LABELS[status]}
+      {isAdminMissing ? 'Missing · Admin' : SECTION_STATUS_LABELS[status]}
     </Badge>
   )
 }
