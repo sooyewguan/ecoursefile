@@ -25,7 +25,8 @@ import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { cn, plural } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState, type StepResult } from '../audit-requests.ts'
 import { friendlyError } from '../errors.ts'
 import { PUSH_ADAPTER } from '../firebase.ts'
@@ -480,7 +481,7 @@ function ChecklistItem({
 }) {
   const name = sectionName(item.section)
   const [Icon, label, tone] = item.ticked
-    ? [CircleCheckIcon, 'Ticked: it has a new file', 'text-success']
+    ? [CircleCheckIcon, 'Ticked: it has a new file', 'text-emerald-600 dark:text-emerald-400']
     : item.comment
       ? [MessageSquareIcon, 'Answered with a comment', 'text-foreground']
       : [CircleIcon, 'Not answered yet', 'text-muted-foreground']

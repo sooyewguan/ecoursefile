@@ -5,7 +5,8 @@ import { Pager } from '@/components/paged-list'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TableBody } from '@/components/ui/table'
-import { cn, plural } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { plural } from '../format.ts'
 
 /** What a table needs from usePagedList. */
 type PagedList<Row> = {

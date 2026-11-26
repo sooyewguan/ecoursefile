@@ -5,10 +5,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Progress } from '@/components/ui/progress'
 import { Label } from '@/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { formatSize, plural } from '@/lib/utils'
+import { formatSize, plural } from '../format.ts'
 import { friendlyError } from '../errors.ts'
 import { pastSemesters, REUSE_PLACES, reusePlan, type PlacedFile, type ReusableList, type ReuseCopy } from '../reuse.ts'
 import { itemName, SECTION_SLOTS, SECTIONS } from '../sections.ts'
@@ -234,15 +235,13 @@ export function ReuseAllDialog({
             <p className="text-sm break-words">
               {stage.step} ({Math.min(stage.done + 1, stage.total)} of {stage.total})
             </p>
-            <div className="bg-muted h-2 overflow-hidden rounded-full" aria-hidden="true">
-              <div className="bg-primary h-full rounded-full transition-[width]" style={{ width: `${(stage.done / Math.max(1, stage.total)) * 100}%` }} />
-            </div>
+            <Progress value={(stage.done / Math.max(1, stage.total)) * 100} aria-hidden="true" />
           </div>
         )}
         {stage.kind === 'done' && (
           <div className="grid gap-3" role="status">
             <p className="flex items-start gap-2 text-sm">
-              {stage.refused.length === 0 ? <CircleCheckIcon className="text-success mt-0.5 size-4 shrink-0" /> : <CircleAlertIcon className="text-destructive mt-0.5 size-4 shrink-0" />}
+              {stage.refused.length === 0 ? <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400 mt-0.5 size-4 shrink-0" /> : <CircleAlertIcon className="text-destructive mt-0.5 size-4 shrink-0" />}
               <span>
                 Copied {plural(stage.copied, 'file')} from {stage.semester}.
                 {stage.held > 0 && ` ${plural(stage.held, 'file')} ${stage.held === 1 ? 'was' : 'were'} here already.`}

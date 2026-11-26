@@ -1,5 +1,5 @@
 import { ConfirmDialog } from '@/components/action-dialogs'
-import { plural } from '@/lib/utils'
+import { plural } from '../format.ts'
 import { friendlyError } from '../errors.ts'
 import { supabase } from '../supabase.ts'
 import { deleteSharedFile } from '../uploads.ts'

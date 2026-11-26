@@ -1,6 +1,6 @@
 import { CircleCheckIcon, FolderOpenIcon, UploadIcon, WrenchIcon, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Card } from '@/components/ui/card'
+import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { SUMMARY_TABLE } from '../report-tables.ts'
@@ -14,29 +14,30 @@ export function offeringsDetail(row: Pick<FacultySummary, 'complete_offerings' |
   return `${row.complete_offerings} complete · ${row.verified_offerings} verified`
 }
 
-/** A row of four headline numbers, two to a row on a phone. Placeholder tiles while stats is null. */
+/** A row of four headline numbers as shadcn cards, two to a row on a phone. Placeholder cards while stats is null. */
 export function StatTiles({ stats }: { stats: Stat[] | null }) {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
       {(stats ?? Array.from({ length: 4 }, () => null)).map((stat, index) => (
-        <Card key={stat?.label ?? index} className="gap-3 px-4 py-4 sm:px-5 sm:py-5">
+        <Card key={stat?.label ?? index}>
           {stat ? (
             <>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-muted-foreground text-sm font-medium">{stat.label}</p>
-                <span className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg max-sm:hidden', stat.tone)}>
-                  <stat.icon aria-hidden="true" className="size-4" />
-                </span>
-              </div>
-              <p className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">{stat.value}</p>
-              {stat.detail && <p className="text-muted-foreground text-xs sm:text-sm">{stat.detail}</p>}
+              <CardHeader>
+                <CardDescription>{stat.label}</CardDescription>
+                <CardTitle className="text-2xl tabular-nums sm:text-3xl">{stat.value}</CardTitle>
+                <CardAction>
+                  <span className={cn('flex size-8 items-center justify-center rounded-lg', stat.tone)}>
+                    <stat.icon aria-hidden="true" className="size-4" />
+                  </span>
+                </CardAction>
+              </CardHeader>
+              {stat.detail && <CardFooter className="text-muted-foreground text-sm">{stat.detail}</CardFooter>}
             </>
           ) : (
-            <>
+            <CardHeader>
               <Skeleton className="h-5 w-24" />
               <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-4 w-28" />
-            </>
+            </CardHeader>
           )}
         </Card>
       ))}
@@ -66,9 +67,9 @@ export function FacultyStatTiles({ summary }: { summary: FacultySummary | null }
             icon: FolderOpenIcon,
             tone: 'bg-primary/10 text-primary',
           },
-          { ...share(column.uploaded, column.uploadedPercent, summary), icon: UploadIcon, tone: 'bg-info/10 text-info' },
-          { ...share(column.verified, column.verifiedPercent, summary), icon: CircleCheckIcon, tone: 'bg-success/10 text-success' },
-          { ...share(column.needsFix, column.needsFixPercent, summary), icon: WrenchIcon, tone: 'bg-warning/10 text-warning' },
+          { ...share(column.uploaded, column.uploadedPercent, summary), icon: UploadIcon, tone: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+          { ...share(column.verified, column.verifiedPercent, summary), icon: CircleCheckIcon, tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+          { ...share(column.needsFix, column.needsFixPercent, summary), icon: WrenchIcon, tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
         ]
       }
     />

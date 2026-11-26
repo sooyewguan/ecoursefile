@@ -1,4 +1,5 @@
-import { cn, plural } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { plural } from '../format.ts'
 import type { OfferingRow } from '../reports.ts'
 
 /** The sections that count, as a row of a report gives them. */
@@ -6,9 +7,9 @@ export type SectionCounts = Pick<OfferingRow, 'counted_sections' | 'uploaded_sec
 
 /** The parts of the sections that count, in bar order: Verified, Pending review, Needs fix, and Missing as the rest of the bar. */
 const PARTS: { label: string; className: string; count: (row: SectionCounts) => number }[] = [
-  { label: 'Verified', className: 'bg-success', count: (row) => row.verified_sections },
-  { label: 'Pending review', className: 'bg-info', count: (row) => row.uploaded_sections - row.verified_sections - row.needs_fix_sections },
-  { label: 'Needs fix', className: 'bg-warning', count: (row) => row.needs_fix_sections },
+  { label: 'Verified', className: 'bg-emerald-500', count: (row) => row.verified_sections },
+  { label: 'Pending review', className: 'bg-sky-500', count: (row) => row.uploaded_sections - row.verified_sections - row.needs_fix_sections },
+  { label: 'Needs fix', className: 'bg-amber-500', count: (row) => row.needs_fix_sections },
   { label: 'Missing', className: 'bg-muted-foreground/20', count: (row) => row.counted_sections - row.uploaded_sections },
 ]
 

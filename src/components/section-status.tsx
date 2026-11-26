@@ -6,15 +6,15 @@ import { OFFERING_STATUS_LABELS, type OfferingStatus } from '../reports.ts'
 import { SECTION_STATUS_LABELS, sectionName, type SectionStatus } from '../sections.ts'
 
 /**
- * How each status looks: its colors and its mark, so that no status is told by color alone. Missing
- * is destructive, Pending review info, Verified success, and Needs fix a solid warning, which stands
- * out as the one an auditor sent back. Empty has no mark.
+ * How each status looks: its Tailwind colors and its mark, so that no status is told by color alone.
+ * Missing is destructive, Pending review sky, Verified emerald, and Needs fix solid amber, which
+ * stands out as the one an auditor sent back. Empty has no mark.
  */
 const STATUS_LOOK: Record<SectionStatus, { className: string; icon: LucideIcon | null }> = {
   missing: { className: 'border-destructive/25 bg-destructive/10 text-destructive', icon: XIcon },
-  pending_review: { className: 'border-info/25 bg-info/10 text-info', icon: ClockIcon },
-  verified: { className: 'border-success/25 bg-success/10 text-success', icon: CheckIcon },
-  needs_fix: { className: 'border-transparent bg-warning text-warning-foreground', icon: WrenchIcon },
+  pending_review: { className: 'border-sky-500/25 bg-sky-500/10 text-sky-600 dark:text-sky-400', icon: ClockIcon },
+  verified: { className: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', icon: CheckIcon },
+  needs_fix: { className: 'border-transparent bg-amber-500 text-amber-950', icon: WrenchIcon },
   empty: { className: 'text-muted-foreground', icon: null },
   off: { className: 'text-muted-foreground bg-muted/60 border-dashed', icon: MinusIcon },
 }

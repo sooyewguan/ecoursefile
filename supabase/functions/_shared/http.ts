@@ -26,18 +26,18 @@ const CORS_HEADERS = {
 }
 
 /**
- * Serves a JSON API on POST for signed-in callers. The handler gets the parsed body and the
- * caller's Authorization header, and its result is the 200 response. A Refusal becomes its
+ * Serves a JSON API on POST for signed-in callers. The handler gets the parsed body, the caller's
+ * Authorization header and the request, and its result is the 200 response. A Refusal becomes its
  * status and { code, message }, and any other error a 500.
  */
-export function serveJson(handle: (body: unknown, caller: string) => Promise<unknown>) {
+export function serveJson(handle: (body: unknown, caller: string, req: Request) => Promise<unknown>) {
   Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS })
     try {
       if (req.method !== 'POST') throw new Refusal(405, 'invalid_request', 'Use POST.')
       const caller = req.headers.get('Authorization')
       if (!caller) throw new Refusal(401, 'unauthorized', 'Sign in first.')
-      return json(200, await handle(await req.json().catch(() => null), caller))
+      return json(200, await handle(await req.json().catch(() => null), caller, req))
     } catch (error) {
       if (error instanceof Refusal) return json(error.status, { code: error.code, message: error.message })
       console.error(error)
@@ -128,4 +128,20 @@ export function isUuid(value: unknown): value is string {
 
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
+}
+
+/** The first length bytes of the body, or all of them when it is shorter. The rest is never read. */
+export async function firstBytes(response: Response, length: number) {
+  const bytes = new Uint8Array(length)
+  let received = 0
+  const reader = response.body?.getReader()
+  while (reader && received < length) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const part = value.subarray(0, length - received)
+    bytes.set(part, received)
+    received += part.length
+  }
+  await reader?.cancel()
+  return bytes.slice(0, received)
 }
