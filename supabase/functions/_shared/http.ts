@@ -129,3 +129,19 @@ export function isUuid(value: unknown): value is string {
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } })
 }
+
+/** The first length bytes of the body, or all of them when it is shorter. The rest is never read. */
+export async function firstBytes(response: Response, length: number) {
+  const bytes = new Uint8Array(length)
+  let received = 0
+  const reader = response.body?.getReader()
+  while (reader && received < length) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const part = value.subarray(0, length - received)
+    bytes.set(part, received)
+    received += part.length
+  }
+  await reader?.cancel()
+  return bytes.slice(0, received)
+}
