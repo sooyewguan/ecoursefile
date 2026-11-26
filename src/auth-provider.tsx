@@ -1,6 +1,7 @@
 import type { Session } from '@supabase/supabase-js'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { rolesFromAccessToken, type AuthState } from './auth.ts'
+import { clearFileCache } from './file-cache.ts'
 import { turnOffPush } from './push.ts'
 import { supabase } from './supabase.ts'
 
@@ -20,7 +21,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      // Every way out, such as the menu or the change-password page, ends here, so the next user of
+      // the browser finds none of this user's files.
+      if (event === 'SIGNED_OUT') void clearFileCache()
       // supabase-js holds its auth lock during this callback and queries wait for that lock,
       // so read the profile after the callback returns.
       setTimeout(() => void load(session))

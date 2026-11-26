@@ -17,6 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import { cachedFile } from '../file-cache.ts'
 import { courseFileProgress } from '../progress.ts'
 import { saveFile } from '../save-file.ts'
 import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
@@ -126,7 +127,8 @@ export function CourseFile() {
 
   /**
    * Compiles the course file into one PDF in the browser and saves it under fileName. pdf-lib loads
-   * only now. The files download one at a time as the PDF takes them, and the button counts them.
+   * only now. The files come one at a time as the PDF takes them, from the browser's copy of a file
+   * opened before or else downloaded, and the button counts them.
    */
   async function downloadCompiledPdf(fileName: string) {
     setCompiling({ files: null })
@@ -135,12 +137,14 @@ export function CourseFile() {
       const total = manifest.sections.reduce((count, section) => count + section.files.length, 0)
       let done = 0
       setCompiling({ files: { done, total } })
-      const bytes = await compile(manifest, async (url) => {
-        const response = await fetch(url)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const body = new Uint8Array(await response.arrayBuffer())
+      const bytes = await compile(manifest, async (file) => {
+        const blob = await cachedFile(file.id, async () => {
+          const response = await fetch(file.url)
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          return new Blob([await response.arrayBuffer()], { type: 'application/pdf' })
+        })
         setCompiling({ files: { done: ++done, total } })
-        return body
+        return new Uint8Array(await blob.arrayBuffer())
       })
       saveFile(new Blob([bytes], { type: 'application/pdf' }), fileName)
     } catch {

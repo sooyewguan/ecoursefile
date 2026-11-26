@@ -244,7 +244,7 @@ test('a reader compiles the course file from its manifest, fetching each file fr
   await uploadFile(bala.client, { offeringId, section: REPLACEMENT_NOTICES }, await pdf('notice', 1))
   const manifest = await compileManifest(await signInAs('hod'), offeringId)
 
-  const pages = await readPdf(await compile(manifest, async (url) => new Uint8Array(await (await fetch(url)).arrayBuffer())))
+  const pages = await readPdf(await compile(manifest, async (file) => new Uint8Array(await (await fetch(file.url)).arrayBuffer())))
 
   const firstTexts = pages.map((page) => page.texts[0].text)
   expect(firstTexts).toHaveLength(2 + manifest.sections.length + 3)
