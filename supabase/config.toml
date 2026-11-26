@@ -419,7 +419,7 @@ FAKE_STORAGE_URL = "http://127.0.0.1:54321/functions/v1/fake-storage"
 PUSH_ADAPTER = "fake"
 SEND_EMAIL_HOOK_SECRET = "v1,whsec_1RynRfnDEXU8HKWWz87vTJVqhK66Ncrt8kfBjHoLAQM="
 
-# The fake's upload URLs, like Graph's, take no Authorization header.
+# The fake's upload and download URLs take no Authorization header, like a Drive upload session URL.
 [functions.fake-storage]
 verify_jwt = false
 
