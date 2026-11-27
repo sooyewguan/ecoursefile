@@ -1,4 +1,5 @@
 import { isGlobalRole, type GlobalRole } from './roles.ts'
+import { movedCourseFilePath } from './course-file-views.ts'
 
 /** The signed-in user. displayName is how the app names them to others: their title and full name. */
 export type Profile = { id: string; email: string; fullName: string; title: string | null; displayName: string; departmentId: string | null }
@@ -14,8 +15,10 @@ export type AuthState =
  * Every other page is open to any signed-in user.
  */
 export const ROLE_PAGES = [
-  { path: '/course-files', label: 'Course files', roles: ['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] },
+  { path: '/my-course-files', label: 'My course files', roles: ['lecturer'] },
   { path: '/completeness', label: 'My completeness', roles: ['lecturer'] },
+  { path: '/audit', label: 'Audit course files', roles: ['auditor'] },
+  { path: '/course-files', label: 'Course files', roles: ['admin', 'hod', 'dean', 'deputy_dean'] },
   { path: '/reports', label: 'Reports', roles: ['admin', 'auditor', 'hod', 'dean', 'deputy_dean'] },
   { path: '/semesters', label: 'Semesters', roles: ['admin'] },
   { path: '/users', label: 'Users', roles: ['root', 'admin'] },
@@ -47,7 +50,7 @@ export function redirectFor(state: AuthState, path: string): string | null {
       return path === '/change-password' ? null : '/change-password'
     case 'ready':
       if (SIGNED_OUT_PAGES.includes(path) || path === '/change-password') return '/'
-      return canOpen(state.roles, path) ? null : '/'
+      return canOpen(state.roles, path) ? null : (movedCourseFilePath(state.roles, path) ?? '/')
   }
 }
 

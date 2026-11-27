@@ -2,6 +2,7 @@ import { ArrowLeftIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
+import { useCourseFileView } from '@/components/course-file-view'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { LoadError, NotFound, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { SectionPager } from '@/components/section-pager'
@@ -62,6 +63,7 @@ export function StudentTimetables() {
   const offeringId = useParams().offeringId!
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const { view, area, path } = useCourseFileView()
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   /** The program code whose tick is being saved. */
@@ -93,15 +95,17 @@ export function StudentTimetables() {
 
   const backLink = (
     <Button asChild variant="outline">
-      <Link to={`/course-files/${offeringId}`}>
+      <Link to={path(offeringId)}>
         <ArrowLeftIcon />
         Course file
       </Link>
     </Button>
   )
 
-  if (data && !data.offering) {
-    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
+  // The lecturer view holds only the course files the user teaches.
+  const teaches = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  if (data && (!data.offering || (view === 'lecturer' && !teaches))) {
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo={area} backLabel="All course files" />
   }
 
   if (loadFailed) {
@@ -121,8 +125,8 @@ export function StudentTimetables() {
   /** Ticked codes whose timetable the admin deleted, which the pick list no longer holds. */
   const orphaned = (offering?.ticks ?? []).map((tick) => tick.program_code).filter((code) => !choices.some((choice) => choice.id === code.id))
   const codes = [...choices, ...orphaned].toSorted((a, b) => a.code.localeCompare(b.code))
-  /** Whether the user teaches the offering, and so may tick its codes. */
-  const canTick = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** Whether the page is the lecturer view and the user teaches the offering, and so may tick its codes. */
+  const canTick = (view === 'lecturer' && offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId)) ?? false
 
   /** Ticks or unticks the code. The box shows the outcome, and a refusal shows in a toast. */
   async function setTicked(programCode: ProgramCode, isTicked: boolean) {
@@ -137,8 +141,8 @@ export function StudentTimetables() {
     <div className="grid gap-6">
       <PageHeader
         title={SECTION.title}
-        parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
-        areaTo={offering && `/course-files?semester=${offering.semester_id}`}
+        parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: path(offeringId) }}
+        areaTo={offering && `${area}?semester=${offering.semester_id}`}
         description={
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }

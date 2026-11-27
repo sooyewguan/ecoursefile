@@ -133,7 +133,9 @@ async function deliver(requestId: string, step: Step): Promise<number | null> {
   try {
     const [source] = await rest<NotificationSource[]>('GET', `/audit_requests?id=eq.${requestId}&select=${NOTIFICATION_SELECT}`, undefined, SERVICE)
     const { to, message } = step === 'sent' ? requestNotification(source) : replyNotification(source)
-    reached = await push(to, { ...message, link: `/course-files/${source.offering.id}#audit-request-${requestId}` })
+    // A request goes to staff, who answer it in their own course files. A reply goes to its auditor, who reviews it in the audit view.
+    const area = step === 'sent' ? '/my-course-files' : '/audit'
+    reached = await push(to, { ...message, link: `${area}/${source.offering.id}#audit-request-${requestId}` })
   } catch (error) {
     console.error(error)
     await rest('PATCH', delivery, { claimed_at: null }, SERVICE)

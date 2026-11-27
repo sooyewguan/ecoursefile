@@ -2,6 +2,7 @@ import { FolderOpenIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { Combobox, type ComboboxOption } from '@/components/combobox'
+import { useCourseFileView } from '@/components/course-file-view'
 import { EmptyState, LoadError, PageHeader, TableCard, TableEmpty, TableLoadError, TableSkeleton } from '@/components/page'
 import { Pager, usePagedList } from '@/components/paged-list'
 import { SectionBar } from '@/components/section-bar'
@@ -14,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import { useAuth } from '../auth-provider.tsx'
+import type { CourseFileView } from '../course-file-views.ts'
 import { containsFilter } from '../paging.ts'
 import { formatPercent, type OfferingRow } from '../reports.ts'
 import { supabase } from '../supabase.ts'
@@ -46,29 +48,54 @@ const COLUMNS = ['', WIDE, STATUS, '']
 /** How many semesters the picker shows for a search. */
 const PICKER_LIMIT = 20
 
+/** Each view's page title, and what the user does there. */
+const HEADINGS: Record<CourseFileView, { title: string; description?: string }> = {
+  lecturer: { title: 'My course files', description: 'The course files you teach or coordinate. Open one to upload its files and answer audit requests.' },
+  auditor: { title: 'Audit course files', description: 'Every course file. Open one to check its files, mark its sections and send audit requests.' },
+  reader: { title: 'Course files' },
+}
+
 /**
  * The semesters with offerings that the user reads, newest first, whose code has the query. RLS
- * decides which offerings the user reads.
+ * decides which offerings the user reads. With a lecturerId, only the offerings that lecturer
+ * teaches or coordinates count.
  */
-function semestersWithOfferings(query = '') {
-  let request = supabase.from('semesters').select('id, code, offerings!inner(id)').limit(1, { referencedTable: 'offerings' })
+function semestersWithOfferings(lecturerId: string | null, query = '') {
+  let request = lecturerId
+    ? supabase
+        .from('semesters')
+        .select('id, code, offerings!inner(id, offering_lecturers!offering_lecturers_offering_id_fkey!inner(lecturer_id))')
+        .eq('offerings.offering_lecturers.lecturer_id', lecturerId)
+    : supabase.from('semesters').select('id, code, offerings!inner(id)')
+  request = request.limit(1, { referencedTable: 'offerings' })
   const filter = containsFilter(['code'], query)
   if (filter) request = request.or(filter)
   return request.order('start_year', { ascending: false }).order('number', { ascending: false })
 }
 
-async function searchSemesters(query: string): Promise<ComboboxOption[]> {
-  const { data, error } = await semestersWithOfferings(query).limit(PICKER_LIMIT)
+/** The ids of the offerings of the semester that the lecturer teaches or coordinates. */
+async function taughtOfferingIds(lecturerId: string, semesterId: string) {
+  const { data, error } = await supabase
+    .from('offering_lecturers')
+    .select('offering_id, offering:offerings!offering_lecturers_offering_id_fkey!inner(semester_id)')
+    .eq('lecturer_id', lecturerId)
+    .eq('offering.semester_id', semesterId)
   if (error) throw error
-  return data.map((semester) => ({ value: semester.id, label: semester.code }))
+  return data.map((row) => row.offering_id as string)
 }
 
 /**
- * The course files that the user reads in one semester, a page at a time, searched by course code
- * or title, each with how many of its sections are uploaded and how many need a fix, counted as
- * the reports count them. The semester is the one in ?semester=, else the latest the user has.
+ * The view's course files in one semester, a page at a time, searched by course code or title,
+ * each with how many of its sections are uploaded and how many need a fix, counted as the reports
+ * count them. The lecturer view lists the course files the user teaches or coordinates, and the
+ * other views every course file the user reads. The semester is the one in ?semester=, else the
+ * latest the view has.
  */
 export function CourseFiles() {
+  const { view } = useCourseFileView()
+  const state = useAuth()
+  /** The lecturer whose course files the lecturer view lists, or null in another view. */
+  const lecturerId = view === 'lecturer' && state.kind === 'ready' ? state.profile.id : null
   const [searchParams, setSearchParams] = useSearchParams()
   const semesterId = searchParams.get('semester')
   /** The semester shown: undefined while it loads, and null when the user reads no offering at all. */
@@ -78,7 +105,7 @@ export function CourseFiles() {
 
   useEffect(() => {
     let current = true
-    const request = semesterId ? supabase.from('semesters').select('id, code').eq('id', semesterId) : semestersWithOfferings().limit(1)
+    const request = semesterId ? supabase.from('semesters').select('id, code').eq('id', semesterId) : semestersWithOfferings(lecturerId).limit(1)
     request.then(({ data, error }) => {
       if (!current) return
       setLoadFailed(error !== null)
@@ -90,11 +117,17 @@ export function CourseFiles() {
     return () => {
       current = false
     }
-  }, [semesterId, setSearchParams, attempt])
+  }, [semesterId, setSearchParams, attempt, lecturerId])
+
+  async function searchSemesters(query: string): Promise<ComboboxOption[]> {
+    const { data, error } = await semestersWithOfferings(lecturerId, query).limit(PICKER_LIMIT)
+    if (error) throw error
+    return data.map((semester) => ({ value: semester.id, label: semester.code }))
+  }
 
   return (
     <div className="grid gap-6">
-      <PageHeader title="Course files" />
+      <PageHeader {...HEADINGS[view]} />
       {loadFailed ? (
         <Card className="py-0">
           <LoadError title="Couldn't load course files" onRetry={() => setAttempt((count) => count + 1)} />
@@ -107,6 +140,7 @@ export function CourseFiles() {
         <OfferingsTable
           key={semester?.value ?? ''}
           semester={semester}
+          lecturerId={lecturerId}
           picker={
             <div className="grid w-full gap-2 sm:w-56">
               <Label htmlFor="course-files-semester">Semester</Label>
@@ -133,14 +167,18 @@ export function CourseFiles() {
   )
 }
 
-/** The semester's offerings, with the semester picker beside the search, or placeholder rows until the semester is known. */
-function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undefined; picker: ReactNode }) {
-  const state = useAuth()
-  const userId = state.kind === 'ready' ? state.profile.id : null
-  const offerings = usePagedList<Offering>((range, search) => {
+/**
+ * The semester's offerings, or only those the lecturer teaches or coordinates when there is a
+ * lecturerId, with the semester picker beside the search, or placeholder rows until the semester is
+ * known.
+ */
+function OfferingsTable({ semester, lecturerId, picker }: { semester: ComboboxOption | undefined; lecturerId: string | null; picker: ReactNode }) {
+  const { path } = useCourseFileView()
+  const offerings = usePagedList<Offering>(async (range, search) => {
     // Until the semester is known the table waits, and the page mounts it again with the semester.
     if (!semester) return new Promise<never>(() => {})
     let query = supabase.rpc('report_offerings', { semester_id: semester.value }, { count: 'exact' })
+    if (lecturerId) query = query.in('offering_id', await taughtOfferingIds(lecturerId, semester.value))
     const filter = containsFilter(['course_code', 'course_title'], search)
     if (filter) query = query.or(filter)
     return query.order('course_code').range(range.from, range.to)
@@ -185,10 +223,10 @@ function OfferingsTable({ semester, picker }: { semester: ComboboxOption | undef
                     <TableCell className="px-4 py-3 whitespace-normal">
                       <div className="grid gap-0.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Link to={`/course-files/${offering.offering_id}`} className="font-medium after:absolute after:inset-0 hover:underline">
+                          <Link to={path(offering.offering_id)} className="font-medium after:absolute after:inset-0 hover:underline">
                             {offering.course_code}
                           </Link>
-                          {offering.coordinator_id === userId && <Badge variant="secondary">Coordinator</Badge>}
+                          {lecturerId && offering.coordinator_id === lecturerId && <Badge variant="secondary">Coordinator</Badge>}
                         </div>
                         <span className="text-muted-foreground text-sm">{offering.course_title}</span>
                         <span className="text-muted-foreground mt-1 text-xs md:hidden">{department}</span>

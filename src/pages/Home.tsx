@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router'
+import { useOverviewPath } from '@/components/course-file-view'
 import { EmptyState, LoadError, useDocumentTitle } from '@/components/page'
 import { loadOfferings, pickSemester, SemesterSelect, useSemestersWithOfferings } from '@/components/reports'
 import { SectionBar, SectionBarLegend } from '@/components/section-bar'
@@ -25,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { plural } from '../format.ts'
 import { repliesToReview, requestsAwaitingReply, type InboxRequest } from '../audit-requests.ts'
 import { canOpen } from '../auth.ts'
+import { courseFilePath, type CourseFileView } from '../course-file-views.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { openPages } from '../navigation.ts'
 import { fetchReport, formatPercent, type DepartmentRow, type FacultySummary, type OfferingRow } from '../reports.ts'
@@ -206,6 +208,7 @@ function AwaitingReplySection({ userId }: { userId: string }) {
   return (
     <InboxSection
       id="awaiting-reply-heading"
+      view="lecturer"
       title="Audit requests waiting for you"
       empty="No audit request is waiting for your reply."
       loadError="Couldn't load the audit requests"
@@ -231,6 +234,7 @@ function RepliesToReviewSection({ userId }: { userId: string }) {
   return (
     <InboxSection
       id="replies-heading"
+      view="auditor"
       title="Replies to review"
       empty="No reply is waiting for your review."
       loadError="Couldn't load the replies"
@@ -255,6 +259,7 @@ function RepliesToReviewSection({ userId }: { userId: string }) {
  */
 function InboxSection({
   id,
+  view,
   title,
   empty,
   loadError,
@@ -262,6 +267,8 @@ function InboxSection({
   detail,
 }: {
   id: string
+  /** The view the requests open in: the lecturer's to answer them, the auditor's to review them. */
+  view: CourseFileView
   title: string
   empty: string
   loadError: string
@@ -300,7 +307,7 @@ function InboxSection({
               return (
                 <li key={request.id}>
                   <Link
-                    to={`/course-files/${request.offering.id}#audit-request-${request.id}`}
+                    to={`${courseFilePath(view, request.offering.id)}#audit-request-${request.id}`}
                     className="hover:bg-muted/40 grid gap-2 px-4 py-4 transition-colors first:rounded-t-xl last:rounded-b-xl sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6 sm:px-6"
                   >
                     <span className="grid min-w-0 gap-0.5">
@@ -406,6 +413,7 @@ function DepartmentsCard({ data }: { data: FacultyOverview | null }) {
 
 /** The offerings with the most left to upload, least complete first. */
 function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
+  const coursePath = useOverviewPath()
   const rows = data?.offerings.filter((row) => row.status === 'incomplete').toSorted((a, b) => a.percent_complete - b.percent_complete).slice(0, 5)
   return (
     <Card className="min-w-0 gap-4 lg:col-span-2">
@@ -431,7 +439,7 @@ function LeastCompleteCard({ data }: { data: FacultyOverview | null }) {
             {(rows ?? [null, null, null]).map((row, index) =>
               row ? (
                 <li key={row.offering_id}>
-                  <Link to={`/course-files/${row.offering_id}`} className="hover:bg-accent grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-lg px-3 py-2.5 transition-colors">
+                  <Link to={coursePath(row.offering_id)} className="hover:bg-accent grid grid-cols-[minmax(0,1fr)] gap-1.5 rounded-lg px-3 py-2.5 transition-colors">
                     <span className="flex items-baseline justify-between gap-3 text-sm">
                       <span className="min-w-0 truncate">
                         <span className="font-medium">{row.course_code}</span> <span className="text-muted-foreground">{row.course_title}</span>
@@ -501,7 +509,7 @@ function StaffSection({ userId, semester }: { userId: string; semester: Semester
                 row ? (
                   <li key={row.offering_id}>
                     <Link
-                      to={`/course-files/${row.offering_id}`}
+                      to={courseFilePath('lecturer', row.offering_id)}
                       className="hover:bg-muted/40 grid gap-3 px-4 py-4 transition-colors first:rounded-t-xl last:rounded-b-xl sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_auto] sm:items-center sm:gap-6 sm:px-6"
                     >
                       <span className="grid min-w-0 gap-0.5">
