@@ -515,10 +515,10 @@ test('an offering is complete when every section that is on has a file, with sec
   expect(await completeness()).toEqual({ status: 'pending_review', counted: 11, uploaded: 11, percent: 100, missing: [] })
 
   // A section switched on needs a file, and a switched-off one leaves the count.
-  await switchSection(lecturer.client, offering.id, LAB_EXERCISES, true, 'Labs run this semester')
+  await switchSection(coordinator.client, offering.id, LAB_EXERCISES, true, 'Labs run this semester')
   expect(await completeness()).toEqual({ status: 'incomplete', counted: 12, uploaded: 11, percent: 91.7, missing: [LAB_EXERCISES] })
-  await switchSection(lecturer.client, offering.id, LAB_EXERCISES, false)
-  await switchSection(lecturer.client, offering.id, LECTURE_NOTES, false, 'Notes are in the textbook')
+  await switchSection(coordinator.client, offering.id, LAB_EXERCISES, false)
+  await switchSection(coordinator.client, offering.id, LECTURE_NOTES, false, 'Notes are in the textbook')
   expect(await completeness()).toEqual({ status: 'pending_review', counted: 10, uploaded: 10, percent: 100, missing: [] })
 })
 

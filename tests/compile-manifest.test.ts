@@ -101,7 +101,7 @@ test('the manifest lists the sections that are on in order, each with its files 
   const notice = await upload(bala.client, place(REPLACEMENT_NOTICES), 'notice.pdf')
 
   await upload(bala.client, place(LECTURE_NOTES), 'notes.pdf')
-  expect((await switchSection(bala.client, offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')).error).toBeNull()
+  expect((await switchSection(coordinator.client, offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')).error).toBeNull()
 
   const lab1 = await addItem(coordinator.client, offeringId, LAB_EXERCISES)
   const lab2 = await addItem(coordinator.client, offeringId, LAB_EXERCISES)

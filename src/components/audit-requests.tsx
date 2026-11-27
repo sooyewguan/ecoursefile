@@ -82,11 +82,11 @@ type Commenting = { request: AuditRequest; item: RequestItem }
  * items and reply. statuses is each section's status, which a draft shows beside its sections.
  * staffEmails are the coordinator's and lecturers' emails, for an auditor to tell them of a request
  * that notified nobody, and courseCode names the course file in that email. switchedOff holds the
- * switchable sections that are off, with the reason when there is one, and onSwitchOn switches one on
- * for staff, since a switched-off section takes no upload. A new revision loads the requests again,
- * for a verdict recorded elsewhere on the page, which changes the auditor's draft. A request's
- * notification links to #audit-request-<id>, so the page scrolls to that request and marks it once
- * the requests load.
+ * switchable sections that are off, with the reason when there is one, and onSwitchOn, for the
+ * coordinator only, switches one on, since a switched-off section takes no upload. A new revision
+ * loads the requests again, for a verdict recorded elsewhere on the page, which changes the
+ * auditor's draft. A request's notification links to #audit-request-<id>, so the page scrolls to
+ * that request and marks it once the requests load.
  */
 export function AuditRequests({
   offeringId,
@@ -106,7 +106,7 @@ export function AuditRequests({
   staffEmails: string[]
   statuses: Map<number, SectionStatus>
   switchedOff: ReadonlyMap<number, string | undefined>
-  onSwitchOn: (section: number) => void
+  onSwitchOn?: (section: number) => void
   revision: number
 }) {
   const { hash } = useLocation()
@@ -264,7 +264,7 @@ export function AuditRequests({
                   draftStatus={request.state === 'draft' ? statuses.get(item.section) : undefined}
                   switchedOff={switchedOff.has(item.section) ? { reason: switchedOff.get(item.section) } : undefined}
                   onComment={canReply ? () => setCommenting({ request, item }) : undefined}
-                  onSwitchOn={canReply ? () => onSwitchOn(item.section) : undefined}
+                  onSwitchOn={canReply && onSwitchOn ? () => onSwitchOn(item.section) : undefined}
                 />
               ))}
             </ul>

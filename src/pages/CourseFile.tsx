@@ -1,10 +1,11 @@
-import { ArrowLeftIcon, CircleAlertIcon, CircleCheckIcon, FileDownIcon, FolderOpenIcon } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { ArrowLeftIcon, CircleAlertIcon, CircleCheckIcon, FileDownIcon, FolderOpenIcon, MousePointerClickIcon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, Outlet, useLocation, useMatch, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
-import { LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
+import type { CourseFileOutlet } from '@/components/course-file-outlet'
+import { EmptyState, LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
 import { VerdictDialog } from '@/components/section-verdict'
@@ -20,7 +21,7 @@ import { useAuth } from '../auth-provider.tsx'
 import { cachedFile } from '../file-cache.ts'
 import { courseFileProgress } from '../progress.ts'
 import { saveFile } from '../save-file.ts'
-import { SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
+import { ADMIN_FILE_SECTIONS, SECTIONS, SECTIONS_WITH_PAGES, SWITCHABLE_SECTIONS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
 import { compileManifest } from '../uploads.ts'
 
@@ -45,12 +46,15 @@ type Compiling = { files: { done: number; total: number } | null }
 
 const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section) => section.number))
 
-/** Below sm the status moves into the section cell, so a phone has room for the section's name. */
-const WIDE = 'hidden sm:table-cell'
+/** The right column of a course file before any section is open. A phone shows only the list then. */
+export function NoSectionChosen() {
+  return <EmptyState icon={MousePointerClickIcon} title="No section open" description="Pick a section from the list to see its files and review." />
+}
 
 /**
  * One offering's course file. The Sections tab has its audit requests and its 19 sections in the
- * fixed order, each with its status, and how many are uploaded. The coordinator and lecturers switch
+ * fixed order, each with its status, and how many are uploaded. A section opens in the column beside
+ * the list, at its own address, and the list marks it. A phone shows the list or the open section. The coordinator and lecturers switch
  * sections 10 to 16 on or off, with a reason when the setting differs from the course type. The
  * Activity tab, at ?tab=activity, has its activity log. Everyone who reads it downloads it as one
  * compiled PDF.
@@ -59,6 +63,10 @@ export function CourseFile() {
   const { offeringId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') === 'activity' ? 'activity' : 'sections'
+  const { pathname } = useLocation()
+  /** The section open in the right column, or null when none is. */
+  const sectionMatch = useMatch('/course-files/:offeringId/sections/:section')
+  const openSection = sectionMatch ? Number(sectionMatch.params.section) : null
   const auth = useAuth()
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
@@ -87,6 +95,9 @@ export function CourseFile() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  /** Kept the same between renders, so an open section does not load again each time the list does. */
+  const outlet = useMemo<CourseFileOutlet>(() => ({ refresh: reload }), [reload])
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId!, reload)
 
@@ -119,10 +130,12 @@ export function CourseFile() {
   const offering = data?.offering
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
   const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  const isStaff = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** Only the coordinator switches sections 10 to 16 on or off. */
+  const canSwitch = userId !== null && offering?.coordinator_id === userId
   const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
-  /** The table's columns: number, section, the switch for staff, status, and an auditor's verdict buttons. */
-  const columns = ['', '', ...(canSwitch ? [''] : []), WIDE, ...(isAuditor ? [''] : [])]
+  /** The list's columns: number, section with its status, the switch for staff, and an auditor's verdict buttons. */
+  const columns = ['', '', ...(canSwitch ? [''] : []), ...(isAuditor ? [''] : [])]
   const progress = data && courseFileProgress(data.statuses)
 
   /**
@@ -160,6 +173,7 @@ export function CourseFile() {
         <PageHeader
           title={`${offering.course.code} ${offering.course.title}`}
           areaTo={courseFiles}
+          namesPage={openSection === null}
           description={
             <>
               <span className="block">
@@ -197,7 +211,7 @@ export function CourseFile() {
               offeringId={offeringId!}
               courseCode={offering!.course.code}
               userId={userId}
-              isStaff={canSwitch}
+              isStaff={isStaff}
               staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
               switchedOff={
@@ -208,8 +222,10 @@ export function CourseFile() {
                   ]),
                 )
               }
-              onSwitchOn={(section) =>
-                void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+              onSwitchOn={
+                canSwitch
+                  ? (section) => void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+                  : undefined
               }
               revision={revision}
             />
@@ -230,94 +246,97 @@ export function CourseFile() {
               )}
             </div>
             <TableCard>
-              <Table aria-labelledby="sections-heading">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12 px-4 text-right">#</TableHead>
-                    <TableHead className="px-4">Section</TableHead>
-                    {canSwitch && <TableHead className="w-16 px-4">On</TableHead>}
-                    <TableHead className={cn('w-36 px-4', WIDE)}>Status</TableHead>
-                    {isAuditor && (
-                      <TableHead className="w-24 px-4 text-right">Review</TableHead>
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {!data ? (
-                    <TableSkeleton columns={columns} rows={19} />
-                  ) : (
-                    data.statuses.map(({ section, status }) => {
-                      const title = sectionTitle.get(section)!
-                      const reason = offering?.section_reasons[section]
-                      const isOn = offering?.sections_on.includes(section) ?? false
-                      return (
-                        <TableRow key={section} className="relative">
-                          <TableCell className="text-muted-foreground px-4 py-3 align-top text-right tabular-nums">{section}</TableCell>
-                          <TableCell className="px-4 py-3 whitespace-normal">
-                            {SECTIONS_WITH_PAGES.has(section) ? (
-                              <Link
-                                to={`/course-files/${offeringId}/sections/${section}`}
-                                className="font-medium after:absolute after:inset-0 hover:underline"
-                              >
-                                {title}
-                              </Link>
-                            ) : (
-                              <span className="font-medium">{title}</span>
-                            )}
-                            <div className="mt-1 sm:hidden">
-                              <SectionStatusBadge status={status} />
-                            </div>
-                            {reason && (
-                              <p className="text-muted-foreground mt-0.5 text-sm">
-                                Switched {isOn ? 'on' : 'off'}: {reason}
-                              </p>
-                            )}
-                          </TableCell>
-                          {canSwitch && (
-                            <TableCell className="relative z-10 px-4 py-3 align-top">
-                              {SWITCHABLE.has(section) && (
-                                <Switch
-                                  aria-label={`${title} on`}
-                                  checked={isOn}
-                                  disabled={switching !== null}
-                                  onCheckedChange={(next) => void requestSwitch({ section, title, isOn: next, reason })}
-                                />
+              <div className="grid lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+                <div className={cn('lg:border-r', openSection !== null && 'max-lg:hidden')}>
+                  <Table aria-labelledby="sections-heading">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10 pr-0 pl-3 text-right">#</TableHead>
+                        <TableHead className="px-3">Section</TableHead>
+                        {canSwitch && <TableHead className="w-14 px-3">On</TableHead>}
+                        {isAuditor && <TableHead className="w-20 px-3 text-right">Review</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {!data ? (
+                        <TableSkeleton columns={columns} rows={19} />
+                      ) : (
+                        data.statuses.map(({ section, status }) => {
+                          const title = sectionTitle.get(section)!
+                          const reason = offering?.section_reasons[section]
+                          const isOn = offering?.sections_on.includes(section) ?? false
+                          const isOpen = section === openSection
+                          return (
+                            <TableRow key={section} data-state={isOpen ? 'selected' : undefined} className="relative">
+                              <TableCell className="text-muted-foreground py-3 pr-0 pl-3 align-top text-right tabular-nums">{section}</TableCell>
+                              <TableCell className="px-3 py-3 whitespace-normal">
+                                {SECTIONS_WITH_PAGES.has(section) ? (
+                                  <Link
+                                    to={`/course-files/${offeringId}/sections/${section}`}
+                                    aria-current={isOpen ? 'page' : undefined}
+                                    className="font-medium after:absolute after:inset-0 hover:underline"
+                                  >
+                                    {title}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium">{title}</span>
+                                )}
+                                <div className="mt-1">
+                                  <SectionStatusBadge status={status} adminUploads={ADMIN_FILE_SECTIONS.has(section)} />
+                                </div>
+                                {reason && (
+                                  <p className="text-muted-foreground mt-0.5 text-sm">
+                                    Switched {isOn ? 'on' : 'off'}: {reason}
+                                  </p>
+                                )}
+                              </TableCell>
+                              {canSwitch && (
+                                <TableCell className="relative z-10 px-3 py-3 align-top">
+                                  {SWITCHABLE.has(section) && (
+                                    <Switch
+                                      aria-label={`${title} on`}
+                                      checked={isOn}
+                                      disabled={switching !== null}
+                                      onCheckedChange={(next) => void requestSwitch({ section, title, isOn: next, reason })}
+                                    />
+                                  )}
+                                </TableCell>
                               )}
-                            </TableCell>
-                          )}
-                          <TableCell className={cn('px-4 py-3 align-top', WIDE)}>
-                            <SectionStatusBadge status={status} />
-                          </TableCell>
-                          {isAuditor && (
-                            <TableCell className="relative z-10 px-4 py-2 align-top">
-                              <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label={`Mark ${title} verified`}
-                                  title="Mark verified"
-                                  onClick={() => setRecording({ section, title, verdict: 'verified' })}
-                                >
-                                  <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label={`Mark ${title} needs fix`}
-                                  title="Mark needs fix"
-                                  onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
-                                >
-                                  <CircleAlertIcon className="text-amber-600 dark:text-amber-400" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
+                              {isAuditor && (
+                                <TableCell className="relative z-10 px-3 py-2 align-top">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      aria-label={`Mark ${title} verified`}
+                                      title="Mark verified"
+                                      onClick={() => setRecording({ section, title, verdict: 'verified' })}
+                                    >
+                                      <CircleCheckIcon className="text-emerald-600 dark:text-emerald-400" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-sm"
+                                      aria-label={`Mark ${title} needs fix`}
+                                      title="Mark needs fix"
+                                      onClick={() => setRecording({ section, title, verdict: 'needs_fix' })}
+                                    >
+                                      <CircleAlertIcon className="text-amber-600 dark:text-amber-400" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              )}
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className={cn('min-w-0 p-4 md:p-6', openSection === null && 'max-lg:hidden')}>
+                  <Outlet key={pathname} context={outlet} />
+                </div>
+              </div>
             </TableCard>
           </section>
         </TabsContent>

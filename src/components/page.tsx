@@ -23,13 +23,17 @@ export type PageTitle = { path: string; title: string; parent?: ParentPage; area
 /** How a page inside the app shell tells the shell its title. Pages outside the shell have none. */
 export const PageTitleContext = createContext<((title: PageTitle) => void) | null>(null)
 
-/** Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, with any parent and areaTo, while the page shows. */
-export function useDocumentTitle(title: string, parent?: ParentPage | null, areaTo?: string | null) {
+/**
+ * Names the browser tab after the page, as "<title> · eCourseFile", and the shell's top bar, with any
+ * parent and areaTo, while the page shows. A page that names nothing leaves the title to a page inside it.
+ */
+export function useDocumentTitle(title: string, parent?: ParentPage | null, areaTo?: string | null, names = true) {
   const setPageTitle = use(PageTitleContext)
   const { pathname } = useLocation()
   const parentTitle = parent?.title
   const parentTo = parent?.to
   useEffect(() => {
+    if (!names) return
     document.title = `${title} · eCourseFile`
     setPageTitle?.({
       path: pathname,
@@ -37,7 +41,7 @@ export function useDocumentTitle(title: string, parent?: ParentPage | null, area
       parent: parentTitle && parentTo ? { title: parentTitle, to: parentTo } : undefined,
       areaTo: areaTo ?? undefined,
     })
-  }, [title, parentTitle, parentTo, areaTo, pathname, setPageTitle])
+  }, [title, parentTitle, parentTo, areaTo, pathname, setPageTitle, names])
 }
 
 /**
@@ -50,18 +54,25 @@ export function PageHeader({
   action,
   parent,
   areaTo,
+  namesPage = true,
+  level = 'h1',
 }: {
   title: string
   description?: ReactNode
   action?: ReactNode
   parent?: ParentPage | null
   areaTo?: string | null
+  /** False when a page inside this one names the browser tab and top bar, such as a course file's open section. */
+  namesPage?: boolean
+  /** h2 for a page shown inside another page, such as a section beside its course file's section list. */
+  level?: 'h1' | 'h2'
 }) {
-  useDocumentTitle(title, parent, areaTo)
+  useDocumentTitle(title, parent, areaTo, namesPage)
+  const Heading = level
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="grid min-w-0 gap-1">
-        <h1 className="text-2xl/8 font-semibold tracking-tight">{title}</h1>
+        <Heading className={cn('font-semibold tracking-tight', level === 'h1' ? 'text-2xl/8' : 'text-xl/7')}>{title}</Heading>
         {description && <p className="text-muted-foreground text-sm">{description}</p>}
       </div>
       {action}

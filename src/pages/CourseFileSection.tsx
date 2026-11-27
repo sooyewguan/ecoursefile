@@ -11,6 +11,7 @@ import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseAllDialog } from '@/components/reuse-all-dialog'
 import { ReuseDialog } from '@/components/reuse-dialog'
+import { useRefreshCourseFile } from '@/components/course-file-outlet'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -65,6 +66,7 @@ type SectionFile = {
 /** The offering, and the shared files of the section that its course file links. */
 type Offering = {
   semester_id: string
+  coordinator_id: string
   semester: { code: string }
   course: { code: string; title: string }
   linked_files: Omit<SectionFile, 'deletable'>[]
@@ -115,7 +117,6 @@ export function CourseFileSection() {
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && SECTIONS_WITH_PAGES.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
-  const perSheet = section && pagesPerSheet({ section: section.number })
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -132,13 +133,16 @@ export function CourseFileSection() {
   /** Where the files picked next go. */
   const picking = useRef<Place>({ item: null, slot: null })
 
+  const refreshCourseFile = useRefreshCourseFile()
+  const loaded = useRef(false)
+
   const reload = useCallback(async () => {
     if (!section) return
     const [offering, items, files, canUpload, statuses] = await Promise.all([
       supabase
         .from('offerings')
         .select(
-          'semester_id, semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
+          'semester_id, coordinator_id, semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
         )
         .eq('id', offeringId)
         .eq('linked_files.section', section.number)
@@ -175,7 +179,10 @@ export function CourseFileSection() {
       files: [...linkedFiles, ...(files.data ?? [])],
       canUpload: canUpload.data === true,
     })
-  }, [offeringId, section])
+    // The first load is the section opening. Later ones follow a change, which the list's statuses show too.
+    if (loaded.current) refreshCourseFile()
+    loaded.current = true
+  }, [offeringId, section, refreshCourseFile])
 
   useEffect(() => {
     void reload()
@@ -206,11 +213,12 @@ export function CourseFileSection() {
 
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId, reload)
 
+  /** A phone shows the section without the list beside it, so it links back to the list. */
   const backLink = (
-    <Button asChild variant="outline">
+    <Button asChild variant="outline" className="lg:hidden">
       <Link to={`/course-files/${offeringId}`}>
         <ArrowLeftIcon />
-        Course file
+        Sections
       </Link>
     </Button>
   )
@@ -222,7 +230,7 @@ export function CourseFileSection() {
   if (loadFailed) {
     return (
       <div className="grid gap-6">
-        <PageHeader title={section.title} action={backLink} />
+        <PageHeader level="h2" title={section.title} action={backLink} />
         <Card className="py-0">
           <LoadError title="Couldn't load this section" onRetry={reload} />
         </Card>
@@ -234,7 +242,8 @@ export function CourseFileSection() {
   /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
   const isOff = section.kind === 'switchable' && data?.offering?.sections_on.includes(section.number) === false
   const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const isStaff = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** Only the coordinator switches a section on. */
+  const isCoordinator = userId !== null && data?.offering?.coordinator_id === userId
   const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
@@ -364,13 +373,12 @@ export function CourseFileSection() {
     </Button>
   )
 
-  /** What a place takes, such as "PDF · max 20 MB · 8 pages per sheet · drop PDFs here", for staff who upload to it. */
+  /** What a place takes, such as "PDF · max 20 MB · drop PDFs here", for staff who upload to it. */
   const uploadRule = (oneFile: boolean) =>
     [
       section.kind === 'may-be-empty' && 'Optional',
       oneFile ? 'One PDF' : 'PDF',
       'max 20 MB',
-      perSheet && `${perSheet} pages per sheet`,
       oneFile ? 'drop it here' : 'drop PDFs here',
     ]
       .filter(Boolean)
@@ -416,7 +424,6 @@ export function CourseFileSection() {
               <div className="flex flex-wrap items-center gap-2">
                 <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
                 {slot.oneFile && <Badge variant="secondary">One file</Badge>}
-                {slot.perSheet && <Badge variant="secondary">{slot.perSheet} pages per sheet</Badge>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {reuseButton(place, title)}
@@ -469,14 +476,11 @@ export function CourseFileSection() {
   return (
     <div className="grid gap-6">
       <PageHeader
+        level="h2"
         title={section.title}
         parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
         areaTo={data?.offering && `/course-files?semester=${data.offering.semester_id}`}
-        description={
-          data
-            ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`
-            : `Section ${section.number}`
-        }
+        description={`Section ${section.number}`}
         action={
           <PageActions>
             {backLink}
@@ -499,7 +503,7 @@ export function CourseFileSection() {
           {progress.fraction !== null
             ? `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round(progress.fraction * 100)}%`
             : progressPerSheet
-              ? `Merging ${progress.name} at ${progressPerSheet} pages per sheet (${progress.index + 1} of ${progress.count})`
+              ? `Merging pages of ${progress.name} (${progress.index + 1} of ${progress.count})`
               : `Checking ${progress.name} (${progress.index + 1} of ${progress.count})`}
         </p>
       )}
@@ -513,11 +517,11 @@ export function CourseFileSection() {
                 <span className="block">
                   {data?.offering?.section_reasons[section.number] ? `Switched off: ${data.offering.section_reasons[section.number]}` : 'Off for this course.'}
                 </span>
-                {isStaff && <span className="block">Switch it on to upload files.</span>}
+                {isCoordinator && <span className="block">Switch it on to upload files.</span>}
               </>
             }
             action={
-              isStaff && (
+              isCoordinator && (
                 <Button
                   variant="outline"
                   disabled={switching !== null}

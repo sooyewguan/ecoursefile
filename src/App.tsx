@@ -9,7 +9,7 @@ import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
 import { ChangePassword } from './pages/ChangePassword.tsx'
 import { Completeness } from './pages/Completeness.tsx'
-import { CourseFile } from './pages/CourseFile.tsx'
+import { CourseFile, NoSectionChosen } from './pages/CourseFile.tsx'
 import { CourseFiles } from './pages/CourseFiles.tsx'
 import { CourseFileSection } from './pages/CourseFileSection.tsx'
 import { Courses } from './pages/Courses.tsx'
@@ -53,10 +53,12 @@ export function App() {
                 <Route path="/semesters/:semesterId" element={<Semester />} />
                 <Route path="/course-files" element={<CourseFiles />} />
                 <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
-                  <Route index element={<CourseFile />} />
-                  <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
-                  <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
-                  <Route path="sections/:section" element={<CourseFileSection />} />
+                  <Route element={<CourseFile />}>
+                    <Route index element={<NoSectionChosen />} />
+                    <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+                    <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
+                    <Route path="sections/:section" element={<CourseFileSection />} />
+                  </Route>
                 </Route>
                 <Route path="/completeness" element={<Completeness />} />
                 <Route path="/reports" element={<Reports />} />
@@ -75,13 +77,13 @@ export function App() {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * The pages of one course file, or Course file not found when the address's id cannot be one. Each
- * address is a page of its own, so Next and Previous start the section page afresh rather than show
- * or act on the section it came from.
+ * One course file, or Course file not found when the address's id cannot be one. The course file
+ * stays on the page while its sections open beside its section list. A different course file starts
+ * afresh.
  */
 function CourseFileRoute() {
-  const { pathname } = useLocation()
-  if (UUID.test(useParams().offeringId ?? '')) return <Outlet key={pathname} />
+  const { offeringId } = useParams()
+  if (UUID.test(offeringId ?? '')) return <Outlet key={offeringId} />
   return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
 }
 
