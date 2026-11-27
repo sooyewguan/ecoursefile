@@ -151,6 +151,20 @@ When a profile is inactive, the hook refuses to issue a token. The deactivated u
 
 An access token issued before the deactivation stays valid until it expires, so every access rule also asks `is_active(user_id)`, and a deactivated user reads and changes nothing from the moment their profile is inactive. `jwt_roles()` returns no roles for them, `teaches`, `can_read_offering` and `can_read_shared_file` refuse them, `user_can_upload` and `user_can_upload_shared_file` refuse their uploads and reuses, the read-all policies on departments, semesters and the catalog leave them out, and `switch_section`, `tick_program_code` and `update_my_profile` fail with Postgres error `42501`. They still read their own profile and roles. Reactivating them restores access to the same token. The migration is `supabase/migrations/20261125000100_inactive_profiles_access_nothing.sql`.
 
+### Navigation
+
+The sidebar shows only the pages the user's roles open, as `ROLE_PAGES` in `src/auth.ts` decides, in one group for each role. `navGroups` in `src/navigation.ts` builds the groups.
+
+| Group | Shows to | Pages |
+| --- | --- | --- |
+| Workspace | Every staff user | Home, Course files |
+| Lecturer | `lecturer` | My completeness |
+| Auditor | `auditor` | Reports |
+| Management | `hod`, `dean`, `deputy_dean` | Reports |
+| Admin | `admin` | Reports, Semesters, Users, Departments, Course types, Courses, Program codes |
+
+A page shows once, in the first of these groups that the user holds a role of. So an admin who is also an auditor finds Reports under Auditor, and a user with two management roles gets one Management group. A group with no page left shows nothing. Root opens only **Users**, so their sidebar holds that page alone, and Home sends them to it.
+
 ### Names and titles
 
 A profile has a `full_name` and an optional `title`, an honorific such as `Dr.`, `Prof. Madya` or `Ts.`. A title is trimmed, not empty, and at most 40 characters. `display_name` is a generated column that the database keeps up to date: the title, a space and the full name, or the full name alone. The migration is `supabase/migrations/20261121010000_profile_titles.sql`.
