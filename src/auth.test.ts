@@ -72,7 +72,7 @@ const expected: Record<keyof typeof states, Record<string, string | null>> = {
     '/users': '/',
     '/departments': '/',
     [semesterPage]: '/',
-    [courseFilePage]: null,
+    [courseFilePage]: '/my-course-files/offering-1',
     '/reports': '/',
     '/completeness': null,
   },
@@ -156,4 +156,18 @@ test('roles come from the app_roles claim', () => {
 
 test('a token without the app_roles claim has no roles', () => {
   expect(rolesFromAccessToken(token({ sub: 'user-1' }))).toEqual([])
+})
+
+test.each([
+  [['lecturer'], '/my-course-files/offering-1', null],
+  [['lecturer'], '/audit/offering-1', '/'],
+  [['auditor'], '/audit/offering-1', null],
+  [['auditor'], '/my-course-files/offering-1', '/'],
+  [['auditor'], '/course-files/offering-1/sections/2', '/audit/offering-1/sections/2'],
+  [['lecturer', 'auditor'], '/course-files', '/my-course-files'],
+  [['hod', 'lecturer'], '/course-files/offering-1', null],
+  [['admin'], '/my-course-files', '/'],
+  [['admin'], '/audit', '/'],
+] satisfies [GlobalRole[], string, string | null][])('%j on %s redirects to %s', (roles, path, target) => {
+  expect(redirectFor(ready(...roles), path)).toBe(target)
 })

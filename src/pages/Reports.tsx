@@ -1,6 +1,7 @@
 import { ChartColumnIcon, SearchIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router'
+import { useOverviewPath } from '@/components/course-file-view'
 import { EmptyState, LoadError, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import {
   EmailLink,
@@ -419,16 +420,13 @@ function OfferingsView({ semester, url }: ViewProps) {
 /** The heatmap's section columns, from lg. Below lg each offering's sections show as a strip in its course cell. */
 const SECTION_COLUMN = 'hidden lg:table-cell'
 
-function sectionPage(offeringId: string, section: number) {
-  return `/course-files/${offeringId}/sections/${section}`
-}
-
 /**
  * One row for each offering that the offering list's filters keep, and one column for each section,
  * with the section's status as a colored square with a mark that opens the section. The last row
  * counts the missing sections of each column.
  */
 function HeatmapView({ semester, url }: ViewProps) {
+  const coursePath = useOverviewPath()
   const report = useReport(semester?.id ?? null, loadOfferings)
   const rows = report?.data ?? null
   const { shown, controls, count } = useOfferingFilters('heatmap', rows, url)
@@ -470,7 +468,7 @@ function HeatmapView({ semester, url }: ViewProps) {
                   shown.map((row) => (
                     <TableRow key={row.offering_id}>
                       <TableHead scope="row" className="h-auto px-4 py-2 font-normal whitespace-normal">
-                        <Link to={`/course-files/${row.offering_id}`} className="font-medium hover:underline">
+                        <Link to={coursePath(row.offering_id)} className="font-medium hover:underline">
                           {column.courseCode.value(row)}
                         </Link>
                         <p className="text-muted-foreground text-xs">{column.courseTitle.value(row)}</p>
@@ -478,7 +476,7 @@ function HeatmapView({ semester, url }: ViewProps) {
                       </TableHead>
                       {row.section_statuses.map((status, index) => (
                         <TableCell key={index} className={cn('px-0 py-2 text-center last:pr-3', SECTION_COLUMN)}>
-                          <SectionStatusSquare section={index + 1} status={status} to={sectionPage(row.offering_id, index + 1)} />
+                          <SectionStatusSquare section={index + 1} status={status} to={coursePath(row.offering_id, index + 1)} />
                         </TableCell>
                       ))}
                     </TableRow>
@@ -535,6 +533,7 @@ function MissingStrip({ missing, className }: { missing: number[]; className?: s
 
 /** An offering's 19 section statuses as numbered squares that open the sections, ten to a row on a phone, where the heatmap's columns do not fit. */
 function SectionStrip({ offeringId, statuses, className }: { offeringId: string; statuses: SectionStatus[]; className?: string }) {
+  const coursePath = useOverviewPath()
   return (
     <ol aria-label="Sections" className={cn('grid max-w-xl grid-cols-10 gap-x-1 gap-y-2 sm:grid-cols-[repeat(19,minmax(0,1fr))]', className)}>
       {statuses.map((status, index) => (
@@ -542,7 +541,7 @@ function SectionStrip({ offeringId, statuses, className }: { offeringId: string;
           <span aria-hidden="true" className="text-muted-foreground text-[10px] leading-none tabular-nums">
             {index + 1}
           </span>
-          <SectionStatusSquare section={index + 1} status={status} to={sectionPage(offeringId, index + 1)} />
+          <SectionStatusSquare section={index + 1} status={status} to={coursePath(offeringId, index + 1)} />
         </li>
       ))}
     </ol>
@@ -670,13 +669,14 @@ function LecturersTable({ lecturers }: { lecturers: LecturerRow[] | null }) {
 }
 
 function LecturerCourses({ taught, className }: { taught: ReturnType<typeof lecturerOfferings>; className?: string }) {
+  const coursePath = useOverviewPath()
   const column = LECTURERS_TABLE.columns
   return (
     <ul className={cn('grid gap-3 sm:gap-2', className)}>
       {taught.map((row) => (
         <li key={row.offering.offering_id} className="grid gap-1 md:flex md:items-baseline md:gap-3">
           <span className="flex flex-wrap items-center gap-2 md:w-64 md:shrink-0">
-            <Link to={`/course-files/${row.offering.offering_id}`} title={column.courseTitle.value(row) ?? undefined} className="font-medium hover:underline">
+            <Link to={coursePath(row.offering.offering_id)} title={column.courseTitle.value(row) ?? undefined} className="font-medium hover:underline">
               {column.courseCode.value(row)}
             </Link>
             {row.offering.coordinator && <Badge variant="secondary">{column.role.value(row)}</Badge>}

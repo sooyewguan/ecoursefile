@@ -2,6 +2,7 @@ import { ArrowLeftIcon, FileTextIcon, Trash2Icon, UploadIcon } from 'lucide-reac
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
+import { useCourseFileView } from '@/components/course-file-view'
 import { DeleteSharedFileDialog, type LinkedSharedFile } from '@/components/delete-shared-file-dialog'
 import { FileLink, FileMenuItems } from '@/components/file-link'
 import { LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableSkeleton } from '@/components/page'
@@ -59,6 +60,7 @@ export function LecturerTimetables() {
   const offeringId = useParams().offeringId!
   const auth = useAuth()
   const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const { view, area, path } = useCourseFileView()
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -91,15 +93,17 @@ export function LecturerTimetables() {
 
   const backLink = (
     <Button asChild variant="outline">
-      <Link to={`/course-files/${offeringId}`}>
+      <Link to={path(offeringId)}>
         <ArrowLeftIcon />
         Course file
       </Link>
     </Button>
   )
 
-  if (data && !data.offering) {
-    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
+  // The lecturer view holds only the course files the user teaches.
+  const teaches = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  if (data && (!data.offering || (view === 'lecturer' && !teaches))) {
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo={area} backLabel="All course files" />
   }
 
   if (loadFailed) {
@@ -118,9 +122,10 @@ export function LecturerTimetables() {
   const lecturers = (offering?.lecturers ?? []).toSorted(
     (a, b) => Number(isCoordinator(b.lecturer_id)) - Number(isCoordinator(a.lecturer_id)) || a.lecturer_name.localeCompare(b.lecturer_name),
   )
-  /** Whether the user teaches the offering and has no timetable for its semester yet. */
-  const canUpload =
-    lecturers.some((lecturer) => lecturer.lecturer_id === userId) && !offering?.linked_files.some((file) => file.lecturer_id === userId)
+  /** Whether the page is the lecturer view, where the user teaches the offering and uploads and deletes their own timetable. */
+  const isStaff = view === 'lecturer' && lecturers.some((lecturer) => lecturer.lecturer_id === userId)
+  /** Whether the user may upload their timetable: they have none for the semester yet. */
+  const canUpload = isStaff && !offering?.linked_files.some((file) => file.lecturer_id === userId)
 
   /** Uploads the picked PDF as the user's timetable for the semester, then reports the outcome. */
   async function upload(event: ChangeEvent<HTMLInputElement>) {
@@ -143,8 +148,8 @@ export function LecturerTimetables() {
     <div className="grid gap-6">
       <PageHeader
         title={SECTION.title}
-        parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: `/course-files/${offeringId}` }}
-        areaTo={offering && `/course-files?semester=${offering.semester_id}`}
+        parent={offering && { title: `${offering.course.code} ${offering.course.title}`, to: path(offeringId) }}
+        areaTo={offering && `${area}?semester=${offering.semester_id}`}
         description={
           offering ? `Section ${SECTION.number} · ${offering.course.code} ${offering.course.title} · ${offering.semester.code}` : `Section ${SECTION.number}`
         }
@@ -211,7 +216,7 @@ export function LecturerTimetables() {
                       {timetable && (
                         <RowActions label={isOwn ? 'Actions for your timetable' : `Actions for the timetable of ${lecturer.lecturer_name}`}>
                           <FileMenuItems file={timetable} />
-                          {isOwn && (
+                          {isOwn && isStaff && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem variant="destructive" onSelect={() => setDeleting(timetable)}>

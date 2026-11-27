@@ -157,13 +157,13 @@ The sidebar shows only the pages the user's roles open, as `ROLE_PAGES` in `src/
 
 | Group | Shows to | Pages |
 | --- | --- | --- |
-| Workspace | Every staff user | Home, Course files |
-| Lecturer | `lecturer` | My completeness |
-| Auditor | `auditor` | Reports |
-| Management | `hod`, `dean`, `deputy_dean` | Reports |
-| Admin | `admin` | Reports, Semesters, Users, Departments, Course types, Courses, Program codes |
+| Workspace | Every staff user | Home |
+| Lecturer | `lecturer` | My course files, My completeness |
+| Auditor | `auditor` | Audit course files, Reports |
+| Management | `hod`, `dean`, `deputy_dean` | Course files, Reports |
+| Admin | `admin` | Course files, Reports, Semesters, Users, Departments, Course types, Courses, Program codes |
 
-A page shows once, in the first of these groups that the user holds a role of. So an admin who is also an auditor finds Reports under Auditor, and a user with two management roles gets one Management group. A group with no page left shows nothing. Root opens only **Users**, so their sidebar holds that page alone, and Home sends them to it.
+A page shows once, in the first of these groups that the user holds a role of. So an admin who is also an auditor finds Reports under Auditor, and a user with two management roles gets one Management group. Each role that opens course files has its own page for them, so a lecturer who audits gets My course files under Lecturer and Audit course files under Auditor. See [Course file views](#course-file-views). A group with no page left shows nothing. Root opens only **Users**, so their sidebar holds that page alone, and Home sends them to it.
 
 ### Names and titles
 
@@ -328,7 +328,21 @@ Who reads an offering, its lecturers and its course file is decided by `public.c
 
 Readers of an offering also read `lecturer_name` and `lecturer_email` with each of its lecturers, such as `select=offering_lecturers(lecturer_id, lecturer_name, lecturer_email)`. Lecturers cannot read other users' profiles, so this is how they see who they teach with, and how to reach them. The migration that adds `lecturer_email` is `supabase/migrations/20261125000210_lecturer_email.sql`.
 
-The **Course files** page lists the offerings the user reads, grouped by semester, newest first. Each opens a course file page. **All course files** on that page, and **Course files** in the top bar of it and of its section pages, lead back to the list of its semester, at `/course-files?semester=<semester id>`. Its header names the semester and department, then the coordinator and the other lecturers by name and title, each a `mailto:` link to their email. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
+### Course file views
+
+Each role that works on course files has its own list of them and its own course file pages, and the page, not the roles the user holds, decides what they may do there. A lecturer who also audits gets both sets of pages, and each offers only its own role's actions. `src/course-file-views.ts` defines the views, and `useCourseFileView` in `src/components/course-file-view.tsx` gives a page its view.
+
+| View | Address | Shows to | Lists | What the user does there |
+| --- | --- | --- | --- | --- |
+| Lecturer | `/my-course-files` | `lecturer` | The offerings the user teaches or coordinates, whatever other roles they hold | Uploads, reorders, reuses and deletes files, adds and deletes items, uploads their timetable, ticks program codes, switches sections 10 to 16, and comments on and replies to audit requests |
+| Auditor | `/audit` | `auditor` | Every offering | Reads and downloads files, marks sections Verified or Needs fix, and sends and closes their audit requests. Changes no file and switches no section |
+| Reader | `/course-files` | `admin`, `hod`, `dean`, `deputy_dean` | Every offering | Reads and downloads files, statuses, verdicts, audit requests and activity. Changes nothing |
+
+A course file is at `<view address>/<offering id>`, and its sections at `<view address>/<offering id>/sections/<number>`. In the lecturer view, a course file the user does not teach shows "Course file not found". Only the auditor view shows an auditor's draft request. **My completeness**, the lecturer's list of audit requests on Home, and the alert of a missing timetable open the lecturer view. **Replies to review** on Home opens the auditor view. **Reports** and the faculty overview on Home open the auditor view for an auditor, and the reader view for anyone else. The admin's semester pages open the reader view.
+
+An address under `/course-files` from before the views, such as a notification sent then, opens the same page in the lecturer view for a lecturer who may not open `/course-files`, else in the auditor view for an auditor, keeping its `?semester=`, `?tab=` and `#audit-request-` parts.
+
+Each view's list shows its offerings, grouped by semester, newest first. Each opens a course file page. **All course files** on that page, and the view's name in the top bar of it and of its section pages, lead back to the view's list of its semester, such as `/audit?semester=<semester id>`. Its header names the semester and department, then the coordinator and the other lecturers by name and title, each a `mailto:` link to their email. An address of a course file or one of its sections whose id is not a UUID shows "Course file not found", as an id of no offering does. Its **Sections** tab shows the 19 sections in their fixed order, and its **Activity** tab the course file's activity. See [Activity](#activity). The section list is the `SECTIONS` constant in `src/sections.ts`. The page reads each section's `status` from the `section_statuses(offering_id)` RPC:
 
 | Status | Sections |
 | --- | --- |
@@ -342,7 +356,7 @@ A verdict never hides `missing`. Each row also has `counts_toward_completeness`,
 
 ### Switching sections
 
-The coordinator and lecturers of an offering switch sections 10 to 16 on or off from the row menu on the course file page. Nobody else can, not even the admin, and sections 1 to 9 and 17 to 19 cannot be switched. The migration is `supabase/migrations/20261119130000_section_toggles.sql`.
+The coordinator and lecturers of an offering switch sections 10 to 16 on or off with the **On** switch of each row on the course file page, in the lecturer view. Nobody else can, not even the admin, and sections 1 to 9 and 17 to 19 cannot be switched. The migration is `supabase/migrations/20261119130000_section_toggles.sql`.
 
 | RPC or column | What it does |
 | --- | --- |
@@ -515,7 +529,7 @@ The app calls `supabase/functions/files/index.ts` with `supabase.functions.invok
 
 Auditors read every course file in every semester, and give any section of it a verdict: `verified` or `needs_fix`, with a comment. Switched-off sections can be marked too, to challenge a wrong switch. The migrations are `supabase/migrations/20261120010100_auditor_verdicts.sql` and `supabase/migrations/20261120020000_open_needs_fix_counts.sql`.
 
-- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. Auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. The **Review** column of the course file page's section table gives auditors the same two buttons on each row, with the same dialog, so they mark sections without opening each page. A Needs fix recorded there shows in their draft request on the same page at once. Staff see the card once the section has a verdict. When the section changed after it, so that its status is neither that verdict nor `missing`, the card says the verdict was given before the latest change.
+- Each section page shows the latest verdict, with its auditor, time and comment, to everyone who reads the course file. In the auditor view, auditors also get **Mark verified** and **Mark needs fix**, which ask for the comment. The **Review** column of the course file page's section table gives them the same two buttons on each row, with the same dialog, so they mark sections without opening each page. A Needs fix recorded there shows in their draft request on the same page at once. Staff see the card once the section has a verdict. When the section changed after it, so that its status is neither that verdict nor `missing`, the card says the verdict was given before the latest change.
 - A verdict holds what `section_contents` returned for the section when the auditor gave it: whether the section was on, and the ids of its files. `section_statuses` shows the latest verdict while `section_contents` still returns the same. Any file that enters or leaves the section sets it back to `pending_review`, or to `off` for a switched-off section whose latest verdict is Verified, whatever made the change: an upload, a delete or a reuse, a shared file uploaded or deleted, a lecturer assigned or unassigned, or a program code ticked or unticked. A new upload has a new id, so replacing a file is a change. Reordering files or adding an item without files is not. A file uploaded and then deleted again leaves the section as the auditor judged it, so the verdict shows again.
 - A switch on or off after a verdict is a change too. A switched-off section counts toward completeness while its latest verdict is Needs fix, until a new verdict replaces it. A Needs fix on a switched-off section challenges the switch, and a later change, such as a deleted file or switching a flagged section off, leaves the switch just as wrong. So the section keeps counting, and its status is `pending_review` until the auditor checks it again.
 - Each verdict adds a `verified` or `needs_fix` row, with its comment, to the offering's activity log.
@@ -542,7 +556,7 @@ An audit request is one batch of Needs fix sections from one auditor on one cour
 
 Several auditors keep their own requests on one course file. Each auditor's requests on a course file are numbered as rounds, 1, 2 and on, in the order they were sent, and a draft takes the next number. Each send, staff comment, reply and close adds a row to the offering's activity log.
 
-The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. Each card shows its round. A replied or closed request folds to one line, with its round, its number of sections and when it was replied or closed, and its title opens it. It stays open while it waits on the user, as a replied request waits on its auditor, and when the address targets it. Both notifications link to `/course-files/<offering id>#audit-request-<request id>`, and the page scrolls to that request and marks it. An auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. The coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
+The **Sections** tab of the course file page lists the requests that the user reads above its sections, the user's draft first, then the latest sent. Each card shows its round. A replied or closed request folds to one line, with its round, its number of sections and when it was replied or closed, and its title opens it. It stays open while it waits on the user, as a replied request waits on its auditor, and when the address targets it. The request's notification links to `/my-course-files/<offering id>#audit-request-<request id>`, for staff to answer it, and the reply's to `/audit/<offering id>#audit-request-<request id>`, for its auditor to review it. The page scrolls to that request and marks it. In the auditor view, an auditor sees their draft, with each flagged section's status now, and **Send to staff**. Everyone who reads the course file sees each sent request: its auditor, its checklist with each item's comment, tick and staff comment, and its reply. In the lecturer view, the coordinator and lecturers get **Comment** on each item and **Reply to auditor**, which stays disabled until every item is ticked or commented. When a step's notification has not gone, the auditor of a sent request, or the staff of a replied one, get **Send the notification again**.
 
 The request's notification goes to every coordinator and lecturer of the offering whose profile is active, on every browser where they turned notifications on. Deactivated staff cannot sign in to fix anything, so they get none. The reply's notification goes to the request's auditor, while their profile is active. A recipient with no browser gets nothing, and reads the request in the app. A notification quotes at most 200 characters of the reply's message. See [Push notifications](#push-notifications).
 
@@ -597,7 +611,7 @@ The app calls `supabase/functions/audit-requests/index.ts` through `sendAuditReq
 
 ## Activity
 
-The **Activity** tab of a course file page, at `/course-files/<offering id>?tab=activity`, lists the course file's activity log, newest first. Each entry says what happened in plain language, such as "Uploaded plan.pdf to 2 Teaching Plan". Below it come the text the entry carries, such as a verdict's comment, then the name of the user who did it and the time. The tab shows the newest 50 entries, and **Load more** adds the next 50 older ones.
+The **Activity** tab of a course file page, at `<view address>/<offering id>?tab=activity`, lists the course file's activity log, newest first. Each entry says what happened in plain language, such as "Uploaded plan.pdf to 2 Teaching Plan". Below it come the text the entry carries, such as a verdict's comment, then the name of the user who did it and the time. The tab shows the newest 50 entries, and **Load more** adds the next 50 older ones.
 
 `ACTIVITY_ACTIONS` in `src/activity.ts` holds each action's icon and description, one entry for each value of the `activity_action` enum. A test compares the two, so an action added to the log fails the tests until it has a description.
 
@@ -632,7 +646,7 @@ Nobody changes or removes an entry. Clients have no update, delete or truncate g
 
 ## Home
 
-Home routes audit work to the people who must act on it, since push notifications are optional and off until set up. Its lists come first and cover every semester. Each entry names the course, its semester and the request's round, and opens the request on its course file page, at `/course-files/<offering id>#audit-request-<request id>`.
+Home routes audit work to the people who must act on it, since push notifications are optional and off until set up. Its lists come first and cover every semester. Each entry names the course, its semester and the request's round, and opens the request on its course file page: in the lecturer view for **Audit requests waiting for you**, and in the auditor view for **Replies to review**.
 
 - **Audit requests waiting for you**, for lecturers: each sent request on a course file they teach or coordinate, oldest first, with its auditor, when it was sent, and how many of its sections are answered. A request stays until one of its staff replies, also once every section is fixed. `requestsAwaitingReply` in `src/audit-requests.ts` reads it.
 - **Replies to review**, for auditors: each of their replied requests, oldest reply first, with who replied, when, and the start of the message. A reply stays until its auditor closes the request. `repliesToReview` reads it.

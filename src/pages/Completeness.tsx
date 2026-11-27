@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { plural } from '../format.ts'
 import { useAuth } from '../auth-provider.tsx'
 import { MY_COMPLETENESS_TABLE, needsFixSections } from '../report-tables.ts'
+import { courseFilePath } from '../course-file-views.ts'
 import { formatPercent, type OfferingRow } from '../reports.ts'
 import { SECTIONS_WITH_PAGES, type SectionStatus } from '../sections.ts'
 import { isTimetableMissing, loadTaught, type Taught } from '../teaching.ts'
@@ -127,7 +128,7 @@ function OwnOfferings({ rows }: { rows: OfferingRow[] | null }) {
                 <li key={row.offering_id} className="grid gap-4 px-4 py-5 sm:px-6">
                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)_8.5rem] sm:items-center sm:gap-6">
                     <div className="grid min-w-0 gap-0.5">
-                      <Link to={`/course-files/${row.offering_id}`} className="w-fit font-medium hover:underline">
+                      <Link to={courseFilePath('lecturer', row.offering_id)} className="w-fit font-medium hover:underline">
                         {column.courseCode.value(row)}
                       </Link>
                       <span className="text-muted-foreground text-sm">{column.courseTitle.value(row)}</span>
@@ -180,7 +181,7 @@ function SectionLinks({ offeringId, label, status, sections }: { offeringId: str
       <ul aria-labelledby={id} className="flex flex-wrap gap-2">
         {sections.map((section) => (
           <li key={section}>
-            <SectionStatusChip section={section} status={status} to={SECTIONS_WITH_PAGES.has(section) ? `/course-files/${offeringId}/sections/${section}` : undefined} />
+            <SectionStatusChip section={section} status={status} to={SECTIONS_WITH_PAGES.has(section) ? courseFilePath('lecturer', offeringId, section) : undefined} />
           </li>
         ))}
       </ul>

@@ -2,11 +2,13 @@ import { FolderOpenIcon } from 'lucide-react'
 import { ThemeProvider } from 'next-themes'
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router'
 import { AppShell } from '@/components/app-shell'
+import { CourseFileViewRoutes, useCourseFileView } from '@/components/course-file-view'
 import { NotFound } from '@/components/page'
 import { Toaster } from '@/components/ui/sonner'
 import { Spinner } from '@/components/ui/spinner'
 import { redirectFor } from './auth.ts'
 import { AuthProvider, useAuth } from './auth-provider.tsx'
+import { COURSE_FILE_AREAS, COURSE_FILE_VIEWS, movedCourseFilePath } from './course-file-views.ts'
 import { ChangePassword } from './pages/ChangePassword.tsx'
 import { Completeness } from './pages/Completeness.tsx'
 import { CourseFile } from './pages/CourseFile.tsx'
@@ -51,13 +53,17 @@ export function App() {
                 <Route path="/program-codes" element={<ProgramCodes />} />
                 <Route path="/semesters" element={<Semesters />} />
                 <Route path="/semesters/:semesterId" element={<Semester />} />
-                <Route path="/course-files" element={<CourseFiles />} />
-                <Route path="/course-files/:offeringId" element={<CourseFileRoute />}>
-                  <Route index element={<CourseFile />} />
-                  <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
-                  <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
-                  <Route path="sections/:section" element={<CourseFileSection />} />
-                </Route>
+                {COURSE_FILE_VIEWS.map((view) => (
+                  <Route key={view} element={<CourseFileViewRoutes view={view} />}>
+                    <Route path={COURSE_FILE_AREAS[view]} element={<CourseFiles />} />
+                    <Route path={`${COURSE_FILE_AREAS[view]}/:offeringId`} element={<CourseFileRoute />}>
+                      <Route index element={<CourseFile />} />
+                      <Route path={`sections/${LECTURER_FILE_SECTION.number}`} element={<LecturerTimetables />} />
+                      <Route path={`sections/${PROGRAM_CODE_FILE_SECTION.number}`} element={<StudentTimetables />} />
+                      <Route path="sections/:section" element={<CourseFileSection />} />
+                    </Route>
+                  </Route>
+                ))}
                 <Route path="/completeness" element={<Completeness />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/profile" element={<Profile />} />
@@ -81,15 +87,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  */
 function CourseFileRoute() {
   const { pathname } = useLocation()
+  const { area } = useCourseFileView()
   if (UUID.test(useParams().offeringId ?? '')) return <Outlet key={pathname} />
-  return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
+  return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo={area} backLabel="All course files" />
 }
 
 function Guard() {
   const state = useAuth()
-  const { pathname } = useLocation()
+  const { pathname, search, hash } = useLocation()
   const target = redirectFor(state, pathname)
-  if (target) return <Navigate to={target} replace />
+  // A course file moved to the user's own view keeps its semester, tab and audit request.
+  if (target) return <Navigate to={state.kind === 'ready' && target === movedCourseFilePath(state.roles, pathname) ? target + search + hash : target} replace />
   if (state.kind === 'loading') {
     return (
       <div className="text-muted-foreground flex min-h-svh items-center justify-center">

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router'
 import { toast } from 'sonner'
 import { ConfirmDialog, FormDialog } from '@/components/action-dialogs'
+import { useCourseFileView } from '@/components/course-file-view'
 import { ErrorAlert } from '@/components/notice'
 import { LoadError } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
@@ -26,6 +27,7 @@ import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import type { CourseFileView } from '../course-file-views.ts'
 import { plural } from '../format.ts'
 import { AuditRequestError, replyToAuditRequest, sendAuditRequest, type AuditRequestState, type StepResult } from '../audit-requests.ts'
 import { friendlyError } from '../errors.ts'
@@ -78,8 +80,10 @@ type Commenting = { request: AuditRequest; item: RequestItem }
 /**
  * The audit requests of a course file that the user reads: an auditor's own draft, which they
  * send, and every sent request, whose flagged sections are a checklist for the offering's staff.
- * isStaff is whether the user is the coordinator or a lecturer of the offering, who comment on
- * items and reply. statuses is each section's status, which a draft shows beside its sections.
+ * view is the page's course file view. In the lecturer view the user is the coordinator or a
+ * lecturer of the offering, who comment on items and reply. In the auditor view the user sends their
+ * draft and closes their replied requests. Only the auditor view shows a draft, and the reader view
+ * changes nothing. statuses is each section's status, which a draft shows beside its sections.
  * staffEmails are the coordinator's and lecturers' emails, for an auditor to tell them of a request
  * that notified nobody, and courseCode names the course file in that email. switchedOff holds the
  * switchable sections that are off, with the reason when there is one, and onSwitchOn switches one on
@@ -92,7 +96,7 @@ export function AuditRequests({
   offeringId,
   courseCode,
   userId,
-  isStaff,
+  view,
   staffEmails,
   statuses,
   switchedOff,
@@ -102,7 +106,7 @@ export function AuditRequests({
   offeringId: string
   courseCode: string
   userId: string | null
-  isStaff: boolean
+  view: CourseFileView
   staffEmails: string[]
   statuses: Map<number, SectionStatus>
   switchedOff: ReadonlyMap<number, string | undefined>
@@ -131,9 +135,16 @@ export function AuditRequests({
       .overrideTypes<AuditRequest[], { merge: false }>()
     setLoadFailed(error !== null)
     setError(null)
-    // A draft has no send time, so the user's draft comes first, then the latest sent.
-    if (data) setRequests(data.map((request) => ({ ...request, items: request.items.toSorted((a, b) => a.section - b.section) })))
-  }, [offeringId])
+    // A draft has no send time, so the user's draft comes first, then the latest sent. A draft is
+    // auditor's work, so the other views leave it out, also for a lecturer who audits.
+    if (data) {
+      setRequests(
+        data
+          .filter((request) => view === 'auditor' || request.state !== 'draft')
+          .map((request) => ({ ...request, items: request.items.toSorted((a, b) => a.section - b.section) })),
+      )
+    }
+  }, [offeringId, view])
 
   useEffect(() => {
     void load()
@@ -190,7 +201,8 @@ export function AuditRequests({
       <h2 className="text-lg font-semibold tracking-tight">Audit requests</h2>
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {requests?.map((request) => {
-        const own = request.auditor_id === userId
+        const isStaff = view === 'lecturer'
+        const own = view === 'auditor' && request.auditor_id === userId
         const canReply = isStaff && request.state === 'sent'
         /** Whether the user made the latest step, so it is theirs to pass on when its notification did not reach anyone. */
         const madeStep = (request.state === 'sent' && own) || (request.state === 'replied' && isStaff)
@@ -229,7 +241,7 @@ export function AuditRequests({
           </div>
         ) : null
         /** Whether the request waits on the user: their draft, a sent one they answer, or a reply they review. */
-        const waitsOnUser = request.state === 'draft' || canReply || (request.state === 'replied' && own)
+        const waitsOnUser = (request.state === 'draft' && own) || canReply || (request.state === 'replied' && own)
         return (
           // A step remounts the card, so a request that no longer waits on the user folds.
           <RequestCard
@@ -238,7 +250,7 @@ export function AuditRequests({
             targeted={hash === `#audit-request-${request.id}`}
             waitsOnUser={waitsOnUser}
             actions={
-              request.state === 'draft' ? (
+              request.state === 'draft' && own ? (
                 <Button onClick={() => setSending(request)}>
                   <SendIcon />
                   Send to staff
@@ -479,6 +491,7 @@ function ChecklistItem({
   onComment?: () => void
   onSwitchOn?: () => void
 }) {
+  const { path } = useCourseFileView()
   const name = sectionName(item.section)
   const [Icon, label, tone] = item.ticked
     ? [CircleCheckIcon, 'Ticked: it has a new file', 'text-emerald-600 dark:text-emerald-400']
@@ -491,7 +504,7 @@ function ChecklistItem({
       <div className="grid min-w-0 gap-1">
         <div className="flex flex-wrap items-center gap-2">
           {SECTIONS_WITH_PAGES.has(item.section) ? (
-            <Link to={`/course-files/${offeringId}/sections/${item.section}`} className="font-medium hover:underline">
+            <Link to={path(offeringId, item.section)} className="font-medium hover:underline">
               {name}
             </Link>
           ) : (
@@ -517,7 +530,7 @@ function ChecklistItem({
               !item.ticked &&
               SECTIONS_WITH_PAGES.has(item.section) && (
                 <Button asChild variant="outline" size="sm">
-                  <Link to={`/course-files/${offeringId}/sections/${item.section}`}>
+                  <Link to={path(offeringId, item.section)}>
                     <UploadIcon />
                     Upload fix
                   </Link>

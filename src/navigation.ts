@@ -5,6 +5,7 @@ import {
   ChartColumnIcon,
   ClipboardCheckIcon,
   FolderOpenIcon,
+  FolderSearchIcon,
   HouseIcon,
   LayersIcon,
   TagsIcon,
@@ -19,25 +20,26 @@ export type PageLink = { path: string; label: string; icon: LucideIcon }
 /** A titled group of links in the navigation. */
 export type NavGroup = { label: string; links: PageLink[] }
 
-/**
- * How each role-gated page in auth.ts appears in the navigation. A shared page is one that every
- * kind of staff opens, so it sits in Workspace rather than in one role's group.
- */
-const PAGE_DETAILS: Record<(typeof ROLE_PAGES)[number]['path'], { icon: LucideIcon; shared?: true }> = {
-  '/course-files': { icon: FolderOpenIcon, shared: true },
-  '/completeness': { icon: ClipboardCheckIcon },
-  '/reports': { icon: ChartColumnIcon },
-  '/semesters': { icon: CalendarRangeIcon },
-  '/users': { icon: UsersIcon },
-  '/departments': { icon: Building2Icon },
-  '/course-types': { icon: LayersIcon },
-  '/courses': { icon: BookOpenIcon },
-  '/program-codes': { icon: TagsIcon },
+/** The icon of each role-gated page in auth.ts. */
+const PAGE_ICONS: Record<(typeof ROLE_PAGES)[number]['path'], LucideIcon> = {
+  '/my-course-files': FolderOpenIcon,
+  '/completeness': ClipboardCheckIcon,
+  '/audit': FolderSearchIcon,
+  '/course-files': FolderOpenIcon,
+  '/reports': ChartColumnIcon,
+  '/semesters': CalendarRangeIcon,
+  '/users': UsersIcon,
+  '/departments': Building2Icon,
+  '/course-types': LayersIcon,
+  '/courses': BookOpenIcon,
+  '/program-codes': TagsIcon,
 }
 
 /**
- * The navigation's role groups, in the order they show. Each page that is not shared goes in the
- * first group whose roles both the user and the page hold, so a page shows once.
+ * The navigation's role groups, in the order they show. Each page goes in the first group whose
+ * roles both the user and the page hold, so a page shows once. Each role's course files are a page
+ * of their own, so a lecturer who audits finds My course files under Lecturer and Audit course
+ * files under Auditor.
  */
 const ROLE_GROUPS: readonly { label: string; roles: readonly GlobalRole[] }[] = [
   { label: 'Lecturer', roles: ['lecturer'] },
@@ -48,10 +50,10 @@ const ROLE_GROUPS: readonly { label: string; roles: readonly GlobalRole[] }[] = 
 
 /** The role-gated pages that these roles may open, as the route rules in auth.ts decide. */
 export function openPages(roles: readonly GlobalRole[]) {
-  return ROLE_PAGES.filter((page) => canOpen(roles, page.path)).map((page) => ({ ...page, ...PAGE_DETAILS[page.path] }))
+  return ROLE_PAGES.filter((page) => canOpen(roles, page.path)).map((page) => ({ ...page, icon: PAGE_ICONS[page.path] }))
 }
 
-/** The navigation's groups for these roles: Workspace, then one group for each role the user holds that has pages of its own. */
+/** The navigation's groups for these roles: Workspace with Home, then one group for each role the user holds that has pages of its own. */
 export function navGroups(roles: readonly GlobalRole[]): NavGroup[] {
   const pages = openPages(roles)
   const groups = ROLE_GROUPS.filter((group) => group.roles.some((role) => roles.includes(role))).map((group) => ({
@@ -61,7 +63,7 @@ export function navGroups(roles: readonly GlobalRole[]): NavGroup[] {
   const workspace: PageLink[] = []
   for (const page of pages) {
     const pageRoles: readonly GlobalRole[] = page.roles
-    const group = page.shared ? undefined : groups.find((g) => g.roles.some((role) => pageRoles.includes(role)))
+    const group = groups.find((g) => g.roles.some((role) => pageRoles.includes(role)))
     ;(group ? group.links : workspace).push(page)
   }
   // With one page, the home page opens that page, so the navigation needs no Home.

@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { ActivityLog } from '@/components/activity-log'
 import { AuditRequests } from '@/components/audit-requests'
+import { useCourseFileView } from '@/components/course-file-view'
 import { LoadError, NotFound, PageActions, PageHeader, TableCard, TableSkeleton } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { useSectionSwitch } from '@/components/section-switch'
@@ -49,14 +50,16 @@ const SWITCHABLE: ReadonlySet<number> = new Set(SWITCHABLE_SECTIONS.map((section
 const WIDE = 'hidden sm:table-cell'
 
 /**
- * One offering's course file. The Sections tab has its audit requests and its 19 sections in the
- * fixed order, each with its status, and how many are uploaded. The coordinator and lecturers switch
- * sections 10 to 16 on or off, with a reason when the setting differs from the course type. The
- * Activity tab, at ?tab=activity, has its activity log. Everyone who reads it downloads it as one
- * compiled PDF.
+ * One offering's course file, in the view of the address. The Sections tab has its audit requests
+ * and its 19 sections in the fixed order, each with its status, and how many are uploaded. In the
+ * lecturer view, its coordinator and lecturers switch sections 10 to 16 on or off, with a reason when
+ * the setting differs from the course type, and answer audit requests. In the auditor view, the
+ * auditor marks each section and sends their audit request. The Activity tab, at ?tab=activity, has
+ * its activity log. Everyone who reads it downloads it as one compiled PDF.
  */
 export function CourseFile() {
   const { offeringId } = useParams()
+  const { view, area, path } = useCourseFileView()
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = searchParams.get('tab') === 'activity' ? 'activity' : 'sections'
   const auth = useAuth()
@@ -91,7 +94,7 @@ export function CourseFile() {
   const { request: requestSwitch, switching, dialog: switchDialog } = useSectionSwitch(offeringId!, reload)
 
   /** The course files of the course file's semester, which the user most likely came from. */
-  const courseFiles = data?.offering ? `/course-files?semester=${data.offering.semester_id}` : '/course-files'
+  const courseFiles = data?.offering ? `${area}?semester=${data.offering.semester_id}` : area
   const backLink = (
     <Button asChild variant="outline">
       <Link to={courseFiles}>
@@ -112,15 +115,17 @@ export function CourseFile() {
     )
   }
 
-  if (data && !data.offering) {
-    return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo="/course-files" backLabel="All course files" />
+  const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const teaches = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  // The lecturer view holds only the course files the user teaches.
+  if (data && (!data.offering || (view === 'lecturer' && !teaches))) {
+    return <NotFound icon={FolderOpenIcon} title="Course file not found" backTo={area} backLabel="All course files" />
   }
 
   const offering = data?.offering
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
-  const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
-  const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
+  const canSwitch = view === 'lecturer'
+  const isAuditor = view === 'auditor'
   /** The table's columns: number, section, the switch for staff, status, and an auditor's verdict buttons. */
   const columns = ['', '', ...(canSwitch ? [''] : []), WIDE, ...(isAuditor ? [''] : [])]
   const progress = data && courseFileProgress(data.statuses)
@@ -197,7 +202,7 @@ export function CourseFile() {
               offeringId={offeringId!}
               courseCode={offering!.course.code}
               userId={userId}
-              isStaff={canSwitch}
+              view={view}
               staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
               switchedOff={
@@ -256,7 +261,7 @@ export function CourseFile() {
                           <TableCell className="px-4 py-3 whitespace-normal">
                             {SECTIONS_WITH_PAGES.has(section) ? (
                               <Link
-                                to={`/course-files/${offeringId}/sections/${section}`}
+                                to={path(offeringId!, section)}
                                 className="font-medium after:absolute after:inset-0 hover:underline"
                               >
                                 {title}

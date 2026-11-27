@@ -2,6 +2,7 @@ import { DownloadIcon, FileSpreadsheetIcon, FileTextIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
+import { useOverviewPath } from '@/components/course-file-view'
 import { LoadError, TableCard, TableSkeleton } from '@/components/page'
 import { OfferingStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
@@ -129,6 +130,7 @@ export function SectionNumbers({ offeringId, missing, needsFix }: { offeringId: 
 }
 
 function SectionBadges({ offeringId, label, variant, sections }: { offeringId: string; label: string; variant: 'outline' | 'secondary'; sections: number[] }) {
+  const coursePath = useOverviewPath()
   if (sections.length === 0) return null
   return (
     <div className="flex items-baseline gap-2">
@@ -141,7 +143,7 @@ function SectionBadges({ offeringId, label, variant, sections }: { offeringId: s
           return (
             <li key={section}>
               <Badge asChild variant={variant} className="tabular-nums hover:underline pointer-coarse:h-7 pointer-coarse:min-w-7">
-                <Link to={`/course-files/${offeringId}/sections/${section}`} title={`${section} ${title}`}>
+                <Link to={coursePath(offeringId, section)} title={`${section} ${title}`}>
                   {section}
                   <span className="sr-only"> {title}</span>
                 </Link>
@@ -226,6 +228,7 @@ const OFFERING_SKELETON = ['', LARGE, MEDIUM, SMALL, cn(SMALL, NUMBER_SKELETON),
  * hover, and the missing and Needs fix sections in one cell.
  */
 export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
+  const coursePath = useOverviewPath()
   const column = OFFERING_COLUMNS
   return (
     <TableCard>
@@ -249,7 +252,7 @@ export function OfferingsTable({ rows }: { rows: OfferingRow[] | null }) {
               <TableRow key={row.offering_id}>
                 <TableCell className="px-4 py-3 align-top whitespace-normal">
                   <div className="grid gap-0.5">
-                    <Link to={`/course-files/${row.offering_id}`} className="font-medium hover:underline">
+                    <Link to={coursePath(row.offering_id)} className="font-medium hover:underline">
                       {column.courseCode.value(row)}
                     </Link>
                     <span>{column.courseTitle.value(row)}</span>

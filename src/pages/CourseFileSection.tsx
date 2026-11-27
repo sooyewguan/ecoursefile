@@ -11,6 +11,7 @@ import { FileLink, FileMenuItems } from '@/components/file-link'
 import { EmptyState, LoadError, NotFound, PageActions, PageHeader, RowActions, TableCard, TableEmpty, TableSkeleton } from '@/components/page'
 import { ReuseAllDialog } from '@/components/reuse-all-dialog'
 import { ReuseDialog } from '@/components/reuse-dialog'
+import { useCourseFileView } from '@/components/course-file-view'
 import { SectionPager } from '@/components/section-pager'
 import { useSectionSwitch } from '@/components/section-switch'
 import { SectionVerdict } from '@/components/section-verdict'
@@ -128,6 +129,9 @@ export function CourseFileSection() {
   /** The files of past offerings that staff may reuse, by slot name, or under null in a section without slots. */
   const [reusable, setReusable] = useState<ReadonlyMap<string | null, ReusableFile[]>>(new Map())
   const auth = useAuth()
+  const { view, area, path } = useCourseFileView()
+  /** Only the lecturer view changes files: an auditor or reader who also teaches the offering changes nothing here. */
+  const changesFiles = view === 'lecturer'
   const picker = useRef<HTMLInputElement>(null)
   /** Where the files picked next go. */
   const picking = useRef<Place>({ item: null, slot: null })
@@ -171,11 +175,11 @@ export function CourseFileSection() {
     setData({
       offering: offering.data,
       status: status?.status ?? null,
-      items: items.data ?? [],
-      files: [...linkedFiles, ...(files.data ?? [])],
-      canUpload: canUpload.data === true,
+      items: (items.data ?? []).map((item) => ({ ...item, deletable: changesFiles && item.deletable })),
+      files: [...linkedFiles, ...(files.data ?? []).map((file) => ({ ...file, deletable: changesFiles && file.deletable }))],
+      canUpload: changesFiles && canUpload.data === true,
     })
-  }, [offeringId, section])
+  }, [offeringId, section, changesFiles])
 
   useEffect(() => {
     void reload()
@@ -208,15 +212,18 @@ export function CourseFileSection() {
 
   const backLink = (
     <Button asChild variant="outline">
-      <Link to={`/course-files/${offeringId}`}>
+      <Link to={path(offeringId)}>
         <ArrowLeftIcon />
         Course file
       </Link>
     </Button>
   )
 
-  if (!section || (data && !data.offering)) {
-    return <NotFound icon={FileTextIcon} title="Section not found" backTo="/course-files" backLabel="All course files" />
+  const userId = auth.kind === 'ready' ? auth.profile.id : null
+  const teaches = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  // The lecturer view holds only the course files the user teaches.
+  if (!section || (data && (!data.offering || (view === 'lecturer' && !teaches)))) {
+    return <NotFound icon={FileTextIcon} title="Section not found" backTo={area} backLabel="All course files" />
   }
 
   if (loadFailed) {
@@ -233,8 +240,7 @@ export function CourseFileSection() {
   const files = data?.files ?? []
   /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
   const isOff = section.kind === 'switchable' && data?.offering?.sections_on.includes(section.number) === false
-  const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const isStaff = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  const isStaff = changesFiles
   const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
@@ -470,8 +476,8 @@ export function CourseFileSection() {
     <div className="grid gap-6">
       <PageHeader
         title={section.title}
-        parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: `/course-files/${offeringId}` }}
-        areaTo={data?.offering && `/course-files?semester=${data.offering.semester_id}`}
+        parent={data?.offering && { title: `${data.offering.course.code} ${data.offering.course.title}`, to: path(offeringId) }}
+        areaTo={data?.offering && `${area}?semester=${data.offering.semester_id}`}
         description={
           data
             ? `Section ${section.number} · ${data.offering!.course.code} ${data.offering!.course.title} · ${data.offering!.semester.code}`

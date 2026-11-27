@@ -270,7 +270,7 @@ test('Send notifies the coordinator and every lecturer once, and a second Send c
   expect(toLecturer[0]).toEqual({ ...notification, token: course.lecturer.token })
   expect(notification.title).toMatch(/^Audit request for BITP-[0-9a-f-]+$/)
   expect(notification.body).toMatch(/^Seam1 User asks you to fix 2 sections of the course file of BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d\.$/)
-  expect(notification.link).toBe(`/course-files/${course.offeringId}#audit-request-${draft.id}`)
+  expect(notification.link).toBe(`/my-course-files/${course.offeringId}#audit-request-${draft.id}`)
   expect(await outboxOf(leaver)).toEqual([])
 
   // Staff now read the request as their checklist.
@@ -393,7 +393,7 @@ test('Reply notifies the auditor once and shows in the app, and the log holds th
   const [notification] = sent
   expect(notification.title).toMatch(/^Reply to your audit request for BITP-[0-9a-f-]+$/)
   expect(notification.body).toMatch(/^Seam1 User replied to your audit request for BITP-[0-9a-f-]+ Seam1 Course, \d{4}\/\d{4}-\d\. "/)
-  expect(notification.link).toBe(`/course-files/${offeringId}#audit-request-${id}`)
+  expect(notification.link).toBe(`/audit/${offeringId}#audit-request-${id}`)
 
   // Whichever click won, the request shows one reply, to the auditor and to staff.
   for (const client of [auditor.client, coordinator.client, lecturer.client]) {

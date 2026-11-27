@@ -2,6 +2,7 @@ import { CircleAlertIcon, CircleCheckIcon } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FormDialog } from '@/components/action-dialogs'
+import { useCourseFileView } from '@/components/course-file-view'
 import { LoadError } from '@/components/page'
 import { SectionStatusBadge } from '@/components/section-status'
 import { Time } from '@/components/time'
@@ -10,7 +11,6 @@ import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { useAuth } from '../auth-provider.tsx'
 import { friendlyError } from '../errors.ts'
 import { SECTION_STATUS_LABELS, type SectionStatus, type Verdict } from '../sections.ts'
 import { supabase } from '../supabase.ts'
@@ -37,8 +37,8 @@ export function SectionVerdict({
   status: SectionStatus | null
   onRecorded: () => Promise<void>
 }) {
-  const auth = useAuth()
-  const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
+  // Only the auditor view records verdicts. A lecturer who also audits gets no verdict buttons in their own view.
+  const isAuditor = useCourseFileView().view === 'auditor'
   /** Undefined while it loads, and null when the section has no verdict. */
   const [latest, setLatest] = useState<LatestVerdict | null | undefined>(undefined)
   const [loadFailed, setLoadFailed] = useState(false)
