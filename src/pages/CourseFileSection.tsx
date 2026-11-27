@@ -116,7 +116,6 @@ export function CourseFileSection() {
   const offeringId = params.offeringId!
   const section = SECTIONS.find((s) => String(s.number) === params.section && SECTIONS_WITH_PAGES.has(s.number))
   const slots = section && SECTION_SLOTS[section.number]
-  const perSheet = section && pagesPerSheet({ section: section.number })
   const [data, setData] = useState<PageData | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
@@ -372,13 +371,12 @@ export function CourseFileSection() {
     </Button>
   )
 
-  /** What a place takes, such as "PDF · max 20 MB · merged to 8 pages per sheet on upload · drop PDFs here", for staff who upload to it. */
+  /** What a place takes, such as "PDF · max 20 MB · drop PDFs here", for staff who upload to it. */
   const uploadRule = (oneFile: boolean) =>
     [
       section.kind === 'may-be-empty' && 'Optional',
       oneFile ? 'One PDF' : 'PDF',
       'max 20 MB',
-      perSheet && `merged to ${perSheet} pages per sheet on upload`,
       oneFile ? 'drop it here' : 'drop PDFs here',
     ]
       .filter(Boolean)
@@ -424,7 +422,6 @@ export function CourseFileSection() {
               <div className="flex flex-wrap items-center gap-2">
                 <Heading className={cn('font-semibold tracking-tight', item === null && 'text-lg')}>{slot.title}</Heading>
                 {slot.oneFile && <Badge variant="secondary">One file</Badge>}
-                {slot.perSheet && <Badge variant="secondary">Merged to {slot.perSheet} pages per sheet on upload</Badge>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {reuseButton(place, title)}
@@ -504,7 +501,7 @@ export function CourseFileSection() {
           {progress.fraction !== null
             ? `Uploading ${progress.name} (${progress.index + 1} of ${progress.count}), ${Math.round(progress.fraction * 100)}%`
             : progressPerSheet
-              ? `Merging ${progress.name} at ${progressPerSheet} pages per sheet (${progress.index + 1} of ${progress.count})`
+              ? `Merging pages of ${progress.name} (${progress.index + 1} of ${progress.count})`
               : `Checking ${progress.name} (${progress.index + 1} of ${progress.count})`}
         </p>
       )}
