@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, MinusIcon, ShieldIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
+import { CheckIcon, ClockIcon, MinusIcon, WrenchIcon, XIcon, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -30,17 +30,21 @@ const OFFERING_STATUS_LOOK: Record<OfferingStatus, { className: string; icon: Lu
   verified: STATUS_LOOK.verified,
 }
 
-/** Missing in a section the admin uploads, in violet with a shield, so lecturers see it is not theirs to upload. */
-const ADMIN_MISSING_LOOK = { className: 'border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400', icon: ShieldIcon }
+/** The statuses that, in a section the admin uploads, are the admin's to act on rather than the lecturers'. */
+const ADMIN_ACTS_ON: ReadonlySet<SectionStatus> = new Set(['missing', 'needs_fix'])
 
-/** A section's status. With adminUploads, Missing reads Missing · Admin, for a file the admin uploads. */
+/** The admin's look: violet, keeping the status's own mark, so lecturers see the section is not theirs to fix. */
+const ADMIN_CLASS = 'border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400'
+
+/** A section's status. With adminUploads, Missing and Needs fix read Missing · Admin and Needs fix · Admin, in violet. */
 export function SectionStatusBadge({ status, adminUploads = false }: { status: SectionStatus; adminUploads?: boolean }) {
-  const isAdminMissing = adminUploads && status === 'missing'
-  const { className, icon: Icon } = isAdminMissing ? ADMIN_MISSING_LOOK : STATUS_LOOK[status]
+  const isAdmin = adminUploads && ADMIN_ACTS_ON.has(status)
+  const { className, icon: Icon } = STATUS_LOOK[status]
   return (
-    <Badge variant="outline" className={className}>
+    <Badge variant="outline" className={isAdmin ? ADMIN_CLASS : className}>
       {Icon && <Icon aria-hidden="true" />}
-      {isAdminMissing ? 'Missing · Admin' : SECTION_STATUS_LABELS[status]}
+      {SECTION_STATUS_LABELS[status]}
+      {isAdmin && ' · Admin'}
     </Badge>
   )
 }
