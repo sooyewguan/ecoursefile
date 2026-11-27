@@ -130,7 +130,9 @@ export function CourseFile() {
   const offering = data?.offering
   const sectionTitle = new Map<number, string>(SECTIONS.map((section) => [section.number, section.title]))
   const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const canSwitch = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  const isStaff = offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** Only the coordinator switches sections 10 to 16 on or off. */
+  const canSwitch = userId !== null && offering?.coordinator_id === userId
   const isAuditor = auth.kind === 'ready' && auth.roles.includes('auditor')
   /** The list's columns: number, section with its status, the switch for staff, and an auditor's verdict buttons. */
   const columns = ['', '', ...(canSwitch ? [''] : []), ...(isAuditor ? [''] : [])]
@@ -209,7 +211,7 @@ export function CourseFile() {
               offeringId={offeringId!}
               courseCode={offering!.course.code}
               userId={userId}
-              isStaff={canSwitch}
+              isStaff={isStaff}
               staffEmails={offering!.lecturers.map((lecturer) => lecturer.lecturer_email)}
               statuses={new Map(data.statuses.map(({ section, status }) => [section, status]))}
               switchedOff={
@@ -220,8 +222,10 @@ export function CourseFile() {
                   ]),
                 )
               }
-              onSwitchOn={(section) =>
-                void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+              onSwitchOn={
+                canSwitch
+                  ? (section) => void requestSwitch({ section, title: sectionTitle.get(section)!, isOn: true, reason: offering!.section_reasons[section] })
+                  : undefined
               }
               revision={revision}
             />

@@ -66,6 +66,7 @@ type SectionFile = {
 /** The offering, and the shared files of the section that its course file links. */
 type Offering = {
   semester_id: string
+  coordinator_id: string
   semester: { code: string }
   course: { code: string; title: string }
   linked_files: Omit<SectionFile, 'deletable'>[]
@@ -141,7 +142,7 @@ export function CourseFileSection() {
       supabase
         .from('offerings')
         .select(
-          'semester_id, semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
+          'semester_id, coordinator_id, semester:semesters(code), course:courses(code, title), sections_on, section_reasons, lecturers:offering_lecturers!offering_lecturers_offering_id_fkey(lecturer_id), linked_files(id, item, slot, name, size, uploaded_at, uploader_name)',
         )
         .eq('id', offeringId)
         .eq('linked_files.section', section.number)
@@ -241,7 +242,8 @@ export function CourseFileSection() {
   /** Whether the offering has this switchable section off. Its status may be a verdict instead of Off. */
   const isOff = section.kind === 'switchable' && data?.offering?.sections_on.includes(section.number) === false
   const userId = auth.kind === 'ready' ? auth.profile.id : null
-  const isStaff = data?.offering?.lecturers.some((lecturer) => lecturer.lecturer_id === userId) ?? false
+  /** Only the coordinator switches a section on. */
+  const isCoordinator = userId !== null && data?.offering?.coordinator_id === userId
   const filesIn = (place: Place) => files.filter((file) => file.item === place.item && file.slot === place.slot)
   const nextItem = (data?.items.at(-1)?.number ?? 0) + 1
   const progressPerSheet = progress && pagesPerSheet({ section: section.number, slot: progress.slot })
@@ -515,11 +517,11 @@ export function CourseFileSection() {
                 <span className="block">
                   {data?.offering?.section_reasons[section.number] ? `Switched off: ${data.offering.section_reasons[section.number]}` : 'Off for this course.'}
                 </span>
-                {isStaff && <span className="block">Switch it on to upload files.</span>}
+                {isCoordinator && <span className="block">Switch it on to upload files.</span>}
               </>
             }
             action={
-              isStaff && (
+              isCoordinator && (
                 <Button
                   variant="outline"
                   disabled={switching !== null}

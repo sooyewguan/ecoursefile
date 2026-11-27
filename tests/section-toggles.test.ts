@@ -59,12 +59,11 @@ async function statusOf(client: SupabaseClient, offeringId: string, section: num
   return data.find((row: { section: number }) => row.section === section)
 }
 
-test('the coordinator and each lecturer of the offering switch every section from 10 to 16 away from its default and back', async () => {
+test('the coordinator switches every section from 10 to 16 away from its default and back', async () => {
   const course = await createCourse()
 
-  for (const [index, section] of SWITCHABLE.entries()) {
-    const staff = index % 2 === 0 ? course.coordinator : course.lecturer
-    const { error } = await switchSection(staff.client, course.offeringId, section, !ON_BY_DEFAULT.includes(section), `Reason ${section}`)
+  for (const section of SWITCHABLE) {
+    const { error } = await switchSection(course.coordinator.client, course.offeringId, section, !ON_BY_DEFAULT.includes(section), `Reason ${section}`)
     expect(error).toBeNull()
   }
   expect(await togglesOf(auditor, course.offeringId)).toEqual({
@@ -72,23 +71,22 @@ test('the coordinator and each lecturer of the offering switch every section fro
     section_reasons: Object.fromEntries(SWITCHABLE.map((section) => [section, `Reason ${section}`])),
   })
 
-  for (const [index, section] of SWITCHABLE.entries()) {
-    const staff = index % 2 === 0 ? course.lecturer : course.coordinator
-    expect((await switchSection(staff.client, course.offeringId, section, ON_BY_DEFAULT.includes(section))).error).toBeNull()
+  for (const section of SWITCHABLE) {
+    expect((await switchSection(course.coordinator.client, course.offeringId, section, ON_BY_DEFAULT.includes(section))).error).toBeNull()
   }
   expect(await togglesOf(auditor, course.offeringId)).toEqual(UNSWITCHED)
 })
 
-test('lecturers of other offerings, admin, auditor, HoD, Dean, Deputy Dean and root cannot switch a section', async () => {
+test("the offering's other lecturers, lecturers of other offerings, admin, auditor, HoD, Dean, Deputy Dean and root cannot switch a section", async () => {
   const course = await createCourse()
   const roles = ['admin', 'auditor', 'hod', 'dean', 'deputy_dean', 'root'] as const
-  const others = [course.outsider.client, ...(await Promise.all(roles.map(signInAs)))]
+  const others = [course.lecturer.client, course.outsider.client, ...(await Promise.all(roles.map(signInAs)))]
 
   for (const client of others) {
     expect((await switchSection(client, course.offeringId, LAB, true, 'Labs run this semester')).error?.code).toBe(PERMISSION_DENIED)
     expect((await switchSection(client, course.offeringId, LECTURE_NOTES, false, 'No notes')).error?.code).toBe(PERMISSION_DENIED)
   }
-  for (const client of [course.coordinator.client, others[1]]) {
+  for (const client of [course.coordinator.client, others[2]]) {
     for (const change of [{ section_reasons: { [LAB]: 'Labs run this semester' } }, { default_sections_on: [LAB] }]) {
       expect((await client.from('offerings').update(change).eq('id', course.offeringId)).error?.code).toBe(PERMISSION_DENIED)
     }
@@ -121,19 +119,19 @@ test('switching a section away from its course type default needs a reason that 
     [LAB, true],
   ] as const) {
     for (const reason of [undefined, null, '', ' \t\n ']) {
-      expect((await switchSection(course.lecturer.client, course.offeringId, section, isOn, reason)).error?.code).toBe(CHECK_VIOLATION)
+      expect((await switchSection(course.coordinator.client, course.offeringId, section, isOn, reason)).error?.code).toBe(CHECK_VIOLATION)
     }
   }
   expect(await togglesOf(adminClient(), course.offeringId)).toEqual(UNSWITCHED)
 
-  expect((await switchSection(course.lecturer.client, course.offeringId, LAB, true, '  Labs run this semester ')).error).toBeNull()
+  expect((await switchSection(course.coordinator.client, course.offeringId, LAB, true, '  Labs run this semester ')).error).toBeNull()
   expect(await togglesOf(auditor, course.offeringId)).toEqual({ sections_on: [10, 11, 12], section_reasons: { [LAB]: 'Labs run this semester' } })
 })
 
 test('returning a section to its default clears its reason, and needs none', async () => {
   const course = await createCourse()
-  await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')
-  await switchSection(course.lecturer.client, course.offeringId, LAB, true, 'Labs run this semester')
+  await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')
+  await switchSection(course.coordinator.client, course.offeringId, LAB, true, 'Labs run this semester')
   expect((await togglesOf(auditor, course.offeringId)).section_reasons).toEqual({
     [LECTURE_NOTES]: 'Notes are in the textbook',
     [LAB]: 'Labs run this semester',
@@ -152,8 +150,8 @@ test('the default stays the course type setting that the offering copied, after 
   const courseTypeId = (data as unknown as { course: { course_type_id: string } }).course.course_type_id
   expect((await service.from('course_types').update({ sections_on: [LAB] }).eq('id', courseTypeId)).error).toBeNull()
 
-  expect((await switchSection(course.lecturer.client, course.offeringId, LAB, true)).error?.code).toBe(CHECK_VIOLATION)
-  expect((await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false)).error?.code).toBe(CHECK_VIOLATION)
+  expect((await switchSection(course.coordinator.client, course.offeringId, LAB, true)).error?.code).toBe(CHECK_VIOLATION)
+  expect((await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false)).error?.code).toBe(CHECK_VIOLATION)
   expect(await togglesOf(auditor, course.offeringId)).toEqual(UNSWITCHED)
 })
 
@@ -167,8 +165,8 @@ test('a switched-off section shows as Off with its reason, even with files, and 
     counts_toward_completeness: true,
   })
 
-  await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')
-  await switchSection(course.lecturer.client, course.offeringId, LAB, true, 'Labs run this semester')
+  await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')
+  await switchSection(course.coordinator.client, course.offeringId, LAB, true, 'Labs run this semester')
 
   for (const client of [course.coordinator.client, course.lecturer.client, auditor]) {
     const { data } = await client.rpc('section_statuses', { offering_id: course.offeringId })
@@ -239,8 +237,8 @@ test('each switch is recorded in the activity log, and a switch to the setting a
   const course = await createCourse()
 
   await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false, 'Notes are in the textbook')
-  expect((await switchSection(course.lecturer.client, course.offeringId, LECTURE_NOTES, false, 'Another reason')).error).toBeNull()
-  await switchSection(course.lecturer.client, course.offeringId, LAB, true, 'Labs run this semester')
+  expect((await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, false, 'Another reason')).error).toBeNull()
+  await switchSection(course.coordinator.client, course.offeringId, LAB, true, 'Labs run this semester')
   await switchSection(course.coordinator.client, course.offeringId, LECTURE_NOTES, true)
   expect((await switchSection(course.coordinator.client, course.offeringId, 12, true)).error).toBeNull()
 
@@ -251,7 +249,7 @@ test('each switch is recorded in the activity log, and a switch to the setting a
     .order('id')
   expect(log).toEqual([
     { section: LECTURE_NOTES, action: 'switch_off', actor_id: course.coordinator.id, file_name: null, reason: 'Notes are in the textbook' },
-    { section: LAB, action: 'switch_on', actor_id: course.lecturer.id, file_name: null, reason: 'Labs run this semester' },
+    { section: LAB, action: 'switch_on', actor_id: course.coordinator.id, file_name: null, reason: 'Labs run this semester' },
     { section: LECTURE_NOTES, action: 'switch_on', actor_id: course.coordinator.id, file_name: null, reason: null },
   ])
   expect(await togglesOf(auditor, course.offeringId)).toEqual({ sections_on: [10, 11, 12], section_reasons: { [LAB]: 'Labs run this semester' } })
