@@ -1,19 +1,4 @@
-import {
-  BookOpenIcon,
-  Building2Icon,
-  CalendarRangeIcon,
-  ChartColumnIcon,
-  ChevronsUpDownIcon,
-  ClipboardCheckIcon,
-  FolderOpenIcon,
-  HouseIcon,
-  LayersIcon,
-  LogOutIcon,
-  TagsIcon,
-  UserRoundIcon,
-  UsersIcon,
-  type LucideIcon,
-} from 'lucide-react'
+import { ChevronsUpDownIcon, LogOutIcon, UserRoundIcon } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { Brand } from '@/components/brand'
@@ -53,52 +38,13 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { canOpen, ROLE_PAGES, type Profile } from '../auth.ts'
+import { type Profile } from '../auth.ts'
 import { signOut, useAuth } from '../auth-provider.tsx'
+import { navGroups, type NavGroup, type PageLink } from '../navigation.ts'
 import { initialsOf } from '../names.ts'
 import { refreshPush } from '../push.ts'
 import { GLOBAL_ROLES, ROLE_LABELS, type GlobalRole } from '../roles.ts'
 import { supabase } from '../supabase.ts'
-
-type PageLink = { path: string; label: string; icon: LucideIcon }
-
-/** A titled group of links in the navigation. */
-type NavGroup = { label: string; links: PageLink[] }
-
-/**
- * How each role-gated page in auth.ts appears in the navigation. Settings pages, the lists that the
- * rest of the app picks from, share their own group.
- */
-const PAGE_DETAILS: Record<(typeof ROLE_PAGES)[number]['path'], { icon: LucideIcon; settings?: true }> = {
-  '/course-files': { icon: FolderOpenIcon },
-  '/completeness': { icon: ClipboardCheckIcon },
-  '/reports': { icon: ChartColumnIcon },
-  '/semesters': { icon: CalendarRangeIcon },
-  '/users': { icon: UsersIcon, settings: true },
-  '/departments': { icon: Building2Icon, settings: true },
-  '/course-types': { icon: LayersIcon, settings: true },
-  '/courses': { icon: BookOpenIcon, settings: true },
-  '/program-codes': { icon: TagsIcon, settings: true },
-}
-
-/** The role-gated pages that these roles may open, as the route rules in auth.ts decide, with the settings pages last. */
-export function openPages(roles: readonly GlobalRole[]) {
-  const pages = ROLE_PAGES.filter((page) => canOpen(roles, page.path)).map((page) => ({ ...page, ...PAGE_DETAILS[page.path] }))
-  return [...pages.filter((page) => !page.settings), ...pages.filter((page) => page.settings)]
-}
-
-/** The navigation's groups for these roles. */
-function navGroups(roles: readonly GlobalRole[]): NavGroup[] {
-  const pages = openPages(roles)
-  // A group needs two links or more, so a lone settings page sits with the other links.
-  const settings: PageLink[] = pages.filter((page) => page.settings).length > 1 ? pages.filter((page) => page.settings) : []
-  // With one page, the home page opens that page, so the navigation needs no Home.
-  const workspace: PageLink[] = [
-    ...(pages.length === 1 ? [] : [{ path: '/', label: 'Home', icon: HouseIcon }]),
-    ...pages.filter((page) => !settings.includes(page)),
-  ]
-  return [{ label: 'Workspace', links: workspace }, ...(settings.length > 0 ? [{ label: 'Settings', links: settings }] : [])]
-}
 
 /**
  * The frame around every page of a signed-in user: shadcn/ui's Sidebar with the brand, the

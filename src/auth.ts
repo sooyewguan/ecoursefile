@@ -17,12 +17,12 @@ export const ROLE_PAGES = [
   { path: '/course-files', label: 'Course files', roles: ['admin', 'lecturer', 'auditor', 'hod', 'dean', 'deputy_dean'] },
   { path: '/completeness', label: 'My completeness', roles: ['lecturer'] },
   { path: '/reports', label: 'Reports', roles: ['admin', 'auditor', 'hod', 'dean', 'deputy_dean'] },
+  { path: '/semesters', label: 'Semesters', roles: ['admin'] },
   { path: '/users', label: 'Users', roles: ['root', 'admin'] },
   { path: '/departments', label: 'Departments', roles: ['admin'] },
   { path: '/course-types', label: 'Course types', roles: ['admin'] },
   { path: '/courses', label: 'Courses', roles: ['admin'] },
   { path: '/program-codes', label: 'Program codes', roles: ['admin'] },
-  { path: '/semesters', label: 'Semesters', roles: ['admin'] },
 ] as const satisfies readonly { path: string; label: string; roles: readonly GlobalRole[] }[]
 
 export function canOpen(roles: readonly GlobalRole[], path: string): boolean {
